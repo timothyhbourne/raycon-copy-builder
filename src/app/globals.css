@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+
+:root {
+  --chrome-bg: #f4f4ef;
+  --canvas-bg: #fafaf7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--chrome-bg);
+  color: #0f172a;
+  margin: 0;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+[contenteditable]:focus {
+  outline: none;
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.section-block:hover .section-controls {
+  opacity: 1;
+}
+
+.section-block .section-controls {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.section-block:hover .section-label {
+  opacity: 1;
+}
+
+.section-block .section-label {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.insert-divider {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.insert-divider:hover {
+  opacity: 1;
+}
