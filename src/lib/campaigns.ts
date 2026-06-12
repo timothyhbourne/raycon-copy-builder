@@ -5,6 +5,12 @@ import type { SavedCampaign } from "./schemas";
 
 const GENERATED_DIR = path.join(process.cwd(), "generated");
 
+// Guards file operations against path traversal: ids come from network input
+// and are interpolated into filenames, so reject anything but slug characters.
+function isSafeId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
 function ensureDir() {
   if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
 }
@@ -71,12 +77,14 @@ export function listCampaigns(): Omit<SavedCampaign, "campaign" | "expanded_brie
 }
 
 export function saveCampaign(c: SavedCampaign): void {
+  if (!isSafeId(c.id)) throw new Error("Invalid campaign id");
   ensureDir();
   const filename = `${c.id}.md`;
   fs.writeFileSync(path.join(GENERATED_DIR, filename), campaignToMarkdown(c), "utf8");
 }
 
 export function loadCampaign(id: string): SavedCampaign | null {
+  if (!isSafeId(id)) return null;
   ensureDir();
   const filepath = path.join(GENERATED_DIR, `${id}.md`);
   if (!fs.existsSync(filepath)) return null;
@@ -84,6 +92,7 @@ export function loadCampaign(id: string): SavedCampaign | null {
 }
 
 export function deleteCampaign(id: string): boolean {
+  if (!isSafeId(id)) return false;
   ensureDir();
   const filepath = path.join(GENERATED_DIR, `${id}.md`);
   if (!fs.existsSync(filepath)) return false;

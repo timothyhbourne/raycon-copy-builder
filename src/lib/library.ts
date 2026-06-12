@@ -5,6 +5,12 @@ import type { LibraryCampaign, GeneratedCampaign, BriefInput, Conceit, SectionSp
 
 const LIBRARY_DIR = path.join(process.cwd(), "data", "library");
 
+// Guards file operations against path traversal: ids come from network input
+// and are interpolated into filenames, so reject anything but slug characters.
+function isSafeId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
 export function getLibraryCampaigns(): LibraryCampaign[] {
   if (!fs.existsSync(LIBRARY_DIR)) return [];
   const files = fs.readdirSync(LIBRARY_DIR).filter((f) => f.endsWith(".md"));
@@ -79,6 +85,7 @@ function campaignToLibraryBody(campaign: GeneratedCampaign): string {
 }
 
 export function deleteFromLibrary(id: string): boolean {
+  if (!isSafeId(id)) return false;
   const filePath = path.join(LIBRARY_DIR, `${id}.md`);
   if (!fs.existsSync(filePath)) return false;
   fs.unlinkSync(filePath);
@@ -92,6 +99,7 @@ export function saveToLibrary(
   campaign: GeneratedCampaign,
   sectionStructure: SectionSpec[] = []
 ): void {
+  if (!isSafeId(id)) throw new Error("Invalid campaign id");
   if (!fs.existsSync(LIBRARY_DIR)) fs.mkdirSync(LIBRARY_DIR, { recursive: true });
   const fm = {
     id,
