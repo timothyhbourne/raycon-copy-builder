@@ -56,9 +56,13 @@ These read as AI-generated and erode trust:
 ## Banned Structural Patterns (AI Stylisation)
 
 - **No parenthetical personality asides.** "(yes, really)" / "(and we mean it)" / "(trust us)" / "(seriously)". AI deploys these to simulate warmth. They have the opposite effect on savvy readers. The personal-voice campaign template is an exception, but those asides must come from a real person's voice, not as warmth-fakery.
-- **No triple staccato close ending with "And [adjective]."** "Strong. Stylish. And built to last." Instantly recognisable AI rhythm. Vary sentence structure.
+- **No fragment pairs or triple staccato with parallel shapes.** This ban covers every count and every position — headlines, subject lines, body copy, closing lines, everywhere. Two or three short fragments in a row with matching shape is the single most common AI writing rhythm:
+  - 2-item pairs: "Real people. Real reviews." / "Big sale. Real savings." / "Real dads. Real reviews." Forbidden.
+  - 3-item runs: "Real people. Real reviews. 20% off." / "Strong. Stylish. And built to last." Forbidden.
+  If two or more consecutive fragments share the same grammatical shape, rewrite so the structures differ.
+- **No "Adjective Noun. Adjective Noun." anaphora.** "Real people, real reviews." / "Big sound, bigger savings." / "Real dads, real reviews." The repeating Adjective + Noun shape is the most instantly recognisable AI headline pattern. It looks crafted, it reads as machine-written. Forbidden in every element.
 - **No rhetorical question openers.** "Ever wish your earbuds just stayed put?" AI defaults to this. Open with a statement or a confident claim.
-- **No "That's not X, that's Y" construction.** "That's not a coincidence, that's the Classic." Sounds clever in AI output, reads as formulaic to humans.
+- **No "That's not X, that's Y" or "It's not X, it's Y" construction.** "That's not a coincidence, that's the Classic." / "It's not a sale. It's a statement." / "It's not just earbuds. It's your soundtrack." All variants of this inversion pattern are banned — the two-word pivot is AI cleverness, not Raycon voice. State the thing directly instead.
 - **No "Same X. Same Y. Same Z." sequences.** "Same fit. Same battery. Same Classic." This is the triple staccato wearing a different costume. Rewrite as a single confident statement or fold the specifics into a stacked body.
 - **No "Still X. Still Y. Still Z. Still W." sequences.** "Still fits right. Still holds a charge. Still comes in colors." Three or four consecutive sentences starting with the same word is an AI rhythm tell. Vary the openings.
 - **No clever inversions in headlines or closes.** Examples to never write:
@@ -199,7 +203,7 @@ Before returning a generated campaign, run this checklist:
 
 1. Zero em dashes anywhere.
 2. No banned phrases from any section above.
-3. No banned structural patterns (Still X / Same X / clever inversions / defensive framings).
+3. No banned structural patterns: Still X / Same X / clever inversions / defensive framings / "Real X. Real Y." fragment pairs / "Adjective Noun. Adjective Noun." anaphora / "It's not X, it's Y" inversions.
 4. All elements within their length caps.
 5. Each generated element has a similar-shaped equivalent in the retrieved reference campaigns. If not, rewrite.
 6. Subject lines under 50 characters.
