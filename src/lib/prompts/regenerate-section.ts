@@ -49,7 +49,7 @@ export function regenerateSectionUserPrompt(
   const elements = SECTION_CATALOGUE[sectionToRegenerate.type] ?? [];
 
   const productMapNote = sectionToRegenerate.type === "product_card" && sectionToRegenerate.product_slug
-    ? `\n\nPRODUCT MAPPING — this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner must open with a concrete "For the [person who/that does X]" use-case clause that names a real situation this product fits, then follow with 2-3 specs.`
+    ? `\n\nPRODUCT MAPPING — this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner leads with a concrete use-case framing — a scene, a need, an audience, or a moment that grounds the product — then follows with 2-3 specs. Do NOT default to "For the [audience] who [verbs]…" — that template has been overused; pick a different opener shape unless the campaign genuinely calls for it AND the other cards in this campaign use different openers.`
     : "";
 
   const exampleSummary = examples.slice(0, 3).map((e) => `${e.title} (${e.campaign_type}): ${e.conceit}`).join("\n");

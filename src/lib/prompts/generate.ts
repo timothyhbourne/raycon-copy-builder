@@ -81,12 +81,12 @@ Tagline craft. The tagline is the line right under the headline. Hard rules:
 - No two-clause taglines that combine an urgency statement with the offer ("Father's Day is less than a week away. 20% off sitewide, while it lasts." is wrong — collapse to "20% off sitewide through Father's Day.").
 - No editorial framing or commentary. The tagline reports the offer or promise, it does not editorialise about it.
 
-Product-card one-liner craft. Each product_card section has a Product Name, Image Direction, One-Liner, and CTA. Rules for the One-Liner specifically:
-- Open with a one-clause "For the [person who/that does X]" use-case framing that names WHO this product is for. Examples: "For the dad who never skips leg day.", "For the dad who runs with one ear on the road.", "For the dad who goes all day."
-- Follow that opener with one short clause naming 2-3 concrete specs that back up the use case. Examples: "Stabilizing gel fin that holds through any workout, IPX7 waterproofing, 56 hours of total battery." / "IP66 dust and waterproof, 32 hours of battery, colors worth picking."
-- No editorial flourish, no offer mechanics, no hype intensifiers, no banned cadences. Just: who it's for, then what it does.
-- The use-case clause is mandatory — every product_card One-Liner must open this way unless the campaign brief explicitly tells you otherwise.
-- The use-case clause must be specific and product-grounded (tie to how the product is actually used: gym, commute, sleep, calls, running). Do not write a generic "For the dad who deserves the best." — that's filler. Pick a real concrete situation that names the actual product fit.
+Product-card one-liner craft. Each product_card section has a Product Name, Image Direction, One-Liner, and CTA. The principle for the One-Liner is: lead with WHO or WHEN the product fits, then back it up with 2-3 concrete specs. Rules:
+- Open with a use-case framing that grounds the reader in a real situation (gym, commute, sleep, runs, calls, weekend project) or in the kind of person who needs this product. Then follow with a short clause naming 2-3 concrete specs.
+- Do NOT default to a single template across cards or campaigns. "For the [audience] who [verbs]…" is ONE valid opener, not the only one. Other equally valid openers: a scene ("Five hours into the workout, still on."), a direct attribute statement ("Built to stay put through anything."), a need framing ("Pair them with a workout that asks everything."), a behavioural framing ("Made for ears that don't take breaks."). Mix freely.
+- Variety is mandatory within the campaign AND across campaigns. If you wrote three product_cards in this campaign, you must use three distinctly different opener structures — not three "For the [X] who [Y]" cards in a row. If a previous Raycon campaign already leaned on "For the dad who…" or any other single opener, choose a different shape this time.
+- The opener must be specific and product-grounded — tied to how the product is actually used. Generic openers like "For the dad who deserves the best." or "For everyone who loves music." are filler; reject and rewrite.
+- No editorial flourish, no offer mechanics, no hype intensifiers, no banned cadences.
 
 Number and unit formatting. Always use numerals and symbols — never words:
 - Write "50 hours", "32 hours", "12 hours" — never "fifty hours"
@@ -119,7 +119,7 @@ After generating, do this self-check before returning:
 6. At the conservative end of the tone dial, each generated element resembles a similar-shaped element in the references; rewrite if it strays. At higher dials, skip this check — divergence from the references is expected, as long as every brand invariant still holds.
 7. No one-liner contains a discount amount, promo code, or offer mechanic. If any do, remove that part and rewrite as pure product description.
 8. Tagline check: one sentence, max 12 words, no urgency tropes ("while it lasts" / "ends soon" / "less than a week away"), no two-clause urgency-plus-offer pile-up. Rewrite if any of these tripped.
-9. Product-card one-liner check: every product_card One-Liner opens with a concrete "For the [person who/that does X]" use-case clause, then a short specs clause. If any one-liner starts straight with specs, rewrite it to lead with the use-case framing.
+9. Product-card one-liner check: each product_card One-Liner leads with a concrete use-case framing (a scene, a need, an audience, a moment — your choice), then 2-3 specs. AND: if there are multiple product_card sections in this campaign, every card must use a structurally DIFFERENT opener — never two cards in a row that both start "For the [audience] who…", and never repeat the formula a previous Raycon campaign already used heavily. If any one-liner starts straight with specs, rewrite to lead with use-case. If multiple cards share the same opener shape, rewrite all but one.
 10. CTA check: no CTA names the specific product inside the button label ("Get 20% Off the Fitness Earbuds" → "Shop 20% Off"). Rewrite if found.
 11. Mid-email filler check: no footer_cta or cta_bridge mid-stream that only carries a soft transition ("Not a gym guy?" / "More below."). If any was produced, cut it.
 12. Product_card mapping check: for every product_card section, the Product Name and One-Liner must be about the exact product named in "product to feature in this card" above. If a card was written about the wrong product, rewrite it for the right one. Never reassign cards or skip the mapping.
