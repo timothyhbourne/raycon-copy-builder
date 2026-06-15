@@ -1,7 +1,10 @@
 import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "../schemas";
 import { SECTION_CATALOGUE } from "../schemas";
+import { getProductName } from "../products";
 
 export const generateRoleInstruction = `Your job in this step is to write the full email campaign copy.
+
+RULE ZERO — read before anything else. The "[Adjective] [Noun]. [Adjective] [Noun]." fragment cadence is the single biggest tell of AI-written copy and is permanently banned in every element of every campaign, including (and especially) subject lines and preview text. Examples that are forbidden: "Real dads. Real reviews.", "Real reviews. Real dads.", "Real buyers. Real dads.", "Real sound. Real comfort.", "Big sound. Bigger savings.". A third fragment does not save it ("Real reviews. Real dads. Father's Day." is just as broken). The comma version is the same pattern ("Real dads, real reviews."). When the campaign concept involves real customer reviews, social proof, or anything where the word "real" is in the air, the temptation to write this cadence is at its strongest — resist it specifically. The right move is one normal sentence that names the actual product, person, offer, or occasion (e.g. "Give Dad something he'll actually use.", "Four dads on why they love the Everyday Earbuds Classic.", "20% off the earbuds Dad will actually wear."). This rule cannot be relaxed by tone, by conceit, or by "creative latitude."
 
 This prompt has two kinds of rules, and you must keep them separate in your head:
 
@@ -40,9 +43,9 @@ Output shape:
 
 BANNED AI CADENCE — the exhaustive list. These rhythms read as machine-written at EVERY tone dial, including dial 5. None of them are ever acceptable, in any element (subject line, preview text, headline, subheader, body, USP, one-liner, closing line, image direction). Do not produce them, and do not produce close variants of them:
 - Em dashes. The "—" character is forbidden anywhere. Use a period, comma, or colon instead. Do not use the en dash "–" as a substitute either.
-- Fragment triads — three short fragments in a row, especially with a parallel shape. "Real dads. Real reviews. 20% off." / "Real sound. Real comfort. Real savings." / "Six products. One sale. Zero excuses." All forbidden. Two fragments back to back in this shape are also forbidden ("Real dads. Real reviews.").
+- Fragment triads — two OR three short fragments in a row, especially with a parallel shape. "Real dads. Real reviews. 20% off." / "Real reviews. Real dads. Father's Day." / "Real sound. Real comfort. Real savings." / "Six products. One sale. Zero excuses." All forbidden. The two-fragment version is just as bad ("Real dads. Real reviews." / "Real reviews. Real dads."). This is the single most common AI-cadence failure. If a line you wrote opens two fragments with the same adjective or shape, it is broken and must be rewritten from scratch as one normal sentence that leads with the actual product, offer, or occasion.
 - Same-opening-word repetition. "Still X. Still Y." / "Same X. Same Y." / "More X. More Y." / "No X. No Y. No Z." Forbidden.
-- "Adjective Noun, Adjective Noun" anaphora. "Real dads, real reviews." / "Big sound, bigger savings." Forbidden.
+- "Adjective Noun, Adjective Noun" anaphora (comma version of the fragment triad). "Real dads, real reviews." / "Big sound, bigger savings." Forbidden — same pattern, different punctuation, still broken.
 - Clever inversions / antithesis. "The X changed. Nothing else did." / "Less noise. More you." / "It's not X. It's Y." / "The Y won't be." Forbidden.
 - Defensive framings. "The deal is real." / "This is not a drill." / "Nothing about X changed." / "We're not kidding." Forbidden.
 - "This isn't just X, it's Y" and "More than just X." Forbidden.
@@ -51,6 +54,7 @@ BANNED AI CADENCE — the exhaustive list. These rhythms read as machine-written
 - "Say goodbye to X" / "Say hello to Y." Forbidden.
 - Imperative + "your" abstraction. "Elevate your audio." / "Upgrade your everyday." / "Transform your commute." / "Unlock your sound." Forbidden — name the product and the concrete benefit instead.
 - Hype intensifiers used as a crutch. "game-changer", "next-level", "level up", "unleash", "elevate", "redefine", "revolutionary", "seamless", "effortless", "curated", "elevated", "must-have", "obsessed". Avoid.
+- Urgency tropes used as filler. "while it lasts", "won't last long", "going fast", "ends soon", "for a limited time", "limited time only", "act fast", "hurry", "last chance" (unless the campaign brief literally is a last-chance send and the offer field says so), "less than a week away", "days left" as a tagline tail. These are filler that say nothing concrete and read as machine-written. If a deadline matters, name the actual date or day plainly ("through Sunday", "through Father's Day"). Forbidden in taglines, subject lines, preview text, and closing lines.
 - Trailing ellipsis for false suspense as a stylistic tic ("And the best part…"). Forbidden.
 - Editorial self-commentary in hero image direction. "Feels like a product that earned a good week" / "Not one that needed a reason to sell." Forbidden.
 - Narrative cleverness in USP descriptions. "Charge it Sunday. Still going Wednesday." Forbidden. USP descriptions are plain feature support.
@@ -67,6 +71,22 @@ Subject-line and preview-text craft. These two lines are not afterthoughts — t
 Closing-line and CTA craft. The footer closing line and its CTA are the last thing the reader sees; write them with the same care as the headline:
 - The closing line is one plain sentence (max 12 words) that restates the reason to act in the campaign's own language — not a clever sign-off, not a fragment triad, not a defensive framing.
 - The CTA is a short action phrase ("Shop the Sale", "Get the Bundle", "Claim Yours"). Offer mechanics (discount %, promo code) belong in the CTA when the offer calls for it, never tacked onto the closing line.
+- CTAs should be short (2-4 words) and action-led. Do NOT repeat the specific product name inside the CTA itself — the surrounding section (header, card, body) already names what the reader is shopping for. Write "Shop 20% Off" or "Shop the Sale", not "Get 20% Off the Fitness Earbuds" or "Shop the Fitness Earbuds Now". The product name belongs in the section copy, not the button.
+- A footer_cta or cta_bridge section that appears MID-EMAIL (between modules, not at the end) must do real work: introduce a new angle, name a different product, or carry a fresh CTA. If the only thing it would say is a soft transition ("Not a gym guy? We've got him covered below.", "More options just below."), cut that filler — go straight to the next module. Soft transitional bridge copy is forbidden between modules.
+
+Tagline craft. The tagline is the line right under the headline. Hard rules:
+- One sentence. Max 12 words. Count them.
+- It either states the concrete offer ("20% off sitewide through Father's Day.") or carries the core campaign promise as a plain declarative — not both layered together.
+- Do NOT pad with urgency tropes or hype: "while it lasts", "ends soon", "for a limited time", "won't last long", "going fast", "less than a week away" are all forbidden in the tagline. If the deadline matters, name the actual date or day ("through Sunday", "through Father's Day") plainly.
+- No two-clause taglines that combine an urgency statement with the offer ("Father's Day is less than a week away. 20% off sitewide, while it lasts." is wrong — collapse to "20% off sitewide through Father's Day.").
+- No editorial framing or commentary. The tagline reports the offer or promise, it does not editorialise about it.
+
+Product-card one-liner craft. Each product_card section has a Product Name, Image Direction, One-Liner, and CTA. Rules for the One-Liner specifically:
+- Open with a one-clause "For the [person who/that does X]" use-case framing that names WHO this product is for. Examples: "For the dad who never skips leg day.", "For the dad who runs with one ear on the road.", "For the dad who goes all day."
+- Follow that opener with one short clause naming 2-3 concrete specs that back up the use case. Examples: "Stabilizing gel fin that holds through any workout, IPX7 waterproofing, 56 hours of total battery." / "IP66 dust and waterproof, 32 hours of battery, colors worth picking."
+- No editorial flourish, no offer mechanics, no hype intensifiers, no banned cadences. Just: who it's for, then what it does.
+- The use-case clause is mandatory — every product_card One-Liner must open this way unless the campaign brief explicitly tells you otherwise.
+- The use-case clause must be specific and product-grounded (tie to how the product is actually used: gym, commute, sleep, calls, running). Do not write a generic "For the dad who deserves the best." — that's filler. Pick a real concrete situation that names the actual product fit.
 
 Number and unit formatting. Always use numerals and symbols — never words:
 - Write "50 hours", "32 hours", "12 hours" — never "fifty hours"
@@ -92,13 +112,18 @@ Hero Image Direction fields are not literal image generation prompts. They are a
 
 After generating, do this self-check before returning:
 1. Each element is within its length cap. Count words for headlines.
-2. No banned AI cadence present anywhere. Read every element — subject lines and the closing line especially — for fragment triads ("Real dads. Real reviews. 20% off."), same-opening-word repetition, clever inversions, and em dashes. Rewrite any that appear.
+2. SUBJECT-LINE CADENCE GATE — non-negotiable. Before you finalize, take each of the three subject lines, each of the three preview texts, and the closing line one at a time. For each one, ask out loud: "does this open with [Adjective] [Noun]. [Adjective] [Noun]. — or any close variant of it?" If yes, throw it out and rewrite as one normal sentence that names the actual product, person, offer, or occasion. Every one of these lines is exactly the failure mode and must NOT appear in your output: "Real dads. Real reviews. 20% off." / "Real reviews. Real dads. Father's Day." / "Real dads. Four reviews. One sale." / "Real buyers. Real dads. 20% off." / "Real X. Real Y." in any form. A third fragment ("…One sale.") does not redeem the first two. Do the same scan for same-opening-word repetition, clever inversions, em dashes, and every other banned cadence above. Every line must survive this pass before you return it.
 3. No clever inversions in headlines or closes. Rewrite if found.
 4. No defensive framings. Rewrite if found.
 5. Hero Image Direction has no editorial self-commentary. Rewrite if found.
 6. At the conservative end of the tone dial, each generated element resembles a similar-shaped element in the references; rewrite if it strays. At higher dials, skip this check — divergence from the references is expected, as long as every brand invariant still holds.
 7. No one-liner contains a discount amount, promo code, or offer mechanic. If any do, remove that part and rewrite as pure product description.
-8. Every brand invariant still holds, regardless of tone: catalogue-accurate specs, offer rules, numerals/symbols, length caps, no em dashes, no AI-slop tells. Tone never excuses breaking an invariant.
+8. Tagline check: one sentence, max 12 words, no urgency tropes ("while it lasts" / "ends soon" / "less than a week away"), no two-clause urgency-plus-offer pile-up. Rewrite if any of these tripped.
+9. Product-card one-liner check: every product_card One-Liner opens with a concrete "For the [person who/that does X]" use-case clause, then a short specs clause. If any one-liner starts straight with specs, rewrite it to lead with the use-case framing.
+10. CTA check: no CTA names the specific product inside the button label ("Get 20% Off the Fitness Earbuds" → "Shop 20% Off"). Rewrite if found.
+11. Mid-email filler check: no footer_cta or cta_bridge mid-stream that only carries a soft transition ("Not a gym guy?" / "More below."). If any was produced, cut it.
+12. Product_card mapping check: for every product_card section, the Product Name and One-Liner must be about the exact product named in "product to feature in this card" above. If a card was written about the wrong product, rewrite it for the right one. Never reassign cards or skip the mapping.
+13. Every brand invariant still holds, regardless of tone: catalogue-accurate specs, offer rules, numerals/symbols, length caps, no em dashes, no AI-slop tells. Tone never excuses breaking an invariant.
 
 If any check fails, fix it before returning. Do not return output that violates these rules.`;
 
@@ -140,8 +165,11 @@ export function generateUserPrompt(
     const gridNote = s.type === "product_grid"
       ? `\n  grid layout: ${s.grid_cols ?? 2} columns × ${s.grid_rows ?? 2} rows = ${(s.grid_cols ?? 2) * (s.grid_rows ?? 2)} products total (Products array must have exactly this many entries)`
       : "";
+    const productNote = s.type === "product_card" && s.product_slug
+      ? `\n  product to feature in this card: ${getProductName(s.product_slug)} (SKU ${s.product_slug}) — Product Name must be this exact product, One-Liner must be about this product, every element must be about this product and no other`
+      : "";
     return `- type: ${s.type}
-  elements required: ${allElements.join(", ")}${gridNote}
+  elements required: ${allElements.join(", ")}${gridNote}${productNote}
   focus (optional steering from user): ${s.focus || "none"}`;
   }).join("\n");
 
@@ -202,5 +230,7 @@ Line 1 must be the meta block:
 Lines 2+ are sections in order, one per line:
 ${exampleLines}
 
-Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. If Sub-Tagline was not in the elements required list above, do not include it.`;
+Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. If Sub-Tagline was not in the elements required list above, do not include it.
+
+COMPLETENESS REQUIREMENT — read carefully. The section structure above lists ${sectionStructure.length} section${sectionStructure.length === 1 ? "" : "s"}. Your output must contain exactly ${sectionStructure.length + 1} JSON lines in total: the meta block, then one line per section, in the order listed, every section included. If the same section type appears multiple times (e.g. three product_card sections in a row), you must produce a separate JSON line for EACH one — do not collapse, merge, or skip any of them, even when their content looks similar. Do not stop early because the email "feels done." The output is incomplete unless every section in the list above has its own line. Before you finish, count your output lines and confirm there are ${sectionStructure.length + 1}.`;
 }

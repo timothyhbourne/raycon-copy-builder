@@ -1,9 +1,17 @@
 import type { BriefInput } from "../schemas";
+import { getProductName } from "../products";
 
 export const briefRoleInstruction = `Your job in this step is to take a raw campaign brief and expand it into a structured brief that downstream prompts will use. Do not write any campaign copy yet.`;
 
 export function briefUserPrompt(input: BriefInput): string {
-  const sections = input.section_structure.map((s) => `- ${s.type}${s.focus ? `: focus on "${s.focus}"` : ""}`).join("\n");
+  const sections = input.section_structure.map((s) => {
+    const parts: string[] = [`- ${s.type}`];
+    if (s.focus) parts.push(`: focus on "${s.focus}"`);
+    if (s.type === "product_card" && s.product_slug) {
+      parts.push(` — features ${getProductName(s.product_slug)} (${s.product_slug})`);
+    }
+    return parts.join("");
+  }).join("\n");
   return `Raw brief:
 
 Campaign name: ${input.campaign_name}

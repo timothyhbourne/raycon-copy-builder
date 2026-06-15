@@ -19,6 +19,10 @@ export interface SectionSpec {
   /** Product grid layout — only meaningful for product_grid sections */
   grid_cols?: number;
   grid_rows?: number;
+  /** For product_card sections only: which featured product (SKU id) this card showcases.
+   * Populated by expandProductCardSections() before generation so each card maps to
+   * exactly one product from the user's products_featured list. */
+  product_slug?: string;
 }
 
 export interface LibraryCampaign {

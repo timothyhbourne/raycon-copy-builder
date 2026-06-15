@@ -76,9 +76,14 @@ export default function CampaignCanvas({
     setRegeneratingSection(sectionId);
     setRegenModal(null);
     try {
-      const section = campaign.sections.find((s) => s.id === sectionId);
-      if (!section) return;
-      const sectionSpec = sectionStructure.find((s) => s.type === section.type) || { id: "", type: section.type };
+      const sectionIdx = campaign.sections.findIndex((s) => s.id === sectionId);
+      if (sectionIdx === -1) return;
+      const section = campaign.sections[sectionIdx];
+      // Match by position first (so multiple product_card sections each get
+      // their own spec / product_slug), fall back to first-of-type.
+      const sectionSpec = sectionStructure[sectionIdx]?.type === section.type
+        ? sectionStructure[sectionIdx]
+        : sectionStructure.find((s) => s.type === section.type) || { id: "", type: section.type };
 
       const res = await fetch("/api/regenerate-section", {
         method: "POST",

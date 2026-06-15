@@ -1,5 +1,6 @@
 import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign } from "../schemas";
 import { SECTION_CATALOGUE } from "../schemas";
+import { getProductName } from "../products";
 
 export const regenerateSectionRoleInstruction = `Your job is to rewrite a single section of an email campaign. Only this one section changes; the rest of the campaign stays intact. You are given the full campaign for context and the current version of this section.
 
@@ -47,6 +48,10 @@ export function regenerateSectionUserPrompt(
   const currentElements = formatSection(sectionToRegenerate.current_content);
   const elements = SECTION_CATALOGUE[sectionToRegenerate.type] ?? [];
 
+  const productMapNote = sectionToRegenerate.type === "product_card" && sectionToRegenerate.product_slug
+    ? `\n\nPRODUCT MAPPING — this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner must open with a concrete "For the [person who/that does X]" use-case clause that names a real situation this product fits, then follow with 2-3 specs.`
+    : "";
+
   const exampleSummary = examples.slice(0, 3).map((e) => `${e.title} (${e.campaign_type}): ${e.conceit}`).join("\n");
 
   const elemObj = elements.map((el) => `    "${el}": "..."`).join(",\n");
@@ -68,7 +73,7 @@ ${campaignContext}
 
 The section to rewrite (TARGET), current version — provided ONLY so you avoid repeating it:
 Type: ${sectionToRegenerate.type}
-${currentElements}
+${currentElements}${productMapNote}
 
 ${steeringBlock}
 
