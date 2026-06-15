@@ -162,7 +162,7 @@ export default function SectionBlock({
                 onClick={onDesign}
                 className="text-xs text-indigo-500 hover:text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors"
               >
-                {section.design_html ? "Regenerate design" : "Design this"}
+                {section.design_image ? "Regenerate design" : "Design this"}
               </button>
             )}
             <button

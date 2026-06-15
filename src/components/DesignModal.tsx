@@ -1,59 +1,23 @@
 "use client";
-import { useRef, useState } from "react";
 
 interface Props {
-  /** Current design HTML. Empty string while the very first generation is in progress. */
-  html: string;
+  /** Base64 data URI of the generated PNG. Empty string while first generation is in progress. */
+  image: string;
   isGenerating: boolean;
   onRegenerate: () => void;
   onClose: () => void;
 }
 
-export default function DesignModal({ html, isGenerating, onRegenerate, onClose }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [iframeHeight, setIframeHeight] = useState(400);
-  const [downloading, setDownloading] = useState(false);
+export default function DesignModal({ image, isGenerating, onRegenerate, onClose }: Props) {
+  const isFirstGeneration = !image && isGenerating;
+  const isRegenerating = !!image && isGenerating;
 
-  const handleIframeLoad = () => {
-    const doc = iframeRef.current?.contentDocument;
-    if (doc) {
-      const h = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 400;
-      setIframeHeight(h);
-    }
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = image;
+    a.download = "header-mockup.png";
+    a.click();
   };
-
-  const handleDownload = async () => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentDocument?.body) return;
-    setDownloading(true);
-    try {
-      const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(iframe.contentDocument.body, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        width: 600,
-        windowWidth: 600,
-        scrollX: 0,
-        scrollY: 0,
-      });
-      const a = document.createElement("a");
-      a.download = "header-mockup.png";
-      a.href = canvas.toDataURL("image/png");
-      a.click();
-    } catch (err) {
-      console.error("PNG export failed:", err);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  // Three display states:
-  // 1. First generation in progress: html="", isGenerating=true → full loading screen
-  // 2. Regeneration in progress: html="...", isGenerating=true → iframe + loading overlay
-  // 3. Idle: html="...", isGenerating=false → iframe only
-  const isFirstGeneration = !html && isGenerating;
-  const isRegenerating = !!html && isGenerating;
 
   return (
     <div
@@ -62,20 +26,20 @@ export default function DesignModal({ html, isGenerating, onRegenerate, onClose 
     >
       <div
         className="bg-white rounded-xl shadow-2xl flex flex-col max-h-[90vh] w-full"
-        style={{ maxWidth: 660 }}
+        style={{ maxWidth: 700 }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Toolbar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
           <span className="font-mono text-xs text-slate-500 uppercase tracking-wide">Header Mockup</span>
           <div className="flex items-center gap-2">
-            {html && (
+            {image && (
               <button
                 onClick={handleDownload}
-                disabled={isGenerating || downloading}
+                disabled={isGenerating}
                 className="text-xs text-slate-600 border border-slate-200 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors disabled:opacity-40"
               >
-                {downloading ? "Exporting…" : "Download PNG"}
+                Download PNG
               </button>
             )}
             <button
@@ -95,7 +59,7 @@ export default function DesignModal({ html, isGenerating, onRegenerate, onClose 
         </div>
 
         {/* Preview */}
-        <div className="flex-1 overflow-auto p-6 flex justify-center bg-slate-100">
+        <div className="flex-1 overflow-auto p-6 flex justify-center items-start bg-slate-100">
           {isFirstGeneration && (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
@@ -103,14 +67,13 @@ export default function DesignModal({ html, isGenerating, onRegenerate, onClose 
             </div>
           )}
 
-          {!isFirstGeneration && html && (
-            <div className="relative shadow-lg" style={{ width: 600 }}>
-              <iframe
-                ref={iframeRef}
-                srcDoc={html}
-                style={{ width: 600, height: iframeHeight, border: "none", display: "block" }}
-                onLoad={handleIframeLoad}
-                sandbox="allow-same-origin"
+          {!isFirstGeneration && image && (
+            <div className="relative shadow-lg">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image}
+                alt="Header mockup"
+                style={{ width: "100%", maxWidth: 660, display: "block" }}
               />
               {isRegenerating && (
                 <div className="absolute inset-0 bg-white/70 flex items-center justify-center">

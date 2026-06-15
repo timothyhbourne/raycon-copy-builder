@@ -148,7 +148,7 @@ export default function CampaignCanvas({
         body: JSON.stringify({ section_type: section.type, elements, offer }),
       });
       const data = await res.json();
-      if (data.html) updateSection(sectionId, { ...section, design_html: data.html });
+      if (data.image) updateSection(sectionId, { ...section, design_image: data.image });
       if (data.error) console.error("Design error:", data.error);
     } finally {
       setDesigningSection(null);
@@ -236,7 +236,7 @@ export default function CampaignCanvas({
         const sec = campaign.sections.find((s) => s.id === designModal.sectionId);
         return (
           <DesignModal
-            html={sec?.design_html ?? ""}
+            image={sec?.design_image ?? ""}
             isGenerating={designingSection === designModal.sectionId}
             onRegenerate={() => handleDesign(designModal.sectionId)}
             onClose={() => setDesignModal(null)}

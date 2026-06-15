@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 import { getAnthropic, MODEL } from "@/lib/anthropic";
-import { getDesignSpec, getRayconLogoSvg, resolveProductImage } from "@/lib/design";
-import { designSectionPrompt } from "@/lib/prompts/design-section";
+import { getDesignSpec, resolveProductImage } from "@/lib/design";
+import { buildImagePromptRequest } from "@/lib/prompts/design-section";
 import type { SectionType } from "@/lib/schemas";
 
 const VALID_SECTION_TYPES = new Set<string>([
   "header", "body", "usps", "product_card", "product_grid", "reviews", "cta_bridge", "footer_cta",
 ] satisfies SectionType[]);
+
+function getOpenAI() {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("OPENAI_API_KEY not set in .env.local");
+  return new OpenAI({ apiKey: key });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,23 +27,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid section_type" }, { status: 400 });
     }
 
-    const spec = getDesignSpec(body.section_type);
-    if (!spec) {
-      return NextResponse.json(
-        { error: `No design spec found for '${body.section_type}'. Run: npm run ingest:design-spec` },
-        { status: 400 }
-      );
-    }
-
     const elements = body.elements ?? {};
+    const spec = getDesignSpec(body.section_type); // null if not yet extracted — that's fine
     const productImage = resolveProductImage(
       elements["Hero Image Direction"] ?? "",
       elements["Headline"] ?? "",
       elements["Tagline"] ?? ""
     );
-    const logoSvg = getRayconLogoSvg();
 
-    const promptText = designSectionPrompt({
+    // Step 1: Claude writes the image generation prompt
+    const claudeRequest = buildImagePromptRequest({
       spec,
       headline: elements["Headline"] ?? "",
       tagline: elements["Tagline"] ?? "",
@@ -44,42 +44,39 @@ export async function POST(req: NextRequest) {
       cta: elements["CTA"] ?? "",
       heroImageDirection: elements["Hero Image Direction"] ?? "",
       offer: body.offer,
-      hasProductImage: productImage !== null,
+      productFilename: productImage ? null : null, // product described via heroImageDirection
     });
 
-    // Pass the product image as a vision block so the model can see what it's
-    // placing — without needing to output binary data itself.
-    const messageContent = [];
-    if (productImage) {
-      messageContent.push({
-        type: "image",
-        source: { type: "base64", media_type: productImage.mime, data: productImage.base64 },
-      });
-    }
-    messageContent.push({ type: "text", text: promptText });
-
-    const response = await getAnthropic().messages.create({
+    const claudeResponse = await getAnthropic().messages.create({
       model: MODEL,
-      max_tokens: 4096,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: [{ role: "user", content: messageContent as any }],
+      max_tokens: 400,
+      messages: [{ role: "user", content: claudeRequest }],
     });
 
-    let html = response.content[0].type === "text" ? response.content[0].text.trim() : "";
-    // Strip code fences if the model wrapped the output
-    html = html.replace(/^```html\n?/i, "").replace(/\n?```$/i, "").trim();
+    const imagePrompt = claudeResponse.content[0].type === "text"
+      ? claudeResponse.content[0].text.trim()
+      : "";
 
-    // Inject real asset data URIs in place of the placeholders Claude used
-    if (logoSvg) {
-      const logoDataUri = `data:image/svg+xml;base64,${Buffer.from(logoSvg).toString("base64")}`;
-      html = html.split("RAYCON_LOGO_PLACEHOLDER").join(logoDataUri);
-    }
-    if (productImage) {
-      const productDataUri = `data:${productImage.mime};base64,${productImage.base64}`;
-      html = html.split("PRODUCT_IMAGE_PLACEHOLDER").join(productDataUri);
+    if (!imagePrompt) {
+      return NextResponse.json({ error: "Claude returned empty prompt" }, { status: 500 });
     }
 
-    return NextResponse.json({ html });
+    // Step 2: OpenAI gpt-image-1 generates the image
+    const openai = getOpenAI();
+    const imageResponse = await openai.images.generate({
+      model: "gpt-image-1",
+      prompt: imagePrompt,
+      n: 1,
+      size: "1536x1024",
+      quality: "medium",
+    });
+
+    const b64 = imageResponse.data?.[0]?.b64_json;
+    if (!b64) {
+      return NextResponse.json({ error: "No image data returned from OpenAI" }, { status: 500 });
+    }
+
+    return NextResponse.json({ image: `data:image/png;base64,${b64}` });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Design generation failed" }, { status: 500 });

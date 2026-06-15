@@ -1,45 +1,39 @@
 export interface DesignSectionContext {
-  spec: Record<string, unknown>;
+  spec: Record<string, unknown> | null;
   headline: string;
   tagline: string;
   subTagline?: string;
   cta: string;
   heroImageDirection: string;
   offer?: string;
-  hasProductImage: boolean;
+  productFilename: string | null;
 }
 
-export function designSectionPrompt(ctx: DesignSectionContext): string {
-  return `You are building an email header mockup for internal design review at Raycon. Generate a complete, self-contained HTML document representing the header section only.
+export function buildImagePromptRequest(ctx: DesignSectionContext): string {
+  const specBlock = ctx.spec
+    ? `DESIGN SPEC (extracted from approved Raycon reference headers):\n${JSON.stringify(ctx.spec, null, 2)}`
+    : `BRAND BASELINE: Raycon uses a thin black logo bar at top (white "RAYCON" wordmark), then a hero section — typically dark/black background with white text, product render on one side, copy and a CTA pill button on the other. Clean, modern, premium wireless audio aesthetic.`;
 
-STYLE SPEC (extracted from approved Raycon headers — match this faithfully):
-${JSON.stringify(ctx.spec, null, 2)}
+  const productLabel = ctx.heroImageDirection
+    || (ctx.productFilename ? ctx.productFilename.replace(/-/g, " ").replace(".png", "") : "Raycon wireless earbuds");
 
-COPY:
+  return `Write a detailed image generation prompt for an AI image generator. The output will be an email header mockup for Raycon, a premium wireless audio brand.
+
+${specBlock}
+
+COPY — must appear in the generated image exactly as written:
 - Headline: "${ctx.headline}"
-- Tagline: "${ctx.tagline}"${ctx.subTagline ? `\n- Sub-Tagline: "${ctx.subTagline}"` : ""}
-- CTA button label: "${ctx.cta}"${ctx.offer ? `\n- Offer context (for background reference): ${ctx.offer}` : ""}
+- Tagline: "${ctx.tagline}"${ctx.subTagline ? `\n- Sub-tagline: "${ctx.subTagline}"` : ""}
+- CTA button label: "${ctx.cta}"${ctx.offer ? `\n- Offer context (use to inform the visual tone, not necessarily as text): ${ctx.offer}` : ""}
 
-HERO IMAGE DIRECTION: "${ctx.heroImageDirection}"
+PRODUCT: ${productLabel}
 
-ASSETS — use these exact placeholder strings as the src attribute values; they will be replaced with real data URIs server-side:
-- Raycon logo img tag: src="RAYCON_LOGO_PLACEHOLDER"
-- Product render img tag: ${ctx.hasProductImage ? 'src="PRODUCT_IMAGE_PLACEHOLDER"' : "no product image available — render a styled placeholder rectangle in the hero image zone, matching the hero background colour, no text label"}
+Write a single precise image generation prompt (4–6 sentences) that:
+1. Establishes this as an email marketing header banner, wide landscape format
+2. Describes the two-zone layout: thin top bar with the "RAYCON" wordmark, then the main hero section below
+3. Specifies where each piece of copy appears and its visual treatment (size, weight, color)
+4. Describes product placement, background color/gradient, CTA button appearance
+5. Ends with style and quality descriptors (e.g. "professional ecommerce email design, high production quality")
 
-REQUIREMENTS:
-1. Output a complete HTML document from <!DOCTYPE html> to </html>.
-2. Width: exactly 600px. No centering wrappers, no max-width, no margins.
-3. All CSS in a single <style> block in the <head>. No inline style attributes except for truly one-off values.
-4. No external resources: no CDN fonts, no external images, no Google Fonts, no external stylesheets.
-5. Font stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif.
-6. Structure: two zones stacked vertically:
-   a. LOGO BAR (~48px tall): background from spec.logo_bar.bg. One <img> tag using RAYCON_LOGO_PLACEHOLDER as src, height 24px, aligned per spec.logo_bar.logo_alignment.
-   b. HERO AREA: background colour from spec.hero.bg_color. If layout is "split", put the product image on the spec.hero.image_side side and the copy (headline, tagline, CTA) on the opposite side, each in a flex child. If layout is "full_bleed", overlay copy on top of the image. If layout is "stacked", stack copy above the image vertically.
-7. Match spec colours exactly: headline, tagline, CTA button background and text.
-8. CTA button shape: pill = border-radius matching spec.cta_button.border_radius; rounded = 8px; rectangle = 0px.
-9. Font sizes and weights from the typography spec.
-10. The product image zone: use object-fit: contain. Give it a natural aspect ratio — do not stretch or distort.
-11. Body element: margin 0, padding 0, background matching spec.hero.bg_color.
-
-OUTPUT: the first character must be <. No preamble, no code fences, no commentary after the closing </html>.`;
+Output ONLY the prompt text. No labels, no explanation, no markdown.`;
 }
