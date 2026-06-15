@@ -15,6 +15,8 @@ interface Props {
   onMoveUp: () => void;
   onMoveDown: () => void;
   onInsertAfter: () => void;
+  /** Design feature — only wired up for header sections */
+  onDesign?: () => void;
 }
 
 export default function SectionBlock({
@@ -28,6 +30,7 @@ export default function SectionBlock({
   onMoveUp,
   onMoveDown,
   onInsertAfter,
+  onDesign,
 }: Props) {
   const [hovered, setHovered] = useState(false);
   const [draggingProduct, setDraggingProduct] = useState<number | null>(null);
@@ -154,6 +157,14 @@ export default function SectionBlock({
             >
               ↻ regenerate
             </button>
+            {onDesign && (
+              <button
+                onClick={onDesign}
+                className="text-xs text-indigo-500 hover:text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors"
+              >
+                {section.design_html ? "Regenerate design" : "Design this"}
+              </button>
+            )}
             <button
               onClick={onDelete}
               className="text-xs text-slate-400 hover:text-red-500 px-1.5 py-0.5 rounded hover:bg-slate-100 transition-colors"

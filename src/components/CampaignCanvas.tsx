@@ -6,6 +6,7 @@ import { nanoid } from "@/lib/nanoid";
 import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
 import RegenerateModal from "./RegenerateModal";
+import DesignModal from "./DesignModal";
 
 interface Props {
   campaign: GeneratedCampaign;
@@ -15,6 +16,7 @@ interface Props {
   sectionStructure: SectionSpec[];
   toneDial: number;
   isGenerating?: boolean;
+  offer?: string;
   onChange: (c: GeneratedCampaign) => void;
   onConceitEdit: () => void;
   onNewConceits: () => void;
@@ -28,6 +30,7 @@ export default function CampaignCanvas({
   sectionStructure,
   toneDial,
   isGenerating = false,
+  offer,
   onChange,
   onConceitEdit,
   onNewConceits,
@@ -35,6 +38,8 @@ export default function CampaignCanvas({
   const [regenModal, setRegenModal] = useState<{ sectionId: string; type: string } | null>(null);
   const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [regeneratingMeta, setRegeneratingMeta] = useState(false);
+  const [designModal, setDesignModal] = useState<{ sectionId: string } | null>(null);
+  const [designingSection, setDesigningSection] = useState<string | null>(null);
 
   const updateSection = (id: string, s: GeneratedSection) => {
     onChange({ ...campaign, sections: campaign.sections.map((sec) => (sec.id === id ? s : sec)) });
@@ -127,6 +132,29 @@ export default function CampaignCanvas({
     }
   };
 
+  const handleDesign = async (sectionId: string) => {
+    const section = campaign.sections.find((s) => s.id === sectionId);
+    if (!section) return;
+    setDesignModal({ sectionId });
+    setDesigningSection(sectionId);
+    try {
+      const elements: Record<string, string> = {};
+      for (const [k, v] of Object.entries(section.elements)) {
+        if (typeof v === "string") elements[k] = v;
+      }
+      const res = await fetch("/api/design-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section_type: section.type, elements, offer }),
+      });
+      const data = await res.json();
+      if (data.html) updateSection(sectionId, { ...section, design_html: data.html });
+      if (data.error) console.error("Design error:", data.error);
+    } finally {
+      setDesigningSection(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Streaming progress banner */}
@@ -189,6 +217,7 @@ export default function CampaignCanvas({
               onMoveUp={() => moveSection(section.id, "up")}
               onMoveDown={() => moveSection(section.id, "down")}
               onInsertAfter={() => insertAfter(section.id)}
+              onDesign={section.type === "header" ? () => handleDesign(section.id) : undefined}
             />
           </div>
         );
@@ -202,6 +231,18 @@ export default function CampaignCanvas({
           onClose={() => setRegenModal(null)}
         />
       )}
+
+      {designModal && (() => {
+        const sec = campaign.sections.find((s) => s.id === designModal.sectionId);
+        return (
+          <DesignModal
+            html={sec?.design_html ?? ""}
+            isGenerating={designingSection === designModal.sectionId}
+            onRegenerate={() => handleDesign(designModal.sectionId)}
+            onClose={() => setDesignModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -764,6 +764,7 @@ export default function Home() {
               sectionStructure={sectionStructure}
               toneDial={currentBriefInput?.tone_dial ?? 1}
               isGenerating={loadingPhase === "generating"}
+              offer={currentBriefInput?.offer ?? ""}
               onChange={setCampaign}
               onConceitEdit={() => setStage("conceits")}
               onNewConceits={handleNewConceits}

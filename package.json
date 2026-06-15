@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "ingest:doc": "tsx scripts/ingest-doc.ts",
-    "ingest:designs": "tsx scripts/ingest-designs.ts"
+    "ingest:designs": "tsx scripts/ingest-designs.ts",
+    "ingest:design-spec": "tsx scripts/extract-design-spec.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
+    "html2canvas": "^1.4.1",
     "@hello-pangea/dnd": "^18.0.1",
     "gray-matter": "^4.0.3",
     "next": "16.2.7",

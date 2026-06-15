@@ -83,6 +83,8 @@ export interface GeneratedSection {
   id: string;
   type: SectionType;
   elements: SectionElements;
+  /** Saved HTML mockup produced by the design feature. Persists with the campaign. */
+  design_html?: string;
 }
 
 export interface CampaignMeta {
