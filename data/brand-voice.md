@@ -534,9 +534,20 @@ Personal voice from a Raycon employee. Warm, specific, no marketing varnish. Use
 - ✅ "Some things earn their reputation. The Classic is one of them."
 - ❌ "Most popular for a reason. Still the one." (Failure Mode 4)
 
+### Urgency craft — classy, honest, creative
+
+When a brief calls for urgency (a last-call send, a closing-day push), make the reader feel the moment without cheapening it or lying to them. There is no single correct urgency line — read the brief and find the true, specific reason this moment matters, then say it in the campaign's voice.
+
+- **Anchor urgency to something real and specific.** The sale's actual end date or day, the occasion passing, the order-by date for on-time delivery, the hours left in a flash window. Name the real thing that is ending.
+- **Never claim false permanence.** Do not say or imply the price is gone forever, "won't come back", "last chance ever", or "gone for the rest of the year". Raycon runs recurring sales (Black Friday, the holidays, the brand's birthday), so the reader knows another deal is coming — a forever-loss claim reads as dishonest and a little desperate. Urgency is "this window is closing", not "you will never see this again".
+- **Confident, not desperate.** State the deadline plainly and trust the reader to act. Do not beg, shout, stack multiple scarcity signals, or pile on exclamation points. One clean, well-placed nudge beats five.
+- **Let the brief and occasion shape the voice.** A playful birthday-sale last call and a calm post-holiday close should not sound the same. Don't reach for the same "after tonight it's gone" sentence every time — that sameness is the tell. Match the urgency to the campaign's tone and the real mechanics in the brief.
+- **Vary the mechanism.** Urgency can come from a deadline, a clock, an occasion, a delivery cutoff, the company you're in ("the ones everyone grabbed first"), or a simple confident "today's the day". Pick the one that fits this brief; don't default to a countdown.
+
 ### Bad urgency vs good
-- ✅ "This price disappears Sunday. Just so you know."
-- ❌ "ACT NOW!!! SALE ENDS TONIGHT!!!"
+- ✅ "This price disappears Sunday. Just so you know." (honest: names the day, no forever-loss claim)
+- ❌ "ACT NOW!!! SALE ENDS TONIGHT!!!" (shouting, stacked)
+- ❌ "After tonight, this price is gone for the rest of the year." (false permanence — another sale is always coming)
 
 ### Bad FOMO vs good
 - ✅ "These are almost gone. Wanted to give you a heads-up."

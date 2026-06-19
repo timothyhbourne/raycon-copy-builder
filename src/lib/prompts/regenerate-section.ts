@@ -81,7 +81,7 @@ NON-NEGOTIABLE: when the offer appears in a USP, WEAVE it into the benefit — d
     ? `USER STEERING — THIS IS YOUR TOP PRIORITY. It outranks being different, imitation, and your own instincts. Read it literally and do the SPECIFIC thing it asks:
 "${steering.trim()}"
 
-Interpret this literally and deliver exactly that register or strategy. Do NOT substitute a different persuasion approach. In particular: do not reach for urgency, scarcity, countdowns, or deadline framing unless this steering explicitly asks for urgency — if it asks for "punchy", "easier to decide", "clearer", "more benefit-led", or "warmer", deliver THAT, not urgency. Before finalizing, restate what the steering literally asked for and confirm your output does that specific thing.`
+Interpret this literally and deliver exactly that register or strategy. Do NOT substitute a different persuasion approach. In particular: do not reach for urgency, scarcity, countdowns, or deadline framing unless this steering explicitly asks for urgency — if it asks for "punchy", "easier to decide", "clearer", "more benefit-led", or "warmer", deliver THAT, not urgency. When the steering DOES ask for urgency, make it classy and honest per the "Urgency craft" in the brand context: anchor to the real deadline or occasion, vary the mechanism, stay confident not desperate, and never claim the deal is gone for good or "gone for the rest of the year" (Raycon runs recurring sales). Before finalizing, restate what the steering literally asked for and confirm your output does that specific thing.`
     : `No specific steering was given. Produce a meaningfully different and stronger alternative — a new angle, not a paraphrase of the current version.`;
 
   return `Expanded brief:

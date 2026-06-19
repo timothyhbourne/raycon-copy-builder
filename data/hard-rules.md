@@ -151,6 +151,7 @@ The positioning test: if an Everyday Earbuds Classic customer read this, would t
 
 - **No stacked urgency.** Never combine multiple urgency signals in one email ("Only 3 left AND sale ends tonight AND free shipping ends at midnight").
 - **No manufactured scarcity.** Only use urgency when it's real.
+- **No false permanence.** Never claim or imply a price, deal, or product is gone for good — "won't come back", "last chance ever", "gone for the rest of the year", "you'll never see this again". Raycon runs recurring sales (Black Friday, the holidays, the brand's birthday), so a forever-loss claim is dishonest and the reader sees through it. Build urgency around the real thing that is ending — this sale's deadline, the occasion, the order-by date — not a fabricated permanent loss. This is a principle, not a phrase list: any wording that promises the offer is permanently gone is out. See "Urgency craft" in the brand voice doc for how to do it well.
 - **Never lead with the discount.** Always lead with the product or benefit. Land the urgency as the closing push.
 - **No urgency in trust-building emails.** Welcome Email 1, Post-Purchase Email 1, Win-Back Email 1 stay clean.
 - **No clickbait subject lines** that over-promise.
@@ -227,5 +228,6 @@ Before returning a generated campaign, run this checklist:
 16. E25 is called "Everyday Earbuds" — zero instances of "Classic" in the output.
 17. Everyday Earbuds Plus appears only if this campaign is a huge flash sale on the Plus itself; otherwise it is absent.
 18. Fitness Earbuds copy is not framed as gym-only — no "gym/leg day/lifters" as the lead.
+19. Urgency, where used, is honest and classy: anchored to a real deadline/occasion, never a false-permanence or forever-loss claim ("gone for the rest of the year", "last chance ever"), not shouted or stacked. See "Urgency craft".
 
 If any check fails, regenerate the offending section before returning the campaign.
