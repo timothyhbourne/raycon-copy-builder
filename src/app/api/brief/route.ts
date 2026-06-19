@@ -12,13 +12,16 @@ export async function POST(req: NextRequest) {
 
     const response = await getAnthropic().messages.create({
       model: FAST_MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: systemBlocks,
       messages: [{ role: "user", content: userPrompt }],
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const json = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    if (response.stop_reason === "max_tokens") {
+      throw new Error(`Brief expansion hit max_tokens (output truncated mid-response). Raise max_tokens above 4096 or shorten the brief.`);
+    }
     const expanded_brief = JSON.parse(json);
     expanded_brief.campaign_type = input.campaign_type;
     expanded_brief.audience = input.audience;
@@ -31,6 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ expanded_brief });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: "Brief expansion failed" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : "Brief expansion failed";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
