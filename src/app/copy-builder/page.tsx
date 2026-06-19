@@ -263,20 +263,36 @@ export default function Home() {
     }
   };
 
+  // Fallback brief if currentBriefInput was somehow lost (e.g. a stale
+  // localStorage draft saved before briefInput was persisted). Without this,
+  // the save handlers silently bail and saving appears broken.
+  const deriveBriefFallback = (): BriefInput => ({
+    campaign_name: chosenConceit?.name || "Untitled campaign",
+    campaign_type: expandedBrief?.campaign_type ?? "promo",
+    offer: "",
+    promo_code: undefined,
+    audience: expandedBrief?.audience ?? "all",
+    hero_angle: expandedBrief?.hero_angle_verbatim ?? expandedBrief?.rewritten_hero_angle ?? "",
+    products_featured: expandedBrief?.products_featured ?? [],
+    section_structure: sectionStructure,
+  });
+
   const handleSaveDraft = async () => {
-    if (!campaign || !currentBriefInput) return;
+    if (!campaign) { setError("Nothing to save yet — generate a campaign first."); return; }
+    const bi = currentBriefInput ?? deriveBriefFallback();
     setSavingStatus("saving");
+    setError(null);
     try {
-      const id = currentDraftId || `${new Date().toISOString().split("T")[0]}-${makeSlug(currentBriefInput.campaign_name)}-${nanoid().slice(0, 6)}`;
+      const id = currentDraftId || `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name)}-${nanoid().slice(0, 6)}`;
       const saved: SavedCampaign = {
         id,
-        campaign_name: currentBriefInput.campaign_name,
-        campaign_type: currentBriefInput.campaign_type,
-        offer: currentBriefInput.offer,
-        promo_code: currentBriefInput.promo_code,
-        audience: currentBriefInput.audience,
-        hero_angle: currentBriefInput.hero_angle,
-        products_featured: currentBriefInput.products_featured,
+        campaign_name: bi.campaign_name,
+        campaign_type: bi.campaign_type,
+        offer: bi.offer,
+        promo_code: bi.promo_code,
+        audience: bi.audience,
+        hero_angle: bi.hero_angle,
+        products_featured: bi.products_featured,
         section_structure: sectionStructure,
         expanded_brief: expandedBrief ?? undefined,
         chosen_conceit: chosenConceit ?? undefined,
@@ -285,40 +301,51 @@ export default function Home() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      await fetch("/api/campaigns", {
+      const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(saved),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Save failed (HTTP ${res.status})`);
+      }
       setCurrentDraftId(id);
       setCanvasSource("draft");
       setSavingStatus("saved");
       await refreshSidebar();
       setTimeout(() => setSavingStatus("idle"), 2000);
-    } catch {
+    } catch (e) {
       setSavingStatus("idle");
+      setError(e instanceof Error ? e.message : "Save failed");
     }
   };
 
   const handleSaveFinal = async () => {
-    if (!campaign || !currentBriefInput) return;
+    if (!campaign) { setError("Nothing to save yet — generate a campaign first."); return; }
+    const bi = currentBriefInput ?? deriveBriefFallback();
     setSavingStatus("saving");
+    setError(null);
     try {
       const id = currentLibraryId ||
-        `${new Date().toISOString().split("T")[0]}-${makeSlug(currentBriefInput.campaign_name)}`;
+        `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name)}`;
 
-      await fetch("/api/finalize", {
+      const res = await fetch("/api/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
-          brief_input: currentBriefInput,
+          brief_input: bi,
           conceit: chosenConceit,
           campaign,
           section_structure: sectionStructure,
           draft_id: currentDraftId,
         }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Save failed (HTTP ${res.status})`);
+      }
 
       // Keep the canvas exactly as-is — just transition it to library source
       // so the button flips to "update" mode and the draft slot is cleared.
@@ -328,31 +355,39 @@ export default function Home() {
       setSavingStatus("saved");
       await refreshSidebar();
       setTimeout(() => setSavingStatus("idle"), 2000);
-    } catch {
+    } catch (e) {
       setSavingStatus("idle");
+      setError(e instanceof Error ? e.message : "Save failed");
     }
   };
 
   const handleUpdateLibrary = async () => {
-    if (!campaign || !currentBriefInput || !currentLibraryId) return;
+    if (!campaign || !currentLibraryId) { setError("Nothing to update."); return; }
+    const bi = currentBriefInput ?? deriveBriefFallback();
     setSavingStatus("saving");
+    setError(null);
     try {
-      await fetch("/api/finalize", {
+      const res = await fetch("/api/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: currentLibraryId,
-          brief_input: currentBriefInput,
+          brief_input: bi,
           conceit: chosenConceit,
           campaign,
           section_structure: sectionStructure,
         }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Save failed (HTTP ${res.status})`);
+      }
       setSavingStatus("saved");
       await refreshSidebar();
       setTimeout(() => setSavingStatus("idle"), 2000);
-    } catch {
+    } catch (e) {
       setSavingStatus("idle");
+      setError(e instanceof Error ? e.message : "Save failed");
     }
   };
 
@@ -651,7 +686,7 @@ export default function Home() {
           disabled={savingStatus === "saving"}
           className="text-xs bg-slate-900 text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
         >
-          Save Final
+          {savingStatus === "saving" ? "Saving..." : savingStatus === "saved" ? "Saved!" : "Save Final"}
         </button>
       </div>
     );

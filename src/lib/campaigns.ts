@@ -16,19 +16,25 @@ function ensureDir() {
 }
 
 function campaignToMarkdown(c: SavedCampaign): string {
-  const fm = {
+  // gray-matter / js-yaml throws "unacceptable kind of an object to dump" on
+  // any `undefined` value, so coerce every frontmatter field to a serialisable
+  // one (undefined -> null). promo_code is the common offender (optional field).
+  const rawFm: Record<string, unknown> = {
     id: c.id,
     campaign_name: c.campaign_name,
     campaign_type: c.campaign_type,
     offer: c.offer,
-    promo_code: c.promo_code,
+    promo_code: c.promo_code ?? null,
     audience: c.audience,
     hero_angle: c.hero_angle,
-    products_featured: c.products_featured,
+    products_featured: c.products_featured ?? [],
     status: c.status,
     created_at: c.created_at,
     updated_at: c.updated_at,
   };
+  const fm = Object.fromEntries(
+    Object.entries(rawFm).map(([k, v]) => [k, v === undefined ? null : v])
+  );
   const body = JSON.stringify({ expanded_brief: c.expanded_brief, chosen_conceit: c.chosen_conceit, section_structure: c.section_structure, campaign: c.campaign }, null, 2);
   return matter.stringify(`\n\`\`\`json\n${body}\n\`\`\`\n`, fm);
 }

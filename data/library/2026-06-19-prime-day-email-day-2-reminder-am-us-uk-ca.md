@@ -1,6 +1,6 @@
 ---
 id: 2026-06-19-prime-day-email-day-2-reminder-am-us-uk-ca
-title: 'Prime Day Email Day 2 - Reminder (AM - US, UK, CA)'
+title: Prime Day Email Day 3 - Reminder (AM - US ONLY)
 date: '2026-06-19'
 campaign_type: promo
 offer: 30% OFF
