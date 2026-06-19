@@ -20,7 +20,7 @@ Offer: ${input.offer}
 Promo code: ${input.promo_code || "none"}
 Audience: ${input.audience}
 Hero angle (user wrote): ${input.hero_angle}
-Featured products: ${input.products_featured.join(", ") || "none specified"}
+Featured products: ${input.products_featured.map((id) => `${getProductName(id)} (${id})`).join(", ") || "none specified"}
 Campaign-specific rules: ${input.campaign_specific_rules || "none"}
 
 Section structure the user wants:
