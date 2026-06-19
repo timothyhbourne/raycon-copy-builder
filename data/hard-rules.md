@@ -81,6 +81,14 @@ These read as AI-generated and erode trust:
 
 ---
 
+## Product-Specific Rules
+
+- **"Everyday Earbuds" naming.** The E25 product is called **"Everyday Earbuds"** (or "the Everyday Earbuds") in all new copy. The "Classic" name is retired. Never write "Everyday Earbuds Classic" or "the Classic" in generated copy — anywhere, any element. Reference campaigns in the library still use "Classic"; that is historical and must not be copied forward.
+- **Everyday Earbuds Plus is flash-sale-only.** Only mention or feature the Everyday Earbuds Plus (E26) when the campaign is a huge flash sale on the Plus itself (a deep, headline-grade discount). In every other campaign — regular promos, seasonal sales, gift guides, multi-product round-ups, evergreen sends — do not mention, feature, or list it. If a brief selects it outside a flash-sale context, leave it out and substitute another in-ear product.
+- **Fitness Earbuds are not gym-only.** Do not frame the Fitness Earbuds with gym-specific lingo ("gym", "gym rat", "leg day", "lifters", "the weight room", "reps/sets") as the lead. That narrows the audience to gymgoers. Write to the whole active life — runs, walks, commutes, hikes, travel, parents on the move — and let the no-budge fit, IPX7 waterproofing, and 56-hour battery carry it.
+
+---
+
 ## Banned Tech-First Language
 
 Raycon doesn't lead with specs. Avoid:
@@ -216,5 +224,8 @@ Before returning a generated campaign, run this checklist:
 13. Body copy is short. No long paragraphs.
 14. Hero Image Direction is a visual brief, no editorial self-commentary.
 15. USP descriptions are plain feature support, not narrative cleverness.
+16. E25 is called "Everyday Earbuds" — zero instances of "Classic" in the output.
+17. Everyday Earbuds Plus appears only if this campaign is a huge flash sale on the Plus itself; otherwise it is absent.
+18. Fitness Earbuds copy is not framed as gym-only — no "gym/leg day/lifters" as the lead.
 
 If any check fails, regenerate the offending section before returning the campaign.

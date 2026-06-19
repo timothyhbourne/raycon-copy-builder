@@ -2,7 +2,7 @@ export const PRODUCT_CATEGORIES: { label: string; products: { id: string; name: 
   {
     label: "Everyday Earbuds",
     products: [
-      { id: "E25",     name: "Everyday Earbuds Classic" },
+      { id: "E25",     name: "Everyday Earbuds" },
       { id: "E25-LE",  name: "Everyday Earbuds (Limited)" },
       { id: "E25-MLB", name: "Everyday Earbuds (MLB)" },
       { id: "E26",     name: "Everyday Earbuds Plus" },
