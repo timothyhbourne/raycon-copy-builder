@@ -87,6 +87,12 @@ export interface GeneratedSection {
   id: string;
   type: SectionType;
   elements: SectionElements;
+  /** Three distinct Subheader options (tone/framing differ, all obey the cap + hard rules).
+   * Present only for sections that have a Subheader element. elements.Subheader always
+   * mirrors the currently-selected variant so all downstream consumers see a plain string. */
+  subheader_variants?: string[];
+  /** Index into subheader_variants of the currently-selected option. Defaults to 0. */
+  subheader_selected?: number;
   /** Saved AI-generated PNG mockup (base64 data URI). Persists with the campaign. */
   design_image?: string;
 }

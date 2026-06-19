@@ -5,6 +5,7 @@ import { regenerateSectionRoleInstruction, regenerateSectionUserPrompt } from "@
 import { toneDirective } from "@/lib/prompts/generate";
 import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign } from "@/lib/schemas";
 import { nanoid } from "@/lib/nanoid";
+import { extractSubheaderVariants } from "@/lib/normalize-section";
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     const response = await getAnthropic().messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1536,
       system: systemBlocks,
       messages: [{ role: "user", content: userPrompt }],
     });
@@ -40,9 +41,12 @@ export async function POST(req: NextRequest) {
     const json = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const parsed = JSON.parse(json);
 
+    const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(parsed.elements);
     const section: GeneratedSection = {
-      ...parsed,
+      type: parsed.type,
+      elements,
       id: body.section_to_regenerate.current_content.id || nanoid(),
+      ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
     };
 
     return NextResponse.json({ section });

@@ -77,7 +77,7 @@ These read as AI-generated and erode trust:
   - "Feels like a product that earned a good week, not one that needed a markdown to move."
   - "It should look like something worth owning at full price, not something that needed a reason to sell."
   Just describe the visual: product, background, mood. 30 to 50 words. Done.
-- **No narrative cleverness in USP descriptions.** USP descriptions are plain feature support. One short sentence. "32 hours of battery life." "Multi-Angular hook that won't budge." Not "Charge it Sunday. Still going Wednesday. The Classic runs longer than most people's playlists." Save the narrative for body copy.
+- **No gimmickry in USP descriptions.** No staccato wordplay ("Charge it Sunday. Still going Wednesday. The Classic runs longer than most people's playlists.") and no fragment pairs. A USP CAN be a real, organic benefit sentence — and may weave in the offer when the USPS section is framed to feature the sale (see "USPS section craft" in the brand voice doc) — it just stays tight (about one sentence) and clean of cleverness, inversions, and AI cadence. When the offer is included it must be woven into the benefit, never concatenated onto the end of a product spec.
 
 ---
 
@@ -192,15 +192,15 @@ Every element must obey its cap. If it exceeds the cap, rewrite shorter before r
 
 | Element | Cap |
 |---|---|
-| Subject Line | 4 to 8 words, under 50 characters |
-| Preview Text | 1 sentence, under 90 characters |
+| Subject Line | Under 50 characters. One flowing line (one breath), not two clipped fragments split by a period. Up to ~10 words is fine if it reads as a single thought. |
+| Preview Text | 1 flowing sentence, under 90 characters. Complements the subject line, never repeats it. |
 | Headline | 2 to 5 words. Count them. |
 | Tagline | 1 line, 10 words max |
 | Sub-Tagline | Omit by default. Only when explicitly requested. |
 | Hero Image Direction | 30 to 50 words. 1 to 2 sentences. Visual brief only, no editorial self-commentary. |
 | Subheader | Max 8 words |
 | Body Copy | Max 4 short sentences per module |
-| USP description | 1 short sentence |
+| USP description | About 1 sentence. A benefit line, not only a bare spec. May weave in the offer when the section features the sale (never appended). |
 | Closing Line | 1 sentence, max 12 words |
 
 ---
@@ -223,7 +223,7 @@ Before returning a generated campaign, run this checklist:
 12. Headlines are 2 to 5 words.
 13. Body copy is short. No long paragraphs.
 14. Hero Image Direction is a visual brief, no editorial self-commentary.
-15. USP descriptions are plain feature support, not narrative cleverness.
+15. USPs are organic benefit lines (not gimmicky wordplay), and they work as a distinct set. When the section features the sale, the offer is woven into the benefit, never appended to a product spec. No invented guarantees (free shipping, free returns, warranty) unless the data states them.
 16. E25 is called "Everyday Earbuds" — zero instances of "Classic" in the output.
 17. Everyday Earbuds Plus appears only if this campaign is a huge flash sale on the Plus itself; otherwise it is absent.
 18. Fitness Earbuds copy is not framed as gym-only — no "gym/leg day/lifters" as the lead.

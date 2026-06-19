@@ -7,6 +7,7 @@ import type {
 import { SECTION_CATALOGUE } from "@/lib/schemas";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections } from "@/lib/expand-sections";
+import { extractSubheaderVariants } from "@/lib/normalize-section";
 import InputForm from "@/components/InputForm";
 import ConceitPicker from "@/components/ConceitPicker";
 import CampaignCanvas from "@/components/CampaignCanvas";
@@ -238,10 +239,12 @@ export default function Home() {
               meta = parsed.meta;
               setCampaign({ meta, sections: [...sections] });
             } else if (parsed.type) {
+              const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(parsed.elements);
               const newSection: GeneratedSection = {
                 id: nanoid(),
                 type: parsed.type,
-                elements: parsed.elements,
+                elements,
+                ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
               };
               sections = [...sections, newSection];
               setCampaign({ meta, sections });

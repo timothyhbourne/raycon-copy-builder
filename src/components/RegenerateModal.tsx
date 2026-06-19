@@ -37,7 +37,7 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
           onChange={(e) => setSteering(e.target.value)}
           rows={3}
           className="w-full border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-slate-400 resize-none"
-          placeholder="e.g. Make the CTA punchier, lean harder into the urgency"
+          placeholder="e.g. Make it punchier and benefit-led so it's easier to decide to buy"
           autoFocus
         />
 

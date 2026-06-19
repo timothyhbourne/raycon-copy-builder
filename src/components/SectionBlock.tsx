@@ -40,6 +40,62 @@ export default function SectionBlock({
     onChange({ ...section, elements: { ...section.elements, [key]: value } });
   };
 
+  // Subheader variant picker: elements.Subheader always mirrors the selected variant.
+  const selectVariant = (i: number) => {
+    const variants = section.subheader_variants ?? [];
+    onChange({
+      ...section,
+      subheader_selected: i,
+      elements: { ...section.elements, Subheader: variants[i] ?? "" },
+    });
+  };
+  const editSelectedVariant = (text: string) => {
+    const selected = section.subheader_selected ?? 0;
+    const variants = [...(section.subheader_variants ?? [])];
+    variants[selected] = text;
+    onChange({
+      ...section,
+      subheader_variants: variants,
+      elements: { ...section.elements, Subheader: text },
+    });
+  };
+
+  const renderSubheaderVariants = () => {
+    const variants = section.subheader_variants ?? [];
+    const selected = section.subheader_selected ?? 0;
+    return (
+      <div className="space-y-1">
+        {variants.map((v, i) => {
+          const isSelected = i === selected;
+          return (
+            <div
+              key={i}
+              onClick={() => { if (!isSelected) selectVariant(i); }}
+              className={`flex items-start gap-2 rounded border transition-colors ${
+                isSelected
+                  ? "border-slate-300 bg-slate-50"
+                  : "border-transparent hover:border-slate-200 hover:bg-slate-50/50 cursor-pointer"
+              }`}
+            >
+              <span
+                className={`mt-2.5 ml-2 w-3 h-3 shrink-0 rounded-full border ${
+                  isSelected ? "border-slate-700 bg-slate-700" : "border-slate-300 bg-white"
+                }`}
+              />
+              {isSelected ? (
+                <div className="flex-1 min-w-0">
+                  <EditableField value={v} onChange={editSelectedVariant} multiline={false} />
+                </div>
+              ) : (
+                <div className="flex-1 min-w-0 text-sm text-slate-500 px-2 py-1.5 leading-relaxed">{v}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderElement = (key: string, value: string | ProductInGrid[]) => {
     if (key === "Products" && Array.isArray(value)) {
       const cols = gridCols ?? 1;
@@ -176,14 +232,22 @@ export default function SectionBlock({
 
         {/* Elements */}
         <div className="space-y-4">
-          {elements.map(([key, value]) => (
-            <div key={key}>
-              <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-1" style={{ fontSize: "11px" }}>
-                {key}
+          {elements.map(([key, value]) => {
+            const isSubheaderWithVariants = key === "Subheader" && (section.subheader_variants?.length ?? 0) > 1;
+            return (
+              <div key={key}>
+                <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-2" style={{ fontSize: "11px" }}>
+                  {key}
+                  {isSubheaderWithVariants && (
+                    <span className="text-indigo-400 normal-case tracking-normal">· {section.subheader_variants!.length} options, pick one</span>
+                  )}
+                </div>
+                {isSubheaderWithVariants
+                  ? renderSubheaderVariants()
+                  : renderElement(key, value as string | ProductInGrid[])}
               </div>
-              {renderElement(key, value as string | ProductInGrid[])}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

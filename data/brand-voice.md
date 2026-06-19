@@ -29,14 +29,14 @@ Before generating any element, pick the single closest matching reference campai
 
 | Element | Length |
 |---|---|
-| Subject Line | 4 to 8 words, under 50 characters |
-| Preview Text | 1 sentence, under 90 characters |
+| Subject Line | Under 50 characters. One flowing line (one breath), not two clipped fragments. Up to ~10 words if it reads as a single thought. |
+| Preview Text | 1 flowing sentence, under 90 characters. Complements the subject, never repeats it. |
 | Headline | 2 to 5 words. Count them. Do not exceed 5. |
 | Tagline | 1 short line, 10 words max |
 | Sub-Tagline | Omit by default. Only include if explicitly requested and the headline genuinely needs more context. Real Raycon campaigns rarely use this element. |
 | Hero Image Direction | 1 to 2 sentences, 30 to 50 words. No editorial self-commentary about the campaign or the deal. Just the visual brief. |
 | Body Copy | Max 4 short sentences per module. No long paragraphs. |
-| USP description | 1 short sentence. Plain feature description. Not clever. |
+| USP description | About 1 sentence. An organic benefit line (not just a bare spec, not clever wordplay). May weave in the offer when the section features the sale — woven, never appended. See "USPS section craft". |
 | Subheader | Max 8 words |
 
 If an element exceeds its cap, rewrite shorter before returning.
@@ -251,8 +251,8 @@ The copy is still warm, still cheeky, still human. The urgency is the message, n
 
 Every Raycon campaign email is built from a small set of labelled modules. The copywriter delivers each module as its own labelled block. Designer and Product Team slots are noted but not written by the copywriter.
 
-- **Subject Line.** 4 to 8 words, punchy. No emoji unless it adds clarity. Under 50 characters.
-- **Preview Text.** 1 sentence. Complements the subject without repeating it. Under 90 characters.
+- **Subject Line.** One flowing line in a single breath (not two clipped fragments split by a period). Up to ~10 words if it reads as one thought. No emoji unless it adds clarity. Under 50 characters. Across the three variants, vary the identity: one advertorial/direct, one creative/experimental, one curiosity/conversational.
+- **Preview Text.** 1 flowing sentence. Complements the subject without repeating it. Under 90 characters.
 - **Headline.** 2 to 6 words. Punchy. Sets emotional tone. Does not need to name the product or the offer.
 - **Tagline.** 1 short line, 10 words max. Names the product, frames the offer, or extends the headline.
 - **Sub-Tagline.** Optional, used to add a line of detail under the tagline (e.g. "Exclusive deal").
@@ -260,8 +260,24 @@ Every Raycon campaign email is built from a small set of labelled modules. The c
 - **CTA.** A single button text. Can also be a code callout ("USE CODE: FITOP30") when the campaign uses one.
 - **Subheader.** A short, in-body section header that introduces the next idea. Not the same as the headline. Each new module inside the body uses a fresh subheader.
 - **Body Copy.** 1 to 3 short sentences per module. Never a long paragraph.
-- **USP.** A short feature label plus one description line. Use 3 when a feature section is included.
+- **USP.** A short, organic benefit line. Use 3 when a feature section is included, and treat the three as a planned set (see "USPS section craft" below) — each pulls different weight, and the offer may live here, woven in, when the campaign or steering calls for it.
 - **Product Highlight.** Product name plus a 1 to 2 sentence pitch plus its own CTA. Used in multi-product highlights or gift guides.
+
+### USPS section craft — the three USPs work as a SET
+
+The three USPs are not three interchangeable spec bullets. They are a planned set, and each should pull its own weight. Before writing, decide: what three different reasons-to-act land hardest for this campaign? There are two valid ways to build the set, and the campaign or the user's steering decides which:
+
+1. **Divide the labour across the three.** Give each USP a distinct job. A common, strong split:
+   - USP 1 — the product benefit (what the product does that the reader wants: the fit, the battery, the sound).
+   - USP 2 — the sale benefit (the actual offer expressed as a benefit, e.g. "30% off your whole order through Sunday" or "Your code PRIME takes 30% off").
+   - USP 3 — a brand/trust promise that is TRUE and supported by the brief or product data (e.g. guaranteed delivery by the order-by date). Never invent a guarantee the data does not state — do NOT claim free shipping, easy/free returns, lifetime warranty, or money-back unless the brief or product catalogue actually says so. If no real trust promise is available, make USP 3 a second distinct product or sale angle instead.
+2. **Blend product + sale cohesively in each USP.** Each USP reads as one organic benefit line where the product reason and the offer are fused into a single thought.
+
+Hard requirements for USPs, both ways:
+- **Weave, never append.** When an offer appears in a USP it must be part of the sentence's idea, not concatenated after it. WRONG (offer bolted on): "Stabilizing gel fin that holds through any workout, 30% off with code PRIME." RIGHT (woven): "Lock in the no-budge fit that holds through any workout, now 30% off through Sunday." RIGHT (dedicated sale USP): "30% off your whole order through Sunday with code PRIME."
+- **Each USP is distinct.** Three different reasons, three different shapes — not one idea reworded three times, and not three product specs in a row when the campaign or steering calls for the sale to feature.
+- **Organic, not robotic.** A USP can be a real benefit sentence, not only a bare spec. It still stays tight (about one sentence) and obeys every hard rule and banned cadence (no "Charge it Sunday. Still going Wednesday." gimmickry, no em dashes, no fragment pairs).
+- **The offer in a USP is optional and conditional.** Default USPs can be pure product benefits. Bring the sale into the USPS section when the campaign is offer-led or the user steers it that way — and when you do, integrate it as above, never as a tacked-on discount.
 
 ### Sequencing rules
 

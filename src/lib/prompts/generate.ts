@@ -57,16 +57,25 @@ BANNED AI CADENCE — the exhaustive list. These rhythms read as machine-written
 - Urgency tropes used as filler. "while it lasts", "won't last long", "going fast", "ends soon", "for a limited time", "limited time only", "act fast", "hurry", "last chance" (unless the campaign brief literally is a last-chance send and the offer field says so), "less than a week away", "days left" as a tagline tail. These are filler that say nothing concrete and read as machine-written. If a deadline matters, name the actual date or day plainly ("through Sunday", "through Father's Day"). Forbidden in taglines, subject lines, preview text, and closing lines.
 - Trailing ellipsis for false suspense as a stylistic tic ("And the best part…"). Forbidden.
 - Editorial self-commentary in hero image direction. "Feels like a product that earned a good week" / "Not one that needed a reason to sell." Forbidden.
-- Narrative cleverness in USP descriptions. "Charge it Sunday. Still going Wednesday." Forbidden. USP descriptions are plain feature support.
+- Gimmickry in USP descriptions. "Charge it Sunday. Still going Wednesday." Forbidden — that is staccato wordplay, not a benefit. A USP CAN be a real, organic benefit sentence (and may weave in the offer when the USPS section features the sale — see the USPS section craft in the brand voice doc). It just must not reach for cleverness, fragment pairs, inversions, or wordplay.
 The Raycon reference library shows the alternative: plain, concrete, product- and offer-forward lines. When in doubt, say the real thing directly instead of reaching for a pattern.
 
 Word choice — no hollow validation adjectives. Words like "proven", "trusted", "reliable", "quality", "premium", "legit", "tested", "approved" are filler: they assert that a product is fine without showing anything or making the reader feel anything. They earn their slot in no element. Cut them, or replace them with a word that carries real pride or a concrete attribute. Example: "Two earbuds. Both proven." — "proven" is dead weight that says nothing; "Two earbuds. Both legends." shows genuine pride in the products and is the stronger line. Always pick the word that makes the reader feel how good the product is over the word that merely claims it is acceptable.
 
-Subject-line and preview-text craft. These two lines are not afterthoughts — they decide whether the email is opened, and the highest-opening Raycon sends prove the formula:
-- Subject lines that win are short, concrete, and lead with the actual product or the actual offer ("Last day. 30% off all Fitness Earbuds." / "Save 20% on the sound that'll keep you moving all year long."). Name a product, a number, or an occasion. Do not lead with an abstract feeling or a clever construction.
-- Each subject line variant must be genuinely distinct — a different angle (offer-led, product-led, occasion-led, urgency-led), not the same line reworded.
-- None of the three variants may use any banned cadence above. A fragment-triad subject line ("Real dads. Real reviews. 20% off.") is an automatic rewrite.
-- Preview text complements the subject, it does not repeat it. It adds the supporting reason — the second product, the code, the deadline.
+Subject-line and preview-text craft. These decide whether the email gets opened. You produce THREE subject lines and THREE preview texts — and the whole point of three is that each one is a DIFFERENT animal with its own identity and job, not three rewordings of one idea. Assign them by slot, in this exact order:
+1. ADVERTORIAL / DIRECT (subject line 1 + preview text 1). The clear, scannable one. Leads with the actual offer, product, or occasion so the reader knows exactly what this email is. Confident and plain. This is the high-clarity, low-risk option.
+2. CREATIVE / EXPERIMENTAL (subject line 2 + preview text 2). Take a real swing. A bold, surprising, voicey line — a provocation, an unexpected angle, a question, the kind of line someone screenshots. It MUST still anchor to the brief's actual offer and occasion (creative never means off-brief or vague), but this is where personality lives. Think "What? You thought we were done with 30% off?" — confident, human, a little cheeky.
+3. CURIOSITY / CONVERSATIONAL (subject line 3 + preview text 3). Sounds like a real person talking to the reader. Opens a curiosity gap or speaks human-to-human — warm, intriguing, makes them want to open without shouting the discount.
+
+CADENCE — write in ONE BREATH. This is the single most important fix. Each subject line and each preview text is ONE flowing, continuous thought — not two stubby micro-sentences bolted together with a period. The tired pattern you keep defaulting to, now banned as the default shape:
+- "Pick your summer. 30% off today."
+- "Summer's on. Three Raycons for it."
+- "30% off. Whatever your summer is."
+Every one of those is two clipped fragments in a row. Instead let the line run as a single breath: "The summer everyone's been waiting for is now 30% off" / "What? You thought we were done with 30% off?" / "Your summer playlist called, it wants 30% off." At MOST ONE of the three subject lines may use a two-part period structure, and only when it genuinely beats the single-breath version; the other two must be single-breath. Same rule for the three preview texts.
+
+- Distinctness is mandatory: the three subject lines must visibly differ in rhythm, length, and opening word — not three angles on the same sentence. Same for the three preview texts.
+- A preview text complements its paired subject line (adds the second product, the code, the deadline, or the human reason). It never just repeats the subject.
+- Every one of the three — including the experimental one — stays true to the actual offer and occasion in the brief, catalogue-accurate, within the character caps, and clean of every banned cadence (no "[Adjective] [Noun]. [Adjective] [Noun].", no em dashes, no hype intensifiers).
 
 Closing-line and CTA craft. The footer closing line and its CTA are the last thing the reader sees; write them with the same care as the headline:
 - The closing line is one plain sentence (max 12 words) that restates the reason to act in the campaign's own language — not a clever sign-off, not a fragment triad, not a defensive framing.
@@ -96,7 +105,7 @@ Number and unit formatting. Always use numerals and symbols — never words:
 
 Offer rules. The offer field in the brief is the single source of truth for all discount and promo information:
 - One-liners describe the product only — what it is, what it does, why it is worth owning. Never include a discount amount, promo code, or offer mechanic in a one-liner. Not even at the end. Not even once.
-- CTAs are the only place where offer mechanics (discount %, promo code) may appear, and only when the offer calls for it. This includes the closing line: do not tack the discount or code onto a closing line — it goes in the closing CTA.
+- CTAs are the default home for offer mechanics (discount %, promo code). They may ALSO appear in a USPS section when that section is framed to feature the sale — but woven into a benefit line, never appended to a product spec (see USPS section craft). Offer mechanics never appear in a product_card One-Liner, and never get tacked onto a closing line — the closing offer goes in the closing CTA.
 - If the offer specifies different discounts per product, each product CTA must use that product's specific discount, not a generic sitewide figure.
 
 Element length caps. Hard limits, no exceptions:
@@ -105,14 +114,21 @@ Element length caps. Hard limits, no exceptions:
 - Sub-Tagline: omit by default. Only include if it was explicitly listed in the elements required for this section.
 - Hero Image Direction: 30 to 50 words. Visual brief only. No editorial self-commentary about the campaign or the deal.
 - Body Copy per module: max 4 short sentences.
-- USP description: 1 short sentence.
+- USP description: about 1 sentence. A benefit line, not only a bare spec; may weave in the offer when the section features the sale. Keep it tight.
 - Closing Line: 1 sentence, max 12 words.
 
 Hero Image Direction fields are not literal image generation prompts. They are art direction notes for a designer: what the scene looks like, mood, what the product is doing, what is in the frame. Write them like the references.
 
+Subheader variants — REQUIRED output shape. Every "Subheader" element must be an array of EXACTLY 3 options, not a single string: "Subheader": ["option 1", "option 2", "option 3"]. The 3 options are genuinely different takes on the same section's job, so the user can pick the one that fits:
+- Each option must take a DIFFERENT angle or framing — e.g. one benefit-led, one product/feature-led, one occasion- or emotion-led; or one plain and direct, one playful, one confident-declarative. They must NOT be three rewordings of the same line (not "Built for his day" / "Made for his day" / "Ready for his day" — that is one idea reworded three times, which is a failure).
+- Each option independently obeys the Subheader cap (max 6 words), every hard rule, and every banned-cadence rule. A variant that breaks a rule is not a valid option — all 3 must be clean.
+- Order them strongest-first: option 1 is your single best recommendation (it becomes the default shown), options 2 and 3 are real alternatives you would also ship.
+- This applies to the Subheader element ONLY. All other elements stay single strings.
+
 After generating, do this self-check before returning:
 1. Each element is within its length cap. Count words for headlines.
 2. SUBJECT-LINE CADENCE GATE — non-negotiable. Before you finalize, take each of the three subject lines, each of the three preview texts, and the closing line one at a time. For each one, ask out loud: "does this open with [Adjective] [Noun]. [Adjective] [Noun]. — or any close variant of it?" If yes, throw it out and rewrite as one normal sentence that names the actual product, person, offer, or occasion. Every one of these lines is exactly the failure mode and must NOT appear in your output: "Real dads. Real reviews. 20% off." / "Real reviews. Real dads. Father's Day." / "Real dads. Four reviews. One sale." / "Real buyers. Real dads. 20% off." / "Real X. Real Y." in any form. A third fragment ("…One sale.") does not redeem the first two. Do the same scan for same-opening-word repetition, clever inversions, em dashes, and every other banned cadence above. Every line must survive this pass before you return it.
+2b. ONE-BREATH GATE for subject lines and preview text — non-negotiable. Take the three subject lines together, then the three preview texts together. Count how many are built as two clipped sentences split by a period ("Pick your summer. 30% off today." / "Summer's on. Three Raycons for it."). If MORE THAN ONE of the three is that two-part staccato shape, rewrite the extras as a single flowing breath until at most one remains. Then confirm the three are actually distinct identities — slot 1 advertorial/direct, slot 2 creative/experimental, slot 3 curiosity/conversational — and not three versions of the same line. If they collapse into one identity, rewrite slots 2 and 3 to their assigned lanes.
 3. No clever inversions in headlines or closes. Rewrite if found.
 4. No defensive framings. Rewrite if found.
 5. Hero Image Direction has no editorial self-commentary. Rewrite if found.
@@ -124,6 +140,8 @@ After generating, do this self-check before returning:
 11. Mid-email filler check: no footer_cta or cta_bridge mid-stream that only carries a soft transition ("Not a gym guy?" / "More below."). If any was produced, cut it.
 12. Product_card mapping check: for every product_card section, the Product Name and One-Liner must be about the exact product named in "product to feature in this card" above. If a card was written about the wrong product, rewrite it for the right one. Never reassign cards or skip the mapping.
 13. Every brand invariant still holds, regardless of tone: catalogue-accurate specs, offer rules, numerals/symbols, length caps, no em dashes, no AI-slop tells. Tone never excuses breaking an invariant.
+14. Subheader variants check: every Subheader is an array of exactly 3 options, each a genuinely different angle (not one idea reworded three times), each within the 6-word cap and clean of all banned cadences, ordered strongest-first. If any Subheader is a single string, or the 3 are near-duplicates, rewrite.
+15. USPS section check: the 3 USPs are a distinct set (not three reworded specs), each an organic benefit line. If the campaign is offer-led or the brief/steering brings the sale into this section, the offer is WOVEN into a benefit (or carried by its own dedicated sale USP), never concatenated onto the end of a product spec ("...30% off with code PRIME" tacked on is an automatic rewrite). No invented guarantees (free shipping, free returns, warranty) unless the data states them.
 
 If any check fails, fix it before returning. Do not return output that violates these rules.`;
 
@@ -194,7 +212,11 @@ ${e.body}
     const baseElements = SECTION_CATALOGUE[s.type] ?? [];
     const optionalAdded = s.optional_elements ?? [];
     const allElements = [...baseElements, ...optionalAdded];
-    const elemPairs = allElements.map((el) => `"${el}":"..."`).join(",");
+    const elemPairs = allElements.map((el) =>
+      el === "Subheader"
+        ? `"Subheader":["option 1","option 2","option 3"]`
+        : `"${el}":"..."`
+    ).join(",");
     return `{"type":"${s.type}","elements":{${elemPairs}}}`;
   }).join("\n");
 
@@ -230,7 +252,7 @@ Line 1 must be the meta block:
 Lines 2+ are sections in order, one per line:
 ${exampleLines}
 
-Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. If Sub-Tagline was not in the elements required list above, do not include it.
+Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. If Sub-Tagline was not in the elements required list above, do not include it. The "Subheader" element, wherever it appears, must be a JSON array of EXACTLY 3 distinct option strings (see the Subheader variants rule) — never a single string. All other elements are single strings.
 
 COMPLETENESS REQUIREMENT — read carefully. The section structure above lists ${sectionStructure.length} section${sectionStructure.length === 1 ? "" : "s"}. Your output must contain exactly ${sectionStructure.length + 1} JSON lines in total: the meta block, then one line per section, in the order listed, every section included. If the same section type appears multiple times (e.g. three product_card sections in a row), you must produce a separate JSON line for EACH one — do not collapse, merge, or skip any of them, even when their content looks similar. Do not stop early because the email "feels done." The output is incomplete unless every section in the list above has its own line. Before you finish, count your output lines and confirm there are ${sectionStructure.length + 1}.`;
 }

@@ -8,6 +8,11 @@ interface Props {
   regenerating: boolean;
 }
 
+// The generator writes the three variants in a fixed slot order, each with its
+// own identity. These labels mirror that order so the user can see why each
+// line exists. See subject-line craft rules in prompts/generate.ts.
+const LANE_LABELS = ["Advertorial", "Experimental", "Conversational"];
+
 export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }: Props) {
   const updateLine = (field: "subject_lines" | "preview_texts", index: number, value: string) => {
     const updated = [...meta[field]];
@@ -33,16 +38,21 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }
           <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2" style={{ fontSize: "11px" }}>Subject Lines</div>
           <div className="space-y-2">
             {meta.subject_lines.map((line, i) => (
-              <div key={i} className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
-                <input
-                  value={line}
-                  onChange={(e) => updateLine("subject_lines", i, e.target.value)}
-                  className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
-                />
-                <span className={`font-mono text-xs shrink-0 ${line.length > 50 ? "text-red-400" : "text-slate-300"}`}>
-                  {line.length}/50
-                </span>
+              <div key={i}>
+                {LANE_LABELS[i] && (
+                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6">{LANE_LABELS[i]}</div>
+                )}
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
+                  <input
+                    value={line}
+                    onChange={(e) => updateLine("subject_lines", i, e.target.value)}
+                    className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
+                  />
+                  <span className={`font-mono text-xs shrink-0 ${line.length > 50 ? "text-red-400" : "text-slate-300"}`}>
+                    {line.length}/50
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -52,16 +62,21 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }
           <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2" style={{ fontSize: "11px" }}>Preview Text</div>
           <div className="space-y-2">
             {meta.preview_texts.map((text, i) => (
-              <div key={i} className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
-                <input
-                  value={text}
-                  onChange={(e) => updateLine("preview_texts", i, e.target.value)}
-                  className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
-                />
-                <span className={`font-mono text-xs shrink-0 ${text.length > 90 ? "text-red-400" : "text-slate-300"}`}>
-                  {text.length}/90
-                </span>
+              <div key={i}>
+                {LANE_LABELS[i] && (
+                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6">{LANE_LABELS[i]}</div>
+                )}
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
+                  <input
+                    value={text}
+                    onChange={(e) => updateLine("preview_texts", i, e.target.value)}
+                    className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
+                  />
+                  <span className={`font-mono text-xs shrink-0 ${text.length > 90 ? "text-red-400" : "text-slate-300"}`}>
+                    {text.length}/90
+                  </span>
+                </div>
               </div>
             ))}
           </div>
