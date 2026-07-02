@@ -176,6 +176,64 @@ export async function listFlows(): Promise<FlowListItem[]> {
   return out;
 }
 
+// Audiences — Klaviyo segments and lists. Same shape/pagination as flows
+// (data[].id, data[].attributes.name, links.next). Used by the planner's
+// audience picker so include/exclude names stay consistent with Klaviyo.
+export interface AudienceItem { id: string; name: string; type: "segment" | "list" }
+interface AudienceResponse { data: Array<{ id: string; attributes: { name: string } }>; links?: { next?: string | null } }
+
+async function listAudienceResource(path: string, type: "segment" | "list"): Promise<AudienceItem[]> {
+  const out: AudienceItem[] = [];
+  let url: string | null = path;
+  let pages = 0;
+  while (url && pages < 30) {
+    const data: AudienceResponse = await klaviyoFetch(url);
+    for (const a of data.data) out.push({ id: a.id, name: a.attributes.name, type });
+    const next = data.links?.next;
+    url = next ? next.replace(BASE, "") : null;
+    pages++;
+  }
+  return out;
+}
+
+export function listSegments(): Promise<AudienceItem[]> {
+  return listAudienceResource("/segments/", "segment");
+}
+export function listLists(): Promise<AudienceItem[]> {
+  return listAudienceResource("/lists/", "list");
+}
+
+// Lightweight recent-first campaign list for the planner's email campaign picker
+// (typeahead). Returns id, name, status, send_time. Capped — the picker only
+// needs recent campaigns, and the id here matches groupings.campaign_id in the
+// values report (same id as in a Klaviyo campaign URL).
+export interface KlaviyoCampaignItem { id: string; name: string; status: string; send_time: string | null }
+interface CampaignPickerResponse {
+  data: Array<{ id: string; attributes: { name: string; status: string; send_time?: string | null; send_strategy?: { datetime?: string | null } | null } }>;
+  links?: { next?: string | null };
+}
+export async function listKlaviyoCampaigns(maxPages = 3): Promise<KlaviyoCampaignItem[]> {
+  const out: KlaviyoCampaignItem[] = [];
+  const filter = encodeURIComponent("equals(messages.channel,'email')");
+  let url: string | null = `/campaigns/?filter=${filter}&sort=-created_at`;
+  let pages = 0;
+  while (url && pages < maxPages) {
+    const data: CampaignPickerResponse = await klaviyoFetch(url);
+    for (const c of data.data) {
+      out.push({
+        id: c.id,
+        name: c.attributes.name,
+        status: c.attributes.status,
+        send_time: c.attributes.send_time ?? c.attributes.send_strategy?.datetime ?? null,
+      });
+    }
+    const next = data.links?.next;
+    url = next ? next.replace(BASE, "") : null;
+    pages++;
+  }
+  return out;
+}
+
 // Values Reports — purpose-built endpoints that return per-flow / per-campaign
 // stats in one call, without us needing to know account-specific attribution
 // dimension keys. We use these for the flows table and for attributed revenue.

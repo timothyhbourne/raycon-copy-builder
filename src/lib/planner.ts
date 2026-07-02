@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { PlannerRow, SyncedMetrics } from "./planner-types";
+import type { PlannerRow, SyncedMetrics, AudienceRef } from "./planner-types";
 
 // File-backed store for the Campaign Planner. Single JSON array on disk,
 // mirroring the repo's existing file-store pattern (lib/campaigns.ts).
@@ -24,12 +24,43 @@ function ensureStore(): void {
   if (!fs.existsSync(STORE_PATH)) fs.writeFileSync(STORE_PATH, "[]", "utf8");
 }
 
+// Read-time backfill so rows saved under older shapes keep working without a
+// manual data wipe: (1) audiences that were free-typed strings become
+// AudienceRef objects; (2) offer_type is inferred from whether a promo_code
+// exists.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function backfillAudience(raw: any): AudienceRef[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((a): AudienceRef | null => {
+      if (typeof a === "string") return a.trim() ? { id: "", name: a.trim(), type: "segment" } : null;
+      if (a && typeof a === "object" && typeof a.name === "string") {
+        return { id: typeof a.id === "string" ? a.id : "", name: a.name, type: a.type === "list" ? "list" : "segment" };
+      }
+      return null;
+    })
+    .filter((a): a is AudienceRef => a !== null);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function backfillRow(r: any): PlannerRow {
+  const offer_type = r.offer_type === "evergreen" || r.offer_type === "promo"
+    ? r.offer_type
+    : (r.promo_code ? "promo" : "evergreen");
+  return {
+    ...r,
+    offer_type,
+    audience_included: backfillAudience(r.audience_included),
+    audience_excluded: backfillAudience(r.audience_excluded),
+  } as PlannerRow;
+}
+
 function readAll(): PlannerRow[] {
   ensureStore();
   try {
     const raw = fs.readFileSync(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as PlannerRow[]) : [];
+    return Array.isArray(parsed) ? parsed.map(backfillRow) : [];
   } catch {
     return [];
   }
@@ -76,6 +107,7 @@ export function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; ch
     id,
     name: input.name,
     channel: input.channel,
+    offer_type: input.offer_type ?? existing?.offer_type ?? "evergreen",
     offer: input.offer ?? existing?.offer ?? "",
     planned_send_at: input.planned_send_at ?? existing?.planned_send_at ?? now,
     status: input.status ?? existing?.status ?? "idea",

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 const FEATURES = [
   { href: "/copy-builder", label: "Copy", sublabel: "Builder" },
   { href: "/dashboard", label: "Dash", sublabel: "board" },
+  { href: "/planner", label: "Plan", sublabel: "ner" },
 ];
 
 export default function AppNav() {

@@ -1,31 +1,48 @@
 // Shared Campaign Planner types. Pure types only (no fs/server imports) so this
 // module is safe to import from both server (lib/planner.ts, API routes) and
-// client (dashboard planner page).
+// client (planner page).
 //
 // A planner row is ONE planned campaign. It is a DIFFERENT concept from the local
 // email-copy SavedCampaign (lib/campaigns.ts) — do not conflate them.
 
 export type PlannerChannel = "email" | "sms";
 export type PlannerStatus = "idea" | "draft" | "scheduled" | "sent" | "cancelled";
+export type OfferType = "evergreen" | "promo";
 
 export const PLANNER_STATUSES: PlannerStatus[] = ["idea", "draft", "scheduled", "sent", "cancelled"];
 export const PLANNER_CHANNELS: PlannerChannel[] = ["email", "sms"];
+
+// Raycon's standing offer. Evergreen campaigns use this and carry no promo code.
+export const EVERGREEN_OFFER = "20% off";
+
+// An audience is a real Klaviyo segment or list (picked, not free-typed). Legacy
+// free-typed entries backfill to { id: "", name, type: "segment" } on read.
+export interface AudienceRef {
+  id: string;
+  name: string;
+  type: "segment" | "list";
+}
 
 export interface PlannerRow {
   id: string;
   name: string;
   channel: PlannerChannel;
   // --- Human-entered plan fields ---
+  offer_type: OfferType;
   offer: string;
   promo_code?: string;
   planned_send_at: string; // ISO datetime — drives the calendar
   status: PlannerStatus;
-  audience_included: string[];
-  audience_excluded: string[];
+  audience_included: AudienceRef[];
+  audience_excluded: AudienceRef[];
   notes: string; // freeform notes / learnings
   // --- Link keys to pull metrics ---
   klaviyo_campaign_id?: string;
   postscript_campaign_id?: string;
+  // Real platform send time captured when the campaign is linked via the picker.
+  // Drives the metrics window + syncability so it can't miss the actual send.
+  klaviyo_send_time?: string | null;
+  postscript_send_time?: string | null;
   // --- Synced, read-only (filled when linked & sent). null = no data yet. ---
   // open_rate is intentionally null for SMS (no opens on SMS) — never 0.
   recipients?: number | null;
@@ -47,4 +64,13 @@ export interface SyncedMetrics {
   revenue: number | null;
   revenue_per_recipient: number | null;
   metrics_synced_at: string;
+}
+
+// Per-row sync outcome so the UI can explain exactly why a row did/didn't sync.
+export type SyncReason = "matched" | "not_linked" | "not_sent_yet" | "no_activity_in_window" | "postscript_not_connected";
+export interface SyncResult {
+  id: string;
+  name: string;
+  matched: boolean;
+  reason: SyncReason;
 }
