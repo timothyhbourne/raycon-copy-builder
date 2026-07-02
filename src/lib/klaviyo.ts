@@ -99,6 +99,10 @@ interface AggregateOptions {
   measurements?: string[]; // default ["sum_value", "count"]
   by?: string[];           // e.g. ["$flow"] or ["$campaign"]
   interval?: "day" | "week" | "month";
+  // Timezone the datetime filter + bucketing are interpreted in. Must match the
+  // basis used for the values-report timeframe so "total" and "attributed"
+  // revenue cover the same day boundaries. Defaults to UTC for back-compat.
+  timezone?: string;
 }
 
 interface AggregateResponse {
@@ -121,7 +125,7 @@ export async function aggregateMetric(opts: AggregateOptions): Promise<Aggregate
         metric_id: opts.metricId,
         measurements: opts.measurements ?? ["sum_value", "count"],
         interval: opts.interval ?? "day",
-        timezone: "UTC",
+        timezone: opts.timezone ?? "UTC",
         filter: [
           `greater-or-equal(datetime,${opts.start})`,
           `less-than(datetime,${opts.end})`,
@@ -217,26 +221,29 @@ interface ValuesReportOpts {
   conversionMetricId: string;
 }
 
-// Klaviyo's flow-values-reports requires a `filter` scope to return data. The
-// minimal scope that includes everything is a channel filter — email is where
-// virtually all Raycon flow revenue lives. If SMS / push flows need to be
-// included later, widen this to any(messages.channel,["email","sms","push"]).
-// Valid filter fields per Klaviyo: variation, variation_name, flow_message_name,
-// flow_message_id, text_message_format, tag_id, tag_name, flow_id, flow_name,
-// send_channel. We use send_channel='email' since that's where Raycon flow
-// revenue lives. Widen later (e.g. any(send_channel,['email','sms','push'])) if
-// SMS or push flows need to be included.
-const FLOW_REPORT_FILTER = "equals(send_channel,'email')";
+// SHARED channel scope for BOTH the flow and campaign values reports. Klaviyo's
+// values reports require a `filter` to return data, and — critically — the two
+// halves of "attributed revenue" must be measured on the SAME basis. Previously
+// flows were filtered to email while campaigns had no channel filter (all
+// channels), so attributed_from_flows excluded SMS/push while
+// attributed_from_campaigns included them. We standardize on email-only for both
+// (Raycon is email-first). To widen later, change this ONE constant to e.g.
+// any(send_channel,['email','sms','push']) and it applies to both reports.
+const REPORT_CHANNEL_FILTER = "equals(send_channel,'email')";
 
 // Klaviyo values reports paginate via links.next even when the first page is
 // empty — we have to follow until next is null. Capped to keep us from looping
 // forever on a malformed cursor response.
 const MAX_REPORT_PAGES = 25;
 
+// Returns { results, truncated }. `truncated` is true when the loop stopped
+// because it hit MAX_REPORT_PAGES while a `next` cursor still existed — i.e. we
+// silently dropped later pages and revenue would be understated. The caller
+// surfaces this as a warning instead of failing silently.
 async function fetchAllPages<T>(
   endpoint: string,
   body: unknown
-): Promise<T[]> {
+): Promise<{ results: T[]; truncated: boolean }> {
   const bodyStr = JSON.stringify(body);
   const results: T[] = [];
   let url: string | null = endpoint;
@@ -251,10 +258,10 @@ async function fetchAllPages<T>(
     url = nextLink ? nextLink.replace(BASE, "") : null;
     pages++;
   }
-  return results;
+  return { results, truncated: url !== null };
 }
 
-export async function flowValuesReport(opts: ValuesReportOpts): Promise<FlowValuesResult[]> {
+export async function flowValuesReport(opts: ValuesReportOpts): Promise<{ results: FlowValuesResult[]; truncated: boolean }> {
   const body = {
     data: {
       type: "flow-values-report",
@@ -262,7 +269,7 @@ export async function flowValuesReport(opts: ValuesReportOpts): Promise<FlowValu
         statistics: VALUES_REPORT_STATISTICS,
         timeframe: { start: opts.start, end: opts.end },
         conversion_metric_id: opts.conversionMetricId,
-        filter: FLOW_REPORT_FILTER,
+        filter: REPORT_CHANNEL_FILTER,
       },
     },
   };
@@ -278,7 +285,7 @@ export async function flowValuesReportRaw(opts: ValuesReportOpts): Promise<Value
         statistics: VALUES_REPORT_STATISTICS,
         timeframe: { start: opts.start, end: opts.end },
         conversion_metric_id: opts.conversionMetricId,
-        filter: FLOW_REPORT_FILTER,
+        filter: REPORT_CHANNEL_FILTER,
       },
     },
   };
@@ -290,7 +297,7 @@ export async function flowValuesReportRaw(opts: ValuesReportOpts): Promise<Value
 
 interface MetricRaw {
   id: string;
-  attributes: { name: string; integration?: { name?: string; category?: string } };
+  attributes: { name: string; integration?: { key?: string; name?: string; category?: string } };
 }
 
 interface MetricListResp { data: MetricRaw[]; links?: { next?: string | null } }
@@ -307,7 +314,84 @@ export async function listMetricsByName(name: string): Promise<MetricRaw[]> {
   return matches;
 }
 
-export async function campaignValuesReport(opts: ValuesReportOpts): Promise<CampaignValuesResult[]> {
+export interface MetricCandidate {
+  id: string;
+  integrationKey?: string;
+  integrationName?: string;
+  category?: string;
+}
+
+export interface ResolvedMetric {
+  id: string;
+  chosen: MetricCandidate;
+  candidates: MetricCandidate[];
+  ambiguous: boolean;
+  source: "env" | "default" | "auto"; // how the id was chosen (for debug auditing)
+}
+
+// The Shopify "Placed Order" metric for this account. Klaviyo accounts commonly
+// have MORE THAN ONE "Placed Order" metric (e.g. a Shopify one and an API one),
+// and scanning /metrics/ to disambiguate is both slow (multi-page) and produced
+// a recurring "multiple metrics found" warning. We pin the Shopify id so revenue
+// is always computed against the right metric and we skip the scan entirely.
+// Override per account with KLAVIYO_PLACED_ORDER_METRIC_ID in .env.local.
+const DEFAULT_PLACED_ORDER_METRIC_ID = "JxF6bB";
+
+// Resolve the conversion metric. Pinned by default (env var, else the hardcoded
+// Shopify id) so we never page /metrics/ on the hot path. Only if pinning is
+// explicitly disabled (both env var and default blank) do we fall back to the
+// name-based auto-resolution and its ambiguity flag.
+export async function resolvePlacedOrderMetric(): Promise<ResolvedMetric> {
+  const envId = process.env.KLAVIYO_PLACED_ORDER_METRIC_ID?.trim();
+  const pinned = envId || DEFAULT_PLACED_ORDER_METRIC_ID;
+  if (pinned) {
+    const chosen: MetricCandidate = { id: pinned, integrationKey: "shopify", integrationName: "Shopify" };
+    return {
+      id: pinned,
+      chosen,
+      candidates: [chosen],
+      ambiguous: false, // pinned — no ambiguity, no warning
+      source: envId ? "env" : "default",
+    };
+  }
+  // Fallback (only reached if pinning is disabled): deterministic name-based
+  // resolution preferring the Shopify integration, with ambiguity surfaced.
+  const metrics = await listMetricsByName(METRIC_NAMES.placedOrder);
+  const candidates: MetricCandidate[] = metrics.map((m) => ({
+    id: m.id,
+    integrationKey: m.attributes.integration?.key,
+    integrationName: m.attributes.integration?.name,
+    category: m.attributes.integration?.category,
+  }));
+  if (candidates.length === 0) {
+    throw new Error(`Klaviyo metric "${METRIC_NAMES.placedOrder}" not found in this account.`);
+  }
+  const shopify =
+    candidates.find((c) => (c.integrationKey || "").toLowerCase() === "shopify") ??
+    candidates.find((c) => (c.integrationName || "").toLowerCase() === "shopify") ??
+    candidates.find((c) => (c.category || "").toLowerCase() === "ecommerce");
+  const chosen = shopify ?? candidates[0];
+  return { id: chosen.id, chosen, candidates, ambiguous: candidates.length > 1, source: "auto" };
+}
+
+// Account timezone — used so the metric aggregate and the values-report
+// timeframe cover the same day boundaries (see dayRangeISO). Cached per process.
+let accountTzCache: string | null = null;
+interface AccountResponse { data: Array<{ attributes: { timezone?: string } }> }
+
+export async function getAccountTimezone(): Promise<string> {
+  if (accountTzCache) return accountTzCache;
+  try {
+    const resp = await klaviyoFetch<AccountResponse>("/accounts/");
+    accountTzCache = resp.data?.[0]?.attributes?.timezone || "UTC";
+  } catch {
+    // A timezone lookup failure shouldn't take down the whole dashboard.
+    accountTzCache = "UTC";
+  }
+  return accountTzCache;
+}
+
+export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ results: CampaignValuesResult[]; truncated: boolean }> {
   const body = {
     data: {
       type: "campaign-values-report",
@@ -315,6 +399,10 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<Camp
         statistics: VALUES_REPORT_STATISTICS,
         timeframe: { start: opts.start, end: opts.end },
         conversion_metric_id: opts.conversionMetricId,
+        // Same channel scope as flows so both halves of attributed revenue are
+        // measured on the same basis (see REPORT_CHANNEL_FILTER). Previously
+        // absent, which made campaigns all-channel while flows were email-only.
+        filter: REPORT_CHANNEL_FILTER,
       },
     },
   };
@@ -322,10 +410,113 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<Camp
 }
 
 export function dayRangeISO(startYMD: string, endYMD: string): { start: string; end: string } {
-  // Klaviyo expects ISO 8601 datetime. Treat dates as UTC days, end exclusive.
-  const start = new Date(`${startYMD}T00:00:00Z`).toISOString();
+  // Return NAIVE local-time ISO boundaries (no trailing "Z"), end-exclusive.
+  // Klaviyo interprets these in the timezone we pass alongside them: the metric
+  // aggregate reads them under its `timezone` field, and the values-report
+  // `timeframe` reads them in the account timezone. By passing the SAME naive
+  // boundaries + the SAME account timezone to both, "total" (aggregate) and
+  // "attributed" (values reports) cover identical day boundaries — fixing the
+  // prior UTC-vs-account-TZ drift at the day edges.
   const endDate = new Date(`${endYMD}T00:00:00Z`);
-  endDate.setUTCDate(endDate.getUTCDate() + 1); // make end-of-day inclusive by adding one day exclusive
-  const end = endDate.toISOString();
-  return { start, end };
+  endDate.setUTCDate(endDate.getUTCDate() + 1); // exclusive end = day after endYMD
+  const endYMDExclusive = endDate.toISOString().slice(0, 10);
+  return { start: `${startYMD}T00:00:00`, end: `${endYMDExclusive}T00:00:00` };
+}
+
+// Klaviyo campaign metadata (names, status, send times). Named with the
+// `Klaviyo` prefix to avoid confusion with the unrelated local email-copy drafts
+// in lib/campaigns.ts. The /campaigns/ endpoint REQUIRES a messages.channel
+// filter or it errors. Rather than paging all history (slow, mostly discarded),
+// we fetch metadata only for what the UI needs: the specific campaigns that had
+// activity in the values report (by id), plus small status-scoped pages for the
+// Draft / Scheduled subsections. Verified against revision 2026-04-15: fields
+// are attributes.{name,status,send_time,scheduled_at,created_at,updated_at,
+// send_strategy.datetime,audiences.included}.
+export interface KlaviyoCampaign {
+  id: string;
+  name: string;
+  status: string;
+  send_time: string | null;         // actual (sent) or scheduled send datetime; null for drafts
+  strategy_datetime: string | null; // send_strategy.datetime — intended datetime, may exist on drafts
+  scheduled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  audience_count: number;           // number of included lists/segments (names would need extra calls)
+}
+
+interface CampaignsListResponse {
+  data: Array<{
+    id: string;
+    attributes: {
+      name: string;
+      status: string;
+      send_time?: string | null;
+      scheduled_at?: string | null;
+      created_at?: string | null;
+      updated_at?: string | null;
+      send_strategy?: { datetime?: string | null } | null;
+      audiences?: { included?: string[] } | null;
+    };
+  }>;
+  links?: { next?: string | null };
+}
+
+function campaignFromRaw(c: CampaignsListResponse["data"][number]): KlaviyoCampaign {
+  const a = c.attributes;
+  return {
+    id: c.id,
+    name: a.name,
+    status: a.status,
+    send_time: a.send_time ?? null,
+    strategy_datetime: a.send_strategy?.datetime ?? null,
+    scheduled_at: a.scheduled_at ?? null,
+    created_at: a.created_at ?? null,
+    updated_at: a.updated_at ?? null,
+    audience_count: a.audiences?.included?.length ?? 0,
+  };
+}
+
+// Fetch metadata for a specific set of campaign ids — the ones that had activity
+// in the campaign values report. We chunk the id list to keep the filter/URL a
+// sane length; each chunk is ONE sequential call (~50 ids). This replaces the
+// old "page recent-first through ~500 campaigns" scan: for a 30-day range that's
+// typically a single call instead of five.
+const IDS_PER_CALL = 50;
+
+export async function fetchCampaignsByIds(ids: string[]): Promise<KlaviyoCampaign[]> {
+  const out: KlaviyoCampaign[] = [];
+  for (let i = 0; i < ids.length; i += IDS_PER_CALL) {
+    const chunk = ids.slice(i, i + IDS_PER_CALL);
+    const idList = chunk.map((id) => `'${id}'`).join(",");
+    const filter = encodeURIComponent(`and(equals(messages.channel,'email'),any(id,[${idList}]))`);
+    let url: string | null = `/campaigns/?filter=${filter}`;
+    while (url) {
+      const resp: CampaignsListResponse = await klaviyoFetch<CampaignsListResponse>(url);
+      for (const c of resp.data) out.push(campaignFromRaw(c));
+      const next = resp.links?.next;
+      url = next ? next.replace(BASE, "") : null;
+    }
+  }
+  return out;
+}
+
+// Fetch campaigns by status (Draft / Scheduled) for the status subsections.
+// These aren't date-bound. One page (up to 100) is plenty for a status glance;
+// if more exist we set truncated so the caller can warn instead of paging all
+// history. Sorted recent-first.
+const STATUS_MAX_PAGES = 1;
+
+export async function fetchCampaignsByStatus(status: string): Promise<{ campaigns: KlaviyoCampaign[]; truncated: boolean }> {
+  const out: KlaviyoCampaign[] = [];
+  const filter = encodeURIComponent(`and(equals(messages.channel,'email'),equals(status,'${status}'))`);
+  let url: string | null = `/campaigns/?filter=${filter}&sort=-created_at`;
+  let pages = 0;
+  while (url && pages < STATUS_MAX_PAGES) {
+    const resp: CampaignsListResponse = await klaviyoFetch<CampaignsListResponse>(url);
+    for (const c of resp.data) out.push(campaignFromRaw(c));
+    const next = resp.links?.next;
+    url = next ? next.replace(BASE, "") : null;
+    pages++;
+  }
+  return { campaigns: out, truncated: url !== null };
 }
