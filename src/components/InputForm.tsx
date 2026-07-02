@@ -134,13 +134,16 @@ export default function InputForm({ onSubmit, loading }: Props) {
 
       <div>
         <label className="block font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Hero Angle / Hook *</label>
+        <p className="text-xs text-slate-400 mb-1.5 leading-relaxed">
+          Describe the <span className="text-slate-500">intent</span>, not the wording. Strongest briefs name: the core idea/tension, the one feeling to leave, how this send differs from the last, and any must-use facts (codes, quotes). Write goals like &ldquo;real urgency, not panicked&rdquo; — the app translates intent and avoids clichés, so you don&rsquo;t need to write the lines yourself.
+        </p>
         <textarea
           required
           value={form.hero_angle}
           onChange={(e) => set("hero_angle", e.target.value)}
-          rows={3}
+          rows={4}
           className="w-full border border-slate-200 rounded px-3 py-2 focus:outline-none focus:border-slate-400 bg-white resize-y min-h-[60px]"
-          placeholder="e.g. Make Mother's Day the main hook"
+          placeholder="e.g. Last-call Prime Day send. Pure urgency: sale ends today, last shot at 30% off with code PRIME. Lead with the deadline, offer up top. Back it with the fan-favorite best-sellers for a quick, safe pick. Confident and warm, urgency felt throughout but never panicked."
         />
       </div>
 

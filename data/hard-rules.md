@@ -229,5 +229,6 @@ Before returning a generated campaign, run this checklist:
 17. Everyday Earbuds Plus appears only if this campaign is a huge flash sale on the Plus itself; otherwise it is absent.
 18. Fitness Earbuds copy is not framed as gym-only — no "gym/leg day/lifters" as the lead.
 19. Urgency, where used, is honest and classy: anchored to a real deadline/occasion, never a false-permanence or forever-loss claim ("gone for the rest of the year", "last chance ever"), not shouted or stacked. See "Urgency craft".
+20. Body copy speaks to the reader, not about the sale. No logistics/recap ("the sale's been running all week", "bestsellers people reached for on day one"), no roll-call of product names (the modules show them), no body that is just an instruction. Lead with the reader and earn the ask. See "Body copy craft".
 
 If any check fails, regenerate the offending section before returning the campaign.

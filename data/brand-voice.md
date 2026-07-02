@@ -14,6 +14,8 @@ Raycon has hype in its DNA. The brand was built with cultural confidence from da
 
 Reference figure: Mindy Kaling hyping earbuds in her group chat. She doesn't say "these just work." She says "these fit great, they hold a charge all day, and they come in that green you've been looking for."
 
+**Make it sexy to read.** The best Raycon copy isn't just clear — it's a pleasure to read, and it creates desire. "Sexy" here means vivid, confident, sensory, and effortless: lines with rhythm and a little swagger that make the reader *want* the product, not merely understand it. Favor the concrete image over the spec sheet, the confident stance over the hedge, the line that's satisfying to say out loud. (This is about appeal and desire for the product — keep it classy and on-brand. Never literal innuendo or anything crude.)
+
 ---
 
 ## Voice Fingerprint (Read This Before Generating)
@@ -21,9 +23,13 @@ Reference figure: Mindy Kaling hyping earbuds in her group chat. She doesn't say
 This is the operational rulebook. Everything below in this document is context. This section is the constraint.
 
 ### The Single Most Important Rule
-**Imitate the reference campaigns. Do not invent a fresh Raycon voice.**
+**Sound unmistakably like Raycon. How closely you imitate depends on the tone dial.**
 
-Before generating any element, pick the single closest matching reference campaign from the retrieved examples. Adapt that specific reference to the new offer and conceit. If your output uses any sentence structure or phrasing pattern that doesn't appear in the references, rewrite. Your goal is for the output to be indistinguishable from an approved Raycon campaign. Not "in the spirit of." Indistinguishable.
+The reference campaigns define the Raycon voice — vocabulary, posture, confidence, rhythm. Your copy should always sound like it belongs to this brand. But how tightly you trace the references scales with the tone dial set for this campaign:
+- At conservative dials: pick the single closest matching reference and adapt it closely; avoid sentence structures absent from the references.
+- At higher / experimental dials: use the references to calibrate voice ONLY. Do not trace their structure, openings, or phrasing — write original on-brand copy that does not read like a remix of past sends. Staleness and repetition across campaigns come from over-imitation; at these dials, divergence is the goal.
+
+The constant is the voice. The variable is how far above the references you climb.
 
 ### Element Length Caps (Hard Limits)
 
@@ -278,6 +284,32 @@ Hard requirements for USPs, both ways:
 - **Each USP is distinct.** Three different reasons, three different shapes — not one idea reworded three times, and not three product specs in a row when the campaign or steering calls for the sale to feature.
 - **Organic, not robotic.** A USP can be a real benefit sentence, not only a bare spec. It still stays tight (about one sentence) and obeys every hard rule and banned cadence (no "Charge it Sunday. Still going Wednesday." gimmickry, no em dashes, no fragment pairs).
 - **The offer in a USP is optional and conditional.** Default USPs can be pure product benefits. Bring the sale into the USPS section when the campaign is offer-led or the user steers it that way — and when you do, integrate it as above, never as a tacked-on discount.
+
+### Body copy craft — speak to the reader, don't narrate the sale
+
+Body copy is where the email connects with a person. Its job is to speak to the reader's world and give them a reason to care — not to recap the campaign or read like stage directions. Class here is restraint: warm, confident, specific, a little human.
+
+- **Never narrate the sale's logistics or history.** "The sale's been running all week", "the bestsellers people reached for on day one are still available", "as you know, our promotion started Monday" — this is recap, not copy, and it reads as low-class. The reader does not care how long the sale has run or what has happened so far; they care what's in it for them now. Cut all meta-commentary about the campaign's timeline or mechanics.
+- **Lead with the reader, then earn the ask.** Open on their situation, a true observation, or a real reason this matters to them — and let the action come after you've earned it. A body that is just an instruction ("Grab the pair you've had your eye on") has skipped the persuasion. The CTA is where the command lives; the body is where you make them want to.
+- **Convey momentum, don't report it.** Social proof should be FELT, not stated as a status update about the campaign. "People can't get enough of these" lands as warmth and pull; "the bestsellers people reached for on day one are still available" lands as a clunky inventory note. Same with urgency — make the reader feel the window closing, don't recount the schedule.
+- **Empathy is a strong opener.** For a busy reader (e.g. a last-call send), it's often stronger to meet them where they are — they've had a lot going on, they may have nearly missed it, it's still here, people are loving it, stock is moving, and the deal still stands — than to announce the sale at them. Convey that intent in Raycon's voice; never lift it verbatim.
+- **Do not enumerate the products.** The email already shows the featured products in their own modules — that's their job. Body copy must not list every product by name; reference the hero or the lineup collectively ("the pairs everyone's been reaching for") and let the modules do the showing. A roll-call of product names reads as a catalogue, not copy.
+
+### Don't anchor copy to the product count
+
+The number of products featured is a layout decision, not the message. Never make the count the hook — in a headline, subheader, body, anywhere.
+
+- "Four favorites, all 30% off", "Three picks for summer", "Our 5 bestsellers" — the reader does not care that there are four. They care about the offer, the occasion, and the reason to act. Lead with that.
+- **Respect the offer's real scope.** If the sale is sitewide, the copy says everything's included; the featured products are showcased picks to help a busy reader choose, NOT the boundary of the discount. Never imply only the featured items are on sale when the offer is sitewide.
+- A subheader or headline carries the campaign's actual message (the deadline, the value, the occasion, the benefit), not a count of the merchandise. For a last-call sale, "30% off ends tonight" beats "Four favorites, 30% off" every time.
+
+### Differentiating same-category products
+
+When the email features two or more products from the SAME category (e.g. Essential Headphones next to the Everyday Headphones, or two pairs of open earbuds), do not regurgitate the same spec list for each — that makes them blur together and leaves the reader unable to choose. Differentiate by JOB:
+- Lead each with what it's FOR and who it's BEST for — the use case, the person, the moment — drawn from each product's positioning in the catalogue. (Essential Headphones: entry-level, comfort-led, strong ANC for the price. The Everyday Headphones: the do-everything default you reach for daily. Same category, different jobs.)
+- Position them against each other so the contrast is the point: this one for X, that one for Y. The reader should finish able to say which one is theirs.
+- Use specs as proof of the difference, not a full overlapping list. Include the one spec that makes a product best at its job; if two products share a spec, it is not a differentiator, so don't lead with it.
+- Never let two same-category products read as interchangeable.
 
 ### Sequencing rules
 
