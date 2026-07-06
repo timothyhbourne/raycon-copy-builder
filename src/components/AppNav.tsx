@@ -11,6 +11,14 @@ const FEATURES = [
 export default function AppNav() {
   const pathname = usePathname();
 
+  // The login screen renders full-bleed without the app chrome.
+  if (pathname === "/login") return null;
+
+  async function logout() {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
   return (
     <aside className="w-[72px] shrink-0 border-r border-slate-200 bg-white flex flex-col">
       <div className="px-2 pt-4 pb-3 text-center">
@@ -39,6 +47,13 @@ export default function AppNav() {
           );
         })}
       </nav>
+      <button
+        onClick={logout}
+        title="Sign out"
+        className="mt-auto mx-2 mb-3 rounded-md py-2 text-[10px] font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+      >
+        Sign out
+      </button>
     </aside>
   );
 }
