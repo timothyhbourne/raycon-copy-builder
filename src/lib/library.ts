@@ -36,6 +36,7 @@ export function getLibraryCampaigns(): LibraryCampaign[] {
         conceit: data.conceit ?? "",
         source: data.source ?? "doc",
         body: content.trim(),
+        planner_row_id: data.planner_row_id ?? undefined,
         structured,
       });
     } catch {
@@ -113,6 +114,9 @@ export function saveToLibrary(
     products_featured: briefInput.products_featured,
     conceit: conceit?.name ?? "[FILL ME IN]",
     source: "generated",
+    // Back-reference so a re-opened finalized copy still knows its planner row
+    // (js-yaml throws on undefined, so coerce to null like promo_code above).
+    planner_row_id: briefInput.planner_row_id ?? null,
     // Lossless snapshot for faithful canvas reload (model reference still uses `body`).
     structured: JSON.stringify({ campaign, section_structure: sectionStructure }),
   };

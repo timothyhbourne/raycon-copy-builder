@@ -1,10 +1,13 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import type {
   BriefInput, ExpandedBrief, Conceit, GeneratedCampaign, GeneratedSection,
   LibraryCampaign, SavedCampaign, SectionType, SectionSpec
 } from "@/lib/schemas";
 import { SECTION_CATALOGUE } from "@/lib/schemas";
+import type { PlannerRow } from "@/lib/planner-types";
+import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections } from "@/lib/expand-sections";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
@@ -19,6 +22,36 @@ type Stage = "form" | "conceits" | "canvas";
 
 // Where the current canvas content came from
 type CanvasSource = "new" | "draft" | "library";
+
+// Planner handoff context, needed for write-back on save. Persisted alongside
+// the canvas draft so it survives the generate -> save cycle and a refresh.
+interface PlannerLinkContext { rowId: string; name: string; channel: string }
+
+// Reads the deep-link query params. Isolated into its own component because
+// Next 16 requires useSearchParams to sit inside a <Suspense> boundary (a static
+// page that calls it otherwise fails the production build). Renders nothing; it
+// just fires the callbacks once per distinct param value. Callbacks are read
+// through a ref so the effect only runs on real URL changes, not every parent
+// re-render (which happens on every streamed token during generation).
+function DeepLinkReader({ onPlanner, onCampaign }: {
+  onPlanner: (rowId: string) => void;
+  onCampaign: (savedId: string) => void;
+}) {
+  const searchParams = useSearchParams();
+  const cbRef = useRef({ onPlanner, onCampaign });
+  cbRef.current = { onPlanner, onCampaign };
+  const lastConsumed = useRef<string | null>(null);
+  useEffect(() => {
+    const planner = searchParams.get("planner");
+    const campaign = searchParams.get("campaign");
+    const token = planner ? `p:${planner}` : campaign ? `c:${campaign}` : null;
+    if (!token || lastConsumed.current === token) return;
+    lastConsumed.current = token;
+    if (planner) cbRef.current.onPlanner(planner);
+    else if (campaign) cbRef.current.onCampaign(campaign);
+  }, [searchParams]);
+  return null;
+}
 
 interface LibraryMeta extends Omit<LibraryCampaign, "body"> {}
 interface SavedMeta extends Omit<SavedCampaign, "campaign" | "expanded_brief" | "section_structure"> {}
@@ -79,6 +112,16 @@ export default function Home() {
   const [libraryItems, setLibraryItems] = useState<LibraryMeta[]>([]);
   const [savedItems, setSavedItems] = useState<SavedMeta[]>([]);
 
+  const router = useRouter();
+  // --- Planner handoff (Planner -> Copy Builder link) ---
+  const [formSeed, setFormSeed] = useState<Partial<BriefInput> | null>(null);
+  const [formSeedLabel, setFormSeedLabel] = useState<string | null>(null);
+  const [plannerLink, setPlannerLink] = useState<PlannerLinkContext | null>(null);
+  const [seedingProducts, setSeedingProducts] = useState(false);
+  const [seedAiFailed, setSeedAiFailed] = useState(false);
+  const [plannerLinked, setPlannerLinked] = useState(false);
+  const [pendingPlannerRowId, setPendingPlannerRowId] = useState<string | null>(null);
+
   const refreshSidebar = useCallback(async () => {
     const [libRes, savedRes] = await Promise.all([fetch("/api/library"), fetch("/api/campaigns")]);
     const lib = await libRes.json();
@@ -89,12 +132,17 @@ export default function Home() {
 
   useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
 
-  // Restore in-progress draft from localStorage on load
+  // Restore in-progress draft from localStorage on load.
   useEffect(() => {
+    // A ?campaign deep link loads a specific saved campaign — don't restore the
+    // in-progress draft over it. A ?planner deep link still restores (so the
+    // "unsaved campaign" guard has something to keep, and "Keep working" works).
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("campaign")) return;
     const raw = localStorage.getItem(LS_DRAFT);
     if (raw) {
       try {
-        const { campaign: c, expandedBrief: eb, chosenConceit: cc, sectionStructure: ss, draftId, briefInput: bi } = JSON.parse(raw);
+        const { campaign: c, expandedBrief: eb, chosenConceit: cc, sectionStructure: ss, draftId, briefInput: bi, plannerLink: pl } = JSON.parse(raw);
         if (c) {
           setCampaign(c);
           setExpandedBrief(eb);
@@ -102,6 +150,7 @@ export default function Home() {
           setSectionStructure(ss || []);
           setCurrentDraftId(draftId || null);
           setCurrentBriefInput(bi || null);   // ← was missing — caused Save Draft to silently bail
+          setPlannerLink(pl || null);
           setCanvasSource("draft");
           setStage("canvas");
         }
@@ -114,10 +163,128 @@ export default function Home() {
     if (campaign && canvasSource !== "library") {
       localStorage.setItem(LS_DRAFT, JSON.stringify({
         campaign, expandedBrief, chosenConceit, sectionStructure,
-        draftId: currentDraftId, briefInput: currentBriefInput,
+        draftId: currentDraftId, briefInput: currentBriefInput, plannerLink,
       }));
     }
-  }, [campaign, expandedBrief, chosenConceit, sectionStructure, currentDraftId, currentBriefInput, canvasSource]);
+  }, [campaign, expandedBrief, chosenConceit, sectionStructure, currentDraftId, currentBriefInput, canvasSource, plannerLink]);
+
+  // --- Planner handoff ---------------------------------------------------
+
+  // Move to a clean brief form WITHOUT destroying the canvas draft in storage
+  // (the persist effect only writes when a campaign exists, and we don't remove
+  // the key). Used when the writer chooses to start a planner brief over an
+  // existing canvas.
+  const softResetToForm = () => {
+    setStage("form");
+    setCampaign(null);
+    setExpandedBrief(null);
+    setChosenConceit(null);
+    setSectionStructure([]);
+    setCurrentBriefInput(null);
+    setConceits([]);
+    setCanvasSource("new");
+    setCurrentDraftId(null);
+    setCurrentLibraryId(null);
+  };
+
+  // Seed a new brief from a planner row: deterministic map instantly, then AI
+  // proposes products + hero angle. Never auto-generates.
+  const startPlannerBrief = async (rowId: string) => {
+    router.replace("/copy-builder");   // consume the param so a refresh won't re-seed
+    setError(null);
+    softResetToForm();
+    // 1. Fetch the row.
+    let row: PlannerRow | null = null;
+    try {
+      const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
+      if (res.ok) row = (await res.json()).row ?? null;
+    } catch { /* fall through */ }
+    if (!row) {
+      setError("That planner row no longer exists.");
+      return;   // falls through to a normal empty form
+    }
+    // 2. Seed deterministically immediately so name/offer/code show at once.
+    setFormSeed(plannerRowToBriefSeed(row));
+    setFormSeedLabel(row.name);
+    setPlannerLink({ rowId: row.id, name: row.name, channel: row.channel });
+    setSeedAiFailed(false);
+    setSeedingProducts(true);
+    // 3. Smart-fill (Haiku) proposes products + hero angle; merge when it lands.
+    try {
+      const res = await fetch("/api/copy-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row }),
+      });
+      const data = await res.json();
+      if (data.seed) setFormSeed(data.seed as Partial<BriefInput>);
+      if (data.ai_failed) setSeedAiFailed(true);
+    } catch {
+      setSeedAiFailed(true);   // handoff still works; user fills the two gaps
+    } finally {
+      setSeedingProducts(false);
+    }
+  };
+
+  // ?planner=<rowId>. Guard against silently discarding an unsaved canvas.
+  const handlePlannerDeepLink = (rowId: string) => {
+    let hasCanvas = false;
+    try {
+      const raw = localStorage.getItem(LS_DRAFT);
+      hasCanvas = !!(raw && JSON.parse(raw)?.campaign);
+    } catch { hasCanvas = false; }
+    if (hasCanvas) setPendingPlannerRowId(rowId);   // confirm before replacing
+    else startPlannerBrief(rowId);
+  };
+
+  // ?campaign=<savedId>. Open an existing saved campaign (draft or finalized).
+  const handleCampaignDeepLink = async (savedId: string) => {
+    router.replace("/copy-builder");
+    await handleLoadSaved(savedId);
+  };
+
+  const handleClearSeed = () => {
+    setFormSeed(null);
+    setFormSeedLabel(null);
+    setPlannerLink(null);
+    setSeedAiFailed(false);
+    setSeedingProducts(false);
+  };
+
+  // Stamp the planner row after a successful copy save. Fire-and-forget: a
+  // write-back failure must never surface as a copy-save failure (copy is saved).
+  const writeBackToPlanner = (copyCampaignId: string, copyStatus: "draft" | "final") => {
+    const rowId = plannerLink?.rowId ?? currentBriefInput?.planner_row_id;
+    if (!rowId) return;
+    fetch("/api/planner/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ row_id: rowId, copy_campaign_id: copyCampaignId, copy_status: copyStatus }),
+    })
+      .then((res) => {
+        if (res.ok) {
+          setPlannerLinked(true);
+          setTimeout(() => setPlannerLinked(false), 3000);
+        } else {
+          console.error(`Planner write-back failed (HTTP ${res.status})`);
+        }
+      })
+      .catch((e) => console.error("Planner write-back failed", e));
+  };
+
+  // Full reset (canvas + planner handoff). Clearing the handoff matters: a stale
+  // plannerLink would otherwise make the next save stamp the wrong planner row.
+  const resetAll = () => {
+    resetState({
+      setStage, setCampaign, setExpandedBrief, setChosenConceit,
+      setSectionStructure, setCurrentBriefInput, setConceits,
+      setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
+    });
+    setPlannerLink(null);
+    setFormSeed(null);
+    setFormSeedLabel(null);
+    setSeedAiFailed(false);
+  };
 
   // If a campaign is already on screen, hold the input and show a confirmation dialog
   const handleBriefSubmitRequest = (input: BriefInput) => {
@@ -298,6 +465,7 @@ export default function Home() {
         chosen_conceit: chosenConceit ?? undefined,
         campaign,
         status: "draft",
+        planner_row_id: plannerLink?.rowId ?? bi.planner_row_id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -313,6 +481,7 @@ export default function Home() {
       setCurrentDraftId(id);
       setCanvasSource("draft");
       setSavingStatus("saved");
+      writeBackToPlanner(id, "draft");   // stamp the planner row (fire-and-forget)
       await refreshSidebar();
       setTimeout(() => setSavingStatus("idle"), 2000);
     } catch (e) {
@@ -353,6 +522,7 @@ export default function Home() {
       setCurrentDraftId(null);
       setCanvasSource("library");
       setSavingStatus("saved");
+      writeBackToPlanner(id, "final");   // flip the planner chip to "final"
       await refreshSidebar();
       setTimeout(() => setSavingStatus("idle"), 2000);
     } catch (e) {
@@ -393,39 +563,49 @@ export default function Home() {
 
   const handleLoadSaved = async (id: string) => {
     const res = await fetch(`/api/campaigns?id=${id}`);
-    const data = await res.json();
-    if (data.campaign) {
-      const c = data.campaign as SavedCampaign;
-      setCampaign(c.campaign);
-      setExpandedBrief(c.expanded_brief ?? null);
-      setChosenConceit(c.chosen_conceit ?? null);
-      setSectionStructure(c.section_structure ?? []);
-      setCurrentBriefInput({
-        campaign_name: c.campaign_name,
-        campaign_type: c.campaign_type,
-        offer: c.offer,
-        promo_code: c.promo_code,
-        audience: c.audience,
-        hero_angle: c.hero_angle,
-        products_featured: c.products_featured,
-        section_structure: c.section_structure ?? [],
-      });
-      setCurrentDraftId(id);
-      setCurrentLibraryId(null);
-      setCanvasSource("draft");
-      setStage("canvas");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.campaign) {
+        const c = data.campaign as SavedCampaign;
+        setCampaign(c.campaign);
+        setExpandedBrief(c.expanded_brief ?? null);
+        setChosenConceit(c.chosen_conceit ?? null);
+        setSectionStructure(c.section_structure ?? []);
+        setCurrentBriefInput({
+          campaign_name: c.campaign_name,
+          campaign_type: c.campaign_type,
+          offer: c.offer,
+          promo_code: c.promo_code,
+          audience: c.audience,
+          hero_angle: c.hero_angle,
+          products_featured: c.products_featured,
+          section_structure: c.section_structure ?? [],
+          planner_row_id: c.planner_row_id,
+        });
+        setPlannerLink(c.planner_row_id ? { rowId: c.planner_row_id, name: c.campaign_name, channel: "email" } : null);
+        setCurrentDraftId(id);
+        setCurrentLibraryId(null);
+        setCanvasSource("draft");
+        setStage("canvas");
+        return;
+      }
     }
+    // Not a draft — a finalized copy lives in the library under this id. This is
+    // the "Open copy" path for a Save Final'd campaign.
+    const libRes = await fetch(`/api/library?id=${id}`);
+    if (libRes.ok) {
+      await handleViewLibrary(id);
+      return;
+    }
+    // Neither store has it: the saved campaign was deleted (stale link).
+    setError("That draft no longer exists.");
   };
 
   const handleDeleteSaved = async (id: string) => {
     if (!confirm("Delete this campaign?")) return;
     await fetch(`/api/campaigns?id=${id}`, { method: "DELETE" });
     if (currentDraftId === id) {
-      resetState({
-        setStage, setCampaign, setExpandedBrief, setChosenConceit,
-        setSectionStructure, setCurrentBriefInput, setConceits,
-        setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
-      });
+      resetAll();
     }
     await refreshSidebar();
   };
@@ -434,11 +614,7 @@ export default function Home() {
     if (!confirm("Remove this campaign from the library?")) return;
     await fetch(`/api/library?id=${id}`, { method: "DELETE" });
     if (currentLibraryId === id) {
-      resetState({
-        setStage, setCampaign, setExpandedBrief, setChosenConceit,
-        setSectionStructure, setCurrentBriefInput, setConceits,
-        setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
-      });
+      resetAll();
     }
     await refreshSidebar();
   };
@@ -491,7 +667,9 @@ export default function Home() {
       hero_angle: lib.hero_angle,
       products_featured: lib.products_featured,
       section_structure: sectionStructureForView,
+      planner_row_id: lib.planner_row_id,
     });
+    setPlannerLink(lib.planner_row_id ? { rowId: lib.planner_row_id, name: lib.title, channel: "email" } : null);
     setChosenConceit(lib.conceit ? { id: "lib", name: lib.conceit, description: "" } : null);
     setExpandedBrief(null);
     setCurrentLibraryId(id);
@@ -694,6 +872,11 @@ export default function Home() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#f4f4ef" }}>
+      {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
+      <Suspense fallback={null}>
+        <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
+      </Suspense>
+
       {/* Sidebar */}
       <div className="w-60 shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
         <Sidebar
@@ -710,7 +893,24 @@ export default function Home() {
       <div className="w-96 shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
         <div className="p-5">
           <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-4">Campaign Brief</div>
-          <InputForm onSubmit={handleBriefSubmitRequest} loading={loadingPhase === "conceits"} />
+          {seedingProducts && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+              <span className="w-3 h-3 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
+              Suggesting products &amp; hero angle…
+            </div>
+          )}
+          {seedAiFailed && (
+            <div className="mb-3 text-xs text-amber-600 leading-relaxed">
+              AI suggestions unavailable — add products and a hero angle to continue.
+            </div>
+          )}
+          <InputForm
+            onSubmit={handleBriefSubmitRequest}
+            loading={loadingPhase === "conceits"}
+            seed={formSeed}
+            seedLabel={formSeedLabel}
+            onClearSeed={handleClearSeed}
+          />
         </div>
       </div>
 
@@ -743,6 +943,11 @@ export default function Home() {
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {plannerLinked && (
+                <span className="font-mono text-[10px] text-emerald-600 uppercase tracking-wide shrink-0" title="Stamped the linked planner row">
+                  linked to planner ✓
+                </span>
+              )}
               {campaign && (
                 <button
                   onClick={handleCopyCampaign}
@@ -833,15 +1038,36 @@ export default function Home() {
               <button
                 onClick={() => {
                   setShowNewConfirm(false);
-                  resetState({
-                    setStage, setCampaign, setExpandedBrief, setChosenConceit,
-                    setSectionStructure, setCurrentBriefInput, setConceits,
-                    setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
-                  });
+                  resetAll();
                 }}
                 className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"
               >
                 Yes, start fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Planner handoff over an unsaved canvas — confirm before replacing */}
+      {pendingPlannerRowId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <div className="font-semibold text-slate-900 mb-2">You have an unsaved campaign</div>
+            <p className="text-sm text-slate-500 mb-5 leading-relaxed">
+              Start the planner brief? Your current canvas stays saved in this browser, so you can get back to it later.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setPendingPlannerRowId(null); router.replace("/copy-builder"); }}
+                className="text-sm text-slate-600 border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Keep working
+              </button>
+              <button
+                onClick={() => { const id = pendingPlannerRowId; setPendingPlannerRowId(null); if (id) startPlannerBrief(id); }}
+                className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                Start planner brief
               </button>
             </div>
           </div>
@@ -866,11 +1092,7 @@ export default function Home() {
                 onClick={() => {
                   const input = pendingBriefInput;
                   setPendingBriefInput(null);
-                  resetState({
-                    setStage, setCampaign, setExpandedBrief, setChosenConceit,
-                    setSectionStructure, setCurrentBriefInput, setConceits,
-                    setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
-                  });
+                  resetAll();
                   handleBriefSubmit(input);
                 }}
                 className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"

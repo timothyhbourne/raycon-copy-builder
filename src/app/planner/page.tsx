@@ -1,8 +1,12 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
 import { PLANNER_STATUSES, PLANNER_CHANNELS, EVERGREEN_OFFER } from "@/lib/planner-types";
+
+// Copy Builder link state for a row, resolved against the set of saved copy ids.
+type CopyEntry = "sms" | "unlinked" | "draft" | "final";
 
 // ---------- formatting ----------
 const CHANNEL_STYLE: Record<PlannerChannel, { dot: string; chip: string; label: string }> = {
@@ -18,6 +22,33 @@ const STATUS_PILL: Record<PlannerStatus, string> = {
 };
 function StatusPill({ status }: { status: PlannerStatus }) {
   return <span className={`inline-block text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${STATUS_PILL[status]}`}>{status}</span>;
+}
+const COPY_CHIP: Record<"draft" | "final", string> = {
+  draft: "bg-amber-50 text-amber-700 border-amber-200",
+  final: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+// Inline copy affordance for a table row's Name cell. stopPropagation so the
+// links don't also open the row editor (the row onClick opens edit). Email only;
+// SMS renders nothing.
+function CopyLink({ entry, rowId, copyId }: { entry: CopyEntry; rowId: string; copyId?: string }) {
+  if (entry === "sms") return null;
+  if (entry === "unlinked") {
+    return (
+      <Link href={`/copy-builder?planner=${rowId}`} onClick={(e) => e.stopPropagation()}
+        className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-indigo-600 hover:underline">
+        Write copy
+      </Link>
+    );
+  }
+  return (
+    <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
+      <span className={`text-[10px] font-mono uppercase border rounded px-1 py-0.5 ${COPY_CHIP[entry]}`}>Copy: {entry}</span>
+      <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
+        className="text-[10px] font-mono uppercase tracking-wide text-indigo-600 hover:underline">
+        Open copy
+      </Link>
+    </span>
+  );
 }
 const money = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n));
 const int = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US").format(Math.round(n)));
@@ -61,6 +92,12 @@ export default function PlannerPage() {
   const [audiencesFailed, setAudiencesFailed] = useState(false);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
 
+  // Set of saved copy ids (drafts + finalized) so we can detect a stale link
+  // (the saved campaign was deleted) and render/heal the row as unlinked.
+  const [copyIds, setCopyIds] = useState<Set<string>>(new Set());
+  const [copyIdsLoaded, setCopyIdsLoaded] = useState(false);
+  const healedRef = useRef<Set<string>>(new Set());
+
   // table filters + sort
   const [fChannel, setFChannel] = useState<"all" | PlannerChannel>("all");
   const [fStatus, setFStatus] = useState<"all" | PlannerStatus>("all");
@@ -91,7 +128,45 @@ export default function PlannerPage() {
     fetch("/api/klaviyo/campaigns-list").then((r) => r.json()).then((j) => {
       if (j.campaigns) setCampaigns(j.campaigns);
     }).catch(() => { /* picker just won't have suggestions */ });
+    // Which copy campaigns actually still exist (drafts in /generated + finalized
+    // in the library). Used to detect stale links.
+    Promise.all([
+      fetch("/api/campaigns").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/library").then((r) => r.json()).catch(() => ({})),
+    ]).then(([saved, lib]) => {
+      // Only trust the id set if BOTH lists loaded. If either failed, stay
+      // optimistic (treat existing links as valid) and don't heal — otherwise a
+      // transient fetch failure would wrongly wipe every valid copy link.
+      if (!Array.isArray(saved.campaigns) || !Array.isArray(lib.campaigns)) return;
+      const ids = new Set<string>();
+      saved.campaigns.forEach((c: { id: string }) => ids.add(c.id));
+      lib.campaigns.forEach((c: { id: string }) => ids.add(c.id));
+      setCopyIds(ids);
+      setCopyIdsLoaded(true);
+    });
   }, []);
+
+  // Heal stale links: a row points at a copy campaign that no longer exists.
+  // Render already treats it as unlinked (copyEntry below); this persists it.
+  useEffect(() => {
+    if (!copyIdsLoaded) return;
+    const stale = rows.filter((r) =>
+      r.channel === "email" && r.copy_campaign_id && !copyIds.has(r.copy_campaign_id) && !healedRef.current.has(r.id));
+    if (stale.length === 0) return;
+    stale.forEach((r) => healedRef.current.add(r.id));
+    Promise.all(stale.map((r) =>
+      fetch(`/api/planner/link?row_id=${encodeURIComponent(r.id)}`, { method: "DELETE" }).catch(() => {})
+    )).then(() => fetchRows());
+  }, [rows, copyIds, copyIdsLoaded, fetchRows]);
+
+  // Resolve a row's Copy Builder link state. Before the id set loads, assume a
+  // set copy_campaign_id is valid (avoids a flash of "unlinked").
+  const copyEntry = useCallback((row: PlannerRow): CopyEntry => {
+    if (row.channel !== "email") return "sms";
+    const linked = !!row.copy_campaign_id && (!copyIdsLoaded || copyIds.has(row.copy_campaign_id));
+    if (!linked) return "unlinked";
+    return row.copy_status === "final" ? "final" : "draft";
+  }, [copyIds, copyIdsLoaded]);
 
   const sync = async () => {
     setSyncing(true);
@@ -171,12 +246,12 @@ export default function PlannerPage() {
       ) : view === "calendar" ? (
         <CalendarView rows={rows} cursor={cursor} setCursor={setCursor}
           onEntry={(r) => setEditing(r)} onDay={(d) => { setNewDate(`${d}T09:00`); setEditing("new"); }}
-          onReschedule={reschedule} />
+          onReschedule={reschedule} copyEntry={copyEntry} />
       ) : (
         <TableView rows={filtered} onEdit={(r) => setEditing(r)} onReschedule={reschedule}
           fChannel={fChannel} setFChannel={setFChannel} fStatus={fStatus} setFStatus={setFStatus}
           fStart={fStart} setFStart={setFStart} fEnd={fEnd} setFEnd={setFEnd}
-          sortBy={sortBy} setSortBy={setSortBy} />
+          sortBy={sortBy} setSortBy={setSortBy} copyEntry={copyEntry} />
       )}
 
       {editing && (
@@ -213,9 +288,10 @@ function SyncSummary({ res, onClose }: { res: { synced: number; postscript_conne
 }
 
 // ---------- calendar ----------
-function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule }: {
+function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, copyEntry }: {
   rows: PlannerRow[]; cursor: { y: number; m: number }; setCursor: (c: { y: number; m: number }) => void;
   onEntry: (r: PlannerRow) => void; onDay: (dayYmd: string) => void; onReschedule: (id: string, ymd: string) => void;
+  copyEntry: (r: PlannerRow) => CopyEntry;
 }) {
   const { y, m } = cursor;
   const first = new Date(y, m, 1);
@@ -282,6 +358,12 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule }:
                               className="flex items-center gap-1 rounded px-1 py-0.5 bg-white border border-slate-200 hover:border-slate-300 shadow-sm">
                               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_STYLE[r.channel].dot}`} />
                               <span className={`text-[11px] truncate ${r.status === "cancelled" ? "line-through text-slate-400" : "text-slate-700"}`}>{r.name}</span>
+                              {(() => {
+                                const ce = copyEntry(r);
+                                return ce === "draft" || ce === "final"
+                                  ? <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-emerald-500" : "bg-amber-500"}`} title={`Copy: ${ce}`} />
+                                  : null;
+                              })()}
                             </div>
                           )}
                         </Draggable>
@@ -302,12 +384,13 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule }:
 
 // ---------- table ----------
 const GRID = "minmax(160px,1.4fr) 74px 92px 108px 150px minmax(150px,1fr) 92px 68px 68px 96px 84px minmax(160px,1fr)";
-function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy }: {
+function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
   rows: PlannerRow[]; onEdit: (r: PlannerRow) => void; onReschedule: (id: string, ymd: string) => void;
   fChannel: "all" | PlannerChannel; setFChannel: (v: "all" | PlannerChannel) => void;
   fStatus: "all" | PlannerStatus; setFStatus: (v: "all" | PlannerStatus) => void;
   fStart: string; setFStart: (v: string) => void; fEnd: string; setFEnd: (v: string) => void;
   sortBy: "date" | "revenue"; setSortBy: (v: "date" | "revenue") => void;
+  copyEntry: (r: PlannerRow) => CopyEntry;
 }) {
   // Summary respects current filters.
   const summary = useMemo(() => {
@@ -384,7 +467,12 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
                               className="grid border-b border-slate-100 hover:bg-slate-50 cursor-pointer bg-white" style={{ gridTemplateColumns: GRID }}>
-                              <div className={cell}><span className={`truncate ${r.status === "cancelled" ? "line-through text-slate-400" : "text-slate-900"}`}>{r.name}</span></div>
+                              <div className={cell}>
+                                <div className="min-w-0 flex flex-col">
+                                  <span className={`truncate ${r.status === "cancelled" ? "line-through text-slate-400" : "text-slate-900"}`}>{r.name}</span>
+                                  <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} />
+                                </div>
+                              </div>
                               <div className={cell}><span className={`text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${CHANNEL_STYLE[r.channel].chip}`}>{CHANNEL_STYLE[r.channel].label}</span></div>
                               <div className={cell}><StatusPill status={r.status} /></div>
                               <div className={`${cell} text-slate-600 whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
@@ -622,6 +710,20 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
           ) : (
             <div><label className={label}>Postscript campaign id (to sync metrics)</label>
               <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" /></div>
+          )}
+
+          {channel === "email" && row && (
+            <div className="border-t border-slate-100 pt-3">
+              <label className={label}>Copy Builder</label>
+              {row.copy_campaign_id ? (
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${COPY_CHIP[row.copy_status === "final" ? "final" : "draft"]}`}>Copy: {row.copy_status ?? "draft"}</span>
+                  <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-indigo-600 hover:underline">Open copy ↗</Link>
+                </div>
+              ) : (
+                <Link href={`/copy-builder?planner=${row.id}`} className="inline-block text-sm text-indigo-600 hover:underline">Write copy for this campaign →</Link>
+              )}
+            </div>
           )}
 
           <div><label className={label}>Notes / learnings</label><textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" /></div>

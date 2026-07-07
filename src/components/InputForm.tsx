@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { BriefInput, CampaignType, AudienceType, SectionSpec } from "@/lib/schemas";
 import { DEFAULT_SECTION_STRUCTURE } from "@/lib/schemas";
 import { PRODUCT_CATEGORIES, VALID_PRODUCT_IDS } from "@/lib/products";
@@ -8,6 +8,9 @@ import SectionBuilder from "./SectionBuilder";
 interface Props {
   onSubmit: (input: BriefInput) => void;
   loading: boolean;
+  seed?: Partial<BriefInput> | null;      // from a planner handoff
+  seedLabel?: string | null;              // e.g. planner row name, for the banner
+  onClearSeed?: () => void;
 }
 
 const LS_KEY = "raycon_brief_draft";
@@ -33,29 +36,65 @@ const TONE_LABELS: Record<number, string> = {
   5: "Experimental",
 };
 
-export default function InputForm({ onSubmit, loading }: Props) {
+// Build a full form from a planner seed. Strips invalid product ids the same
+// way the localStorage hydration does.
+function applySeed(seed: Partial<BriefInput>): BriefInput {
+  const products = Array.isArray(seed.products_featured)
+    ? seed.products_featured.filter((id) => VALID_PRODUCT_IDS.has(id))
+    : [];
+  return { ...DEFAULT_FORM, ...seed, products_featured: products };
+}
+
+export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearSeed }: Props) {
   const [form, setForm] = useState<BriefInput>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
+  // Last seed CONTENT we applied. The planner handoff seeds twice for one row —
+  // the deterministic map instantly, then the AI-enriched merge a moment later —
+  // so we key on content, not planner_row_id (which is identical across both and
+  // would drop the AI pass). Deduping by content also makes a parent re-passing
+  // an equal object a no-op, so it can't loop.
+  const lastSeedJson = useRef<string | null>(null);
 
+  // Initial hydration. A planner seed present at mount takes precedence over the
+  // localStorage draft; the [seed] effect below applies its contents.
   useEffect(() => {
-    const saved = localStorage.getItem(LS_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Strip any product IDs that no longer exist in the current catalogue
-        // (avoids phantom counts from old/renamed SKUs stored in localStorage)
-        if (Array.isArray(parsed.products_featured)) {
-          parsed.products_featured = parsed.products_featured.filter((id: string) => VALID_PRODUCT_IDS.has(id));
-        }
-        setForm(parsed);
-      } catch { /* */ }
+    if (!(seed && seed.planner_row_id)) {
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          // Strip any product IDs that no longer exist in the current catalogue
+          // (avoids phantom counts from old/renamed SKUs stored in localStorage)
+          if (Array.isArray(parsed.products_featured)) {
+            parsed.products_featured = parsed.products_featured.filter((id: string) => VALID_PRODUCT_IDS.has(id));
+          }
+          setForm(parsed);
+        } catch { /* */ }
+      }
     }
     setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Apply a planner seed whenever its content changes — the deterministic seed
+  // first, then the AI-enriched merge the deep-link fetch lands asynchronously.
+  useEffect(() => {
+    if (!seed || !seed.planner_row_id) return;
+    const json = JSON.stringify(seed);
+    if (lastSeedJson.current === json) return;
+    lastSeedJson.current = json;
+    setForm(applySeed(seed));
+  }, [seed]);
 
   useEffect(() => {
     if (hydrated) localStorage.setItem(LS_KEY, JSON.stringify(form));
   }, [form, hydrated]);
+
+  const handleClearSeed = () => {
+    lastSeedJson.current = null;
+    setForm(DEFAULT_FORM);
+    onClearSeed?.();
+  };
 
   const set = (field: keyof BriefInput, value: unknown) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -73,6 +112,26 @@ export default function InputForm({ onSubmit, loading }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-sm">
+      {seedLabel && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-xs uppercase tracking-wide text-amber-700 truncate">
+              Prefilled from planner: {seedLabel}
+            </span>
+            <button
+              type="button"
+              onClick={handleClearSeed}
+              className="font-mono text-[10px] uppercase tracking-wide text-amber-600 hover:text-amber-800 underline shrink-0"
+            >
+              Clear
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-700/80">
+            Products and hero angle were AI-suggested. Review before generating.
+          </p>
+        </div>
+      )}
+
       <div>
         <label className="block font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Campaign Name *</label>
         <input

@@ -43,6 +43,11 @@ export interface PlannerRow {
   // Drives the metrics window + syncability so it can't miss the actual send.
   klaviyo_send_time?: string | null;
   postscript_send_time?: string | null;
+  // --- Copy Builder link (Planner ↔ Copy Builder) ---
+  // Set when a Copy Builder campaign has been written for this planned send.
+  copy_campaign_id?: string;          // SavedCampaign id in /generated
+  copy_status?: "draft" | "final";    // mirrors the saved campaign's status
+  copy_linked_at?: string | null;     // ISO, last time copy was linked/updated
   // --- Synced, read-only (filled when linked & sent). null = no data yet. ---
   // open_rate is intentionally null for SMS (no opens on SMS) — never 0.
   recipients?: number | null;

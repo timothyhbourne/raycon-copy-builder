@@ -29,6 +29,7 @@ function campaignToMarkdown(c: SavedCampaign): string {
     hero_angle: c.hero_angle,
     products_featured: c.products_featured ?? [],
     status: c.status,
+    planner_row_id: c.planner_row_id ?? null,
     created_at: c.created_at,
     updated_at: c.updated_at,
   };
@@ -55,6 +56,7 @@ function markdownToCampaign(raw: string): SavedCampaign | null {
       hero_angle: data.hero_angle,
       products_featured: data.products_featured ?? [],
       status: data.status ?? "draft",
+      planner_row_id: data.planner_row_id ?? undefined,
       created_at: data.created_at,
       updated_at: data.updated_at,
       expanded_brief: parsed.expanded_brief,

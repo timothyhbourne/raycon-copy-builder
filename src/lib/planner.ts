@@ -144,6 +144,52 @@ export function writeSyncedMetrics(id: string, metrics: SyncedMetrics): PlannerR
   return rows[idx];
 }
 
+// Attach a Copy Builder campaign to a row (used by the /api/planner/link route).
+// Merges only the copy-link fields + a gentle status nudge; leaves every plan
+// field AND every synced-metric field untouched (same discipline as
+// writeSyncedMetrics — a link write must never wipe metrics).
+export function linkCopyCampaign(
+  rowId: string,
+  copyCampaignId: string,
+  copyStatus: "draft" | "final",
+): PlannerRow | null {
+  if (!isSafeId(rowId)) return null;
+  const rows = readAll();
+  const idx = rows.findIndex((r) => r.id === rowId);
+  if (idx === -1) return null;
+  const now = new Date().toISOString();
+  rows[idx] = {
+    ...rows[idx],
+    copy_campaign_id: copyCampaignId,
+    copy_status: copyStatus,
+    copy_linked_at: now,
+    // Nudge the plan forward only from the initial "idea" stage. Never downgrade
+    // a row that's already scheduled/sent (or cancelled).
+    status: rows[idx].status === "idea" ? "draft" : rows[idx].status,
+    updated_at: now,
+  };
+  writeAll(rows);
+  return rows[idx];
+}
+
+// Clear a stale/broken copy link (used to heal when the saved campaign was
+// deleted). Only touches the three copy-link fields.
+export function unlinkCopyCampaign(rowId: string): PlannerRow | null {
+  if (!isSafeId(rowId)) return null;
+  const rows = readAll();
+  const idx = rows.findIndex((r) => r.id === rowId);
+  if (idx === -1) return null;
+  rows[idx] = {
+    ...rows[idx],
+    copy_campaign_id: undefined,
+    copy_status: undefined,
+    copy_linked_at: null,
+    updated_at: new Date().toISOString(),
+  };
+  writeAll(rows);
+  return rows[idx];
+}
+
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
 }

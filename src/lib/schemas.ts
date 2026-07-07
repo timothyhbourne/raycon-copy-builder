@@ -38,6 +38,8 @@ export interface LibraryCampaign {
   conceit: string;
   source: "doc" | "design";
   body: string;
+  /** Back-reference to the Planner row this campaign was written for (if any). */
+  planner_row_id?: string;
   /**
    * Faithful structured snapshot of the campaign as it appeared on the canvas.
    * Present for library entries saved from the app (lets the canvas reload
@@ -121,6 +123,8 @@ export interface SavedCampaign {
   chosen_conceit?: Conceit;
   campaign: GeneratedCampaign;
   status: "draft" | "final";
+  /** Back-reference to the Planner row this campaign was written for (if any). */
+  planner_row_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -137,6 +141,8 @@ export interface BriefInput {
   campaign_specific_rules?: string;
   /** 1 = conservative / strict imitation, 5 = experimental / more humor + edge */
   tone_dial?: number;
+  /** Back-reference to the Planner row this campaign was written for (if any). */
+  planner_row_id?: string;
 }
 
 export const SECTION_CATALOGUE: Record<SectionType, string[]> = {
