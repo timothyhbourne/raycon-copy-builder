@@ -11,11 +11,20 @@ import { AUTH_COOKIE, authEnabled, tokenValid } from "@/lib/auth";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/logout"]);
 
+// Routes that enforce their OWN auth (a shared secret) so an external caller —
+// e.g. the weekly-report cron, which has no app cookie — can reach them. The
+// handler is responsible for rejecting bad callers.
+const SELF_PROTECTED_PATHS = new Set(["/api/reports/weekly/run"]);
+
 export function proxy(request: NextRequest) {
   // No credentials configured → gate disabled (open access for local/dev).
   if (!authEnabled) return NextResponse.next();
 
   const { pathname } = request.nextUrl;
+
+  // Let self-protected routes through to enforce their own secret.
+  if (SELF_PROTECTED_PATHS.has(pathname)) return NextResponse.next();
+
   const authed = tokenValid(request.cookies.get(AUTH_COOKIE)?.value);
 
   // Already signed in and hitting the login page → send them into the app.

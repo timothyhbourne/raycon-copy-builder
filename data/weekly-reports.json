@@ -1,0 +1,32 @@
+[
+  {
+    "week": {
+      "startYMD": "2026-06-29",
+      "endYMD": "2026-07-05",
+      "isoWeek": "2026-W27"
+    },
+    "email": {
+      "revenue": 24962.559999999994,
+      "pctOfStore": null,
+      "recipients": 1219324,
+      "revenuePerRecipient": 0.020472458509797228,
+      "revenuePer1kSends": 20.472458509797228
+    },
+    "sms": {
+      "revenue": 18225.780000000002,
+      "pctOfStore": null,
+      "recipients": null,
+      "revenuePerRecipient": null,
+      "revenuePer1kSends": null
+    },
+    "totalStoreRevenue": 0,
+    "denominatorSource": "northbeam_total_sales",
+    "rprMode": "program",
+    "generatedAt": "2026-07-06T15:42:17.236Z",
+    "warnings": [
+      "Total store revenue unavailable — set NORTHBEAM_TOTAL_SALES_METRIC_ID (confirm the id from the account's metric list). % of store shows —.",
+      "Postscript unavailable (SMS revenue still from Northbeam; recipients/RPR show —): Postscript API 404 on /campaigns: {\"error\":\"Not Found\"}\n",
+      "RPR is program-level (incl. flows): NB email revenue ÷ (campaign + flow sends). Switch to campaign mode once Northbeam splits campaign-vs-flow revenue."
+    ]
+  }
+]

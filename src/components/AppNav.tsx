@@ -6,6 +6,7 @@ const FEATURES = [
   { href: "/copy-builder", label: "Copy", sublabel: "Builder" },
   { href: "/dashboard", label: "Dash", sublabel: "board" },
   { href: "/planner", label: "Plan", sublabel: "ner" },
+  { href: "/reports", label: "Report", sublabel: "weekly" },
 ];
 
 export default function AppNav() {
