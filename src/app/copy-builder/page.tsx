@@ -15,6 +15,11 @@ import InputForm from "@/components/InputForm";
 import ConceitPicker from "@/components/ConceitPicker";
 import CampaignCanvas from "@/components/CampaignCanvas";
 import Sidebar from "@/components/Sidebar";
+import Button from "@/components/ui/Button";
+import Chip from "@/components/ui/Chip";
+import EmptyState from "@/components/ui/EmptyState";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { toast } from "@/components/ui/Toast";
 
 const LS_DRAFT = "raycon_canvas_draft";
 
@@ -99,8 +104,8 @@ export default function Home() {
   const [chosenConceit, setChosenConceit] = useState<Conceit | null>(null);
   const [campaign, setCampaign] = useState<GeneratedCampaign | null>(null);
   const [sectionStructure, setSectionStructure] = useState<SectionSpec[]>([]);
-  const [savingStatus, setSavingStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const [savingStatus, setSavingStatus] = useState<"idle" | "saving">("idle");
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" } | null>(null);
   const [pendingBriefInput, setPendingBriefInput] = useState<BriefInput | null>(null);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
 
@@ -119,7 +124,6 @@ export default function Home() {
   const [plannerLink, setPlannerLink] = useState<PlannerLinkContext | null>(null);
   const [seedingProducts, setSeedingProducts] = useState(false);
   const [seedAiFailed, setSeedAiFailed] = useState(false);
-  const [plannerLinked, setPlannerLinked] = useState(false);
   const [pendingPlannerRowId, setPendingPlannerRowId] = useState<string | null>(null);
 
   const refreshSidebar = useCallback(async () => {
@@ -200,7 +204,7 @@ export default function Home() {
       if (res.ok) row = (await res.json()).row ?? null;
     } catch { /* fall through */ }
     if (!row) {
-      setError("That planner row no longer exists.");
+      toast.error("That planner row no longer exists.");
       return;   // falls through to a normal empty form
     }
     // 2. Seed deterministically immediately so name/offer/code show at once.
@@ -263,8 +267,7 @@ export default function Home() {
     })
       .then((res) => {
         if (res.ok) {
-          setPlannerLinked(true);
-          setTimeout(() => setPlannerLinked(false), 3000);
+          toast.success("Linked to planner ✓");
         } else {
           console.error(`Planner write-back failed (HTTP ${res.status})`);
         }
@@ -480,13 +483,13 @@ export default function Home() {
       }
       setCurrentDraftId(id);
       setCanvasSource("draft");
-      setSavingStatus("saved");
+      setSavingStatus("idle");
       writeBackToPlanner(id, "draft");   // stamp the planner row (fire-and-forget)
       await refreshSidebar();
-      setTimeout(() => setSavingStatus("idle"), 2000);
+      toast.success("Draft saved");
     } catch (e) {
       setSavingStatus("idle");
-      setError(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : "Save failed");
     }
   };
 
@@ -521,13 +524,13 @@ export default function Home() {
       setCurrentLibraryId(id);
       setCurrentDraftId(null);
       setCanvasSource("library");
-      setSavingStatus("saved");
+      setSavingStatus("idle");
       writeBackToPlanner(id, "final");   // flip the planner chip to "final"
       await refreshSidebar();
-      setTimeout(() => setSavingStatus("idle"), 2000);
+      toast.success("Saved to library");
     } catch (e) {
       setSavingStatus("idle");
-      setError(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : "Save failed");
     }
   };
 
@@ -552,12 +555,12 @@ export default function Home() {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || `Save failed (HTTP ${res.status})`);
       }
-      setSavingStatus("saved");
+      setSavingStatus("idle");
       await refreshSidebar();
-      setTimeout(() => setSavingStatus("idle"), 2000);
+      toast.success("Library updated");
     } catch (e) {
       setSavingStatus("idle");
-      setError(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : "Save failed");
     }
   };
 
@@ -598,25 +601,31 @@ export default function Home() {
       return;
     }
     // Neither store has it: the saved campaign was deleted (stale link).
-    setError("That draft no longer exists.");
+    toast.error("That draft no longer exists.");
   };
 
-  const handleDeleteSaved = async (id: string) => {
-    if (!confirm("Delete this campaign?")) return;
-    await fetch(`/api/campaigns?id=${id}`, { method: "DELETE" });
-    if (currentDraftId === id) {
-      resetAll();
-    }
-    await refreshSidebar();
-  };
+  // Deletes open a ConfirmModal; confirmDelete does the work.
+  const handleDeleteSaved = (id: string) => setPendingDelete({ id, kind: "saved" });
+  const handleDeleteLibrary = (id: string) => setPendingDelete({ id, kind: "library" });
 
-  const handleDeleteLibrary = async (id: string) => {
-    if (!confirm("Remove this campaign from the library?")) return;
-    await fetch(`/api/library?id=${id}`, { method: "DELETE" });
-    if (currentLibraryId === id) {
-      resetAll();
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { id, kind } = pendingDelete;
+    setPendingDelete(null);
+    try {
+      if (kind === "saved") {
+        await fetch(`/api/campaigns?id=${id}`, { method: "DELETE" });
+        if (currentDraftId === id) resetAll();
+        toast.success("Draft deleted");
+      } else {
+        await fetch(`/api/library?id=${id}`, { method: "DELETE" });
+        if (currentLibraryId === id) resetAll();
+        toast.success("Removed from library");
+      }
+      await refreshSidebar();
+    } catch {
+      toast.error("Delete failed");
     }
-    await refreshSidebar();
   };
 
   const handleViewLibrary = async (id: string) => {
@@ -827,51 +836,38 @@ export default function Home() {
           "text/plain": new Blob([plain], { type: "text/plain" }),
         }),
       ]);
-      setCopyStatus("copied");
-      setTimeout(() => setCopyStatus("idle"), 2000);
+      toast.success("Copied for Google Docs");
     } catch {
       await navigator.clipboard.writeText(plain);
-      setCopyStatus("copied");
-      setTimeout(() => setCopyStatus("idle"), 2000);
+      toast.success("Copied to clipboard");
     }
   };
 
   // Save button logic based on canvas source
   const renderSaveButtons = () => {
     if (!campaign) return null;
+    const saving = savingStatus === "saving";
     if (canvasSource === "library") {
       return (
-        <button
-          onClick={handleUpdateLibrary}
-          disabled={savingStatus === "saving"}
-          className="text-xs bg-slate-900 text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {savingStatus === "saving" ? "Saving..." : savingStatus === "saved" ? "Saved!" : "Save to Library"}
-        </button>
+        <Button variant="primary" size="sm" loading={saving} onClick={handleUpdateLibrary}>
+          Save to Library
+        </Button>
       );
     }
     return (
       <div className="flex gap-2">
-        <button
-          onClick={handleSaveDraft}
-          disabled={savingStatus === "saving"}
-          className="text-xs border border-slate-200 text-slate-600 hover:bg-slate-50 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {savingStatus === "saving" ? "Saving..." : savingStatus === "saved" ? "Saved!" : "Save Draft"}
-        </button>
-        <button
-          onClick={handleSaveFinal}
-          disabled={savingStatus === "saving"}
-          className="text-xs bg-slate-900 text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {savingStatus === "saving" ? "Saving..." : savingStatus === "saved" ? "Saved!" : "Save Final"}
-        </button>
+        <Button variant="secondary" size="sm" loading={saving} onClick={handleSaveDraft}>
+          Save Draft
+        </Button>
+        <Button variant="primary" size="sm" loading={saving} onClick={handleSaveFinal}>
+          Save Final
+        </Button>
       </div>
     );
   };
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#f4f4ef" }}>
+    <div className="flex h-screen overflow-hidden bg-chrome">
       {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
       <Suspense fallback={null}>
         <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
@@ -935,37 +931,20 @@ export default function Home() {
                   {loadingPhase === "generating" && "Writing campaign..."}
                 </div>
               )}
-              {canvasSource === "library" && (
-                <span className="font-mono text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded shrink-0">library</span>
-              )}
-              {canvasSource === "draft" && (
-                <span className="font-mono text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded shrink-0">draft</span>
-              )}
+              {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
+              {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {plannerLinked && (
-                <span className="font-mono text-[10px] text-emerald-600 uppercase tracking-wide shrink-0" title="Stamped the linked planner row">
-                  linked to planner ✓
-                </span>
-              )}
               {campaign && (
-                <button
-                  onClick={handleCopyCampaign}
-                  className="text-xs text-slate-500 hover:text-slate-900 border border-slate-200 px-3 py-1.5 rounded-md transition-colors hover:bg-slate-50"
-                  title="Copy campaign for Google Docs"
-                >
-                  {copyStatus === "copied" ? "✓ Copied" : "Copy"}
-                </button>
+                <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
+                  Copy
+                </Button>
               )}
               {renderSaveButtons()}
               {campaign && (
-                <button
-                  onClick={() => setShowNewConfirm(true)}
-                  className="text-xs text-slate-400 hover:text-slate-700 border border-slate-200 px-3 py-1.5 rounded-md transition-colors"
-                  title="Start new campaign"
-                >
+                <Button variant="ghost" size="sm" onClick={() => setShowNewConfirm(true)} title="Start new campaign">
                   New
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -977,10 +956,16 @@ export default function Home() {
           )}
 
           {stage === "form" && loadingPhase === null && (
-            <div className="text-center py-24 text-slate-400">
-              <div className="text-4xl mb-4">✍</div>
-              <div className="text-sm">Fill in the brief and click Generate Brief to start.</div>
-            </div>
+            <EmptyState
+              icon={
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              }
+              title="Start a campaign"
+              description="Fill in the brief on the left and click Generate Brief to begin."
+            />
           )}
 
           {loadingPhase === "conceits" && (
@@ -1020,89 +1005,41 @@ export default function Home() {
           )}
         </div>
       </div>
-      {/* New campaign confirmation dialog */}
-      {showNewConfirm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <div className="font-semibold text-slate-900 mb-2">Start a new campaign?</div>
-            <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-              This will clear the canvas. Make sure you&apos;ve saved anything you want to keep.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowNewConfirm(false)}
-                className="text-sm text-slate-600 border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewConfirm(false);
-                  resetAll();
-                }}
-                className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"
-              >
-                Yes, start fresh
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Planner handoff over an unsaved canvas — confirm before replacing */}
-      {pendingPlannerRowId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <div className="font-semibold text-slate-900 mb-2">You have an unsaved campaign</div>
-            <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-              Start the planner brief? Your current canvas stays saved in this browser, so you can get back to it later.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => { setPendingPlannerRowId(null); router.replace("/copy-builder"); }}
-                className="text-sm text-slate-600 border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Keep working
-              </button>
-              <button
-                onClick={() => { const id = pendingPlannerRowId; setPendingPlannerRowId(null); if (id) startPlannerBrief(id); }}
-                className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"
-              >
-                Start planner brief
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Regenerate confirmation dialog */}
-      {pendingBriefInput && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <div className="font-semibold text-slate-900 mb-2">Start over?</div>
-            <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-              This will clear the current campaign and start a new brief. Any unsaved changes will be lost.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setPendingBriefInput(null)}
-                className="text-sm text-slate-600 border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const input = pendingBriefInput;
-                  setPendingBriefInput(null);
-                  resetAll();
-                  handleBriefSubmit(input);
-                }}
-                className="text-sm bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors"
-              >
-                Yes, regenerate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirmations (shared Modal primitive) */}
+      <ConfirmModal
+        open={showNewConfirm}
+        onClose={() => setShowNewConfirm(false)}
+        onConfirm={() => { setShowNewConfirm(false); resetAll(); }}
+        title="Start a new campaign?"
+        body="This will clear the canvas. Make sure you've saved anything you want to keep."
+        confirmLabel="Yes, start fresh"
+      />
+      <ConfirmModal
+        open={!!pendingPlannerRowId}
+        onClose={() => { setPendingPlannerRowId(null); router.replace("/copy-builder"); }}
+        onConfirm={() => { const id = pendingPlannerRowId; setPendingPlannerRowId(null); if (id) startPlannerBrief(id); }}
+        title="You have an unsaved campaign"
+        body="Start the planner brief? Your current canvas stays saved in this browser, so you can get back to it later."
+        confirmLabel="Start planner brief"
+        cancelLabel="Keep working"
+      />
+      <ConfirmModal
+        open={!!pendingBriefInput}
+        onClose={() => setPendingBriefInput(null)}
+        onConfirm={() => { const input = pendingBriefInput; setPendingBriefInput(null); if (input) { resetAll(); handleBriefSubmit(input); } }}
+        title="Start over?"
+        body="This will clear the current campaign and start a new brief. Any unsaved changes will be lost."
+        confirmLabel="Yes, regenerate"
+      />
+      <ConfirmModal
+        open={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+        title={pendingDelete?.kind === "library" ? "Remove from library?" : "Delete this campaign?"}
+        body={pendingDelete?.kind === "library" ? "This removes the finalized campaign from the library." : "This permanently deletes the saved draft."}
+        confirmLabel={pendingDelete?.kind === "library" ? "Remove" : "Delete"}
+        danger
+      />
     </div>
   );
 }

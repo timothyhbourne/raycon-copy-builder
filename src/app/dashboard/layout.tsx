@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { DashboardDataProvider } from "./dashboard-context";
 import type { OverviewData } from "./types";
 import { ymd, formatMoney, formatInt, formatPct } from "./format";
+import Button from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const today = new Date();
@@ -68,16 +70,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
                 className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white" />
             </div>
-            <button onClick={() => load(false)} disabled={loading}
-              className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50">
-              {loading ? "Loading..." : hasData ? "Refresh" : "Load"}
-            </button>
+            <Button variant="primary" size="sm" loading={loading} onClick={() => load(false)}>
+              {hasData ? "Refresh" : "Load"}
+            </Button>
             {hasData && (
-              <button onClick={() => load(true)} disabled={loading}
-                title="Bypass cache and re-fetch from Klaviyo"
-                className="px-3 py-1.5 border border-slate-300 text-slate-700 text-sm rounded hover:bg-slate-50 disabled:opacity-50">
+              <Button variant="secondary" size="sm" disabled={loading} onClick={() => load(true)}
+                title="Bypass cache and re-fetch from Klaviyo">
                 Force refresh
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -147,9 +147,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         {!hasData && !loading && !error && (
-          <div className="bg-white border border-slate-200 rounded-lg p-10 text-center">
-            <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2">No data yet</div>
-            <p className="text-slate-600 text-sm">Pick a date range above and click <span className="font-medium">Load</span>.</p>
+          <div className="bg-white border border-line rounded-md shadow-card">
+            <EmptyState
+              icon={
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 3v18h18" /><rect x="7" y="10" width="3" height="7" /><rect x="14" y="6" width="3" height="11" />
+                </svg>
+              }
+              title="No data loaded"
+              description="Pick a date range above and click Load to pull performance from Klaviyo."
+            />
           </div>
         )}
 

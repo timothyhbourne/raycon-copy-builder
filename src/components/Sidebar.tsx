@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import EmptyState from "./ui/EmptyState";
 
 interface LibraryMeta {
   id: string;
@@ -76,7 +77,7 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
         {tab === "saved" && (
           <>
             {savedItems.length === 0 && (
-              <div className="text-xs text-slate-400 text-center py-8">No saved campaigns yet</div>
+              <EmptyState className="py-10" title="No saved campaigns yet" />
             )}
             {savedItems.map((item) => (
               <div
@@ -85,13 +86,15 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
                 onClick={() => onLoadSaved(item.id)}
               >
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-slate-900 truncate">{item.campaign_name}</div>
+                  <div className="text-sm font-medium text-slate-900 truncate">{item.campaign_name}</div>
                   <div className="font-mono text-xs text-slate-400 mt-0.5">{item.campaign_type} · {item.status}</div>
                   <div className="text-xs text-slate-400 mt-0.5 truncate">{item.offer}</div>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteSaved(item.id); }}
-                  className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all text-xs shrink-0 mt-0.5"
+                  aria-label="Delete draft"
+                  title="Delete draft"
+                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
                 >
                   ✕
                 </button>
@@ -103,7 +106,7 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
         {tab === "library" && (
           <>
             {filteredLibrary.length === 0 && (
-              <div className="text-xs text-slate-400 text-center py-8">No library campaigns found</div>
+              <EmptyState className="py-10" title="No library campaigns found" />
             )}
             {filteredLibrary.map((item) => (
               <div
@@ -112,7 +115,7 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
                 onClick={() => onViewLibrary(item.id)}
               >
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-slate-900 truncate">{item.title}</div>
+                  <div className="text-sm font-medium text-slate-900 truncate">{item.title}</div>
                   <div className="font-mono text-xs text-slate-400 mt-0.5">{item.date} · {item.campaign_type}</div>
                   {item.conceit && item.conceit !== "[FILL ME IN]" && (
                     <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">{item.conceit}</div>
@@ -120,7 +123,9 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteLibrary(item.id); }}
-                  className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all text-xs shrink-0 mt-0.5"
+                  aria-label="Remove from library"
+                  title="Remove from library"
+                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
                 >
                   ✕
                 </button>

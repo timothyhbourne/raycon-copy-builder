@@ -4,6 +4,7 @@ import type { BriefInput, CampaignType, AudienceType, SectionSpec } from "@/lib/
 import { DEFAULT_SECTION_STRUCTURE } from "@/lib/schemas";
 import { PRODUCT_CATEGORIES, VALID_PRODUCT_IDS } from "@/lib/products";
 import SectionBuilder from "./SectionBuilder";
+import Button from "./ui/Button";
 
 interface Props {
   onSubmit: (input: BriefInput) => void;
@@ -283,13 +284,9 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
         />
       </div>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full bg-slate-900 text-white py-3 rounded-md font-medium hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? "Generating Brief..." : "Generate Brief"}
-      </button>
+      <Button type="submit" variant="primary" loading={loading} className="w-full">
+        Generate Brief
+      </Button>
     </form>
   );
 }

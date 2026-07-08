@@ -4,6 +4,8 @@ import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
 import { PLANNER_STATUSES, PLANNER_CHANNELS, EVERGREEN_OFFER } from "@/lib/planner-types";
+import Button from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
 
 // Copy Builder link state for a row, resolved against the set of saved copy ids.
 type CopyEntry = "sms" | "unlinked" | "draft" | "final";
@@ -220,12 +222,8 @@ export default function PlannerPage() {
           <h1 className="text-2xl font-semibold text-slate-900">Plan &amp; learnings</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={sync} disabled={syncing}
-            className="px-3 py-1.5 border border-slate-300 text-slate-700 text-sm rounded hover:bg-slate-50 disabled:opacity-50">
-            {syncing ? "Syncing…" : "Sync metrics"}
-          </button>
-          <button onClick={() => { setNewDate(null); setEditing("new"); }}
-            className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700">+ New campaign</button>
+          <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
+          <Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>
         </div>
       </div>
 
@@ -242,7 +240,18 @@ export default function PlannerPage() {
       {loading ? (
         <Skeleton />
       ) : rows.length === 0 ? (
-        <EmptyState onNew={() => { setNewDate(null); setEditing("new"); }} />
+        <div className="bg-white border border-line rounded-md shadow-card">
+          <EmptyState
+            icon={
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+              </svg>
+            }
+            title="No campaigns yet"
+            description="Plan your first email or SMS campaign — start at the idea stage, fill in details later."
+            action={<Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>}
+          />
+        </div>
       ) : view === "calendar" ? (
         <CalendarView rows={rows} cursor={cursor} setCursor={setCursor}
           onEntry={(r) => setEditing(r)} onDay={(d) => { setNewDate(`${d}T09:00`); setEditing("new"); }}
@@ -519,16 +528,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
   );
 }
 
-// ---------- empty / skeleton ----------
-function EmptyState({ onNew }: { onNew: () => void }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
-      <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2">No campaigns yet</div>
-      <p className="text-slate-600 text-sm mb-4">Plan your first email or SMS campaign — start at the idea stage, fill in details later.</p>
-      <button onClick={onNew} className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700">+ New campaign</button>
-    </div>
-  );
-}
+// ---------- skeleton ----------
 function Skeleton() {
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
@@ -738,11 +738,16 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
           {err && <div className="text-sm text-red-600">{err}</div>}
 
           <div className="flex items-center gap-2 pt-1">
-            <button onClick={save} disabled={saving} className="flex-1 bg-slate-900 text-white py-2 rounded-md text-sm font-medium hover:bg-slate-700 disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
-            {row && <button onClick={duplicate} disabled={saving} className="px-3 py-2 border border-slate-200 text-slate-600 rounded-md text-sm hover:bg-slate-50 disabled:opacity-50">Duplicate</button>}
-            {row && !confirmDel && <button onClick={() => setConfirmDel(true)} disabled={saving} className="px-3 py-2 border border-red-200 text-red-600 rounded-md text-sm hover:bg-red-50 disabled:opacity-50">Delete</button>}
-            {row && confirmDel && <button onClick={del} disabled={saving} className="px-3 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 disabled:opacity-50">Confirm delete</button>}
-            <button onClick={onClose} className="px-3 py-2 border border-slate-200 text-slate-600 rounded-md text-sm hover:bg-slate-50">Cancel</button>
+            <Button variant="primary" loading={saving} onClick={save} className="flex-1">Save</Button>
+            {row && <Button variant="secondary" disabled={saving} onClick={duplicate}>Duplicate</Button>}
+            {row && !confirmDel && (
+              <Button variant="secondary" disabled={saving} onClick={() => setConfirmDel(true)}
+                className="text-danger-600 border-danger-200 hover:bg-danger-50 hover:border-danger-200 hover:text-danger-600">
+                Delete
+              </Button>
+            )}
+            {row && confirmDel && <Button variant="danger" disabled={saving} onClick={del}>Confirm delete</Button>}
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
           </div>
         </div>
       </div>
