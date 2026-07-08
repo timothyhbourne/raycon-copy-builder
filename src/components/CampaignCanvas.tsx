@@ -7,6 +7,7 @@ import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
 import RegenerateModal from "./RegenerateModal";
 import DesignModal from "./DesignModal";
+import Skeleton from "./ui/Skeleton";
 
 interface Props {
   campaign: GeneratedCampaign;
@@ -162,13 +163,6 @@ export default function CampaignCanvas({
 
   return (
     <div className="space-y-4">
-      {/* Streaming progress banner */}
-      {isGenerating && (
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-          <div className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin shrink-0" />
-          <span className="font-mono text-xs text-slate-500 uppercase tracking-wide">Writing campaign…</span>
-        </div>
-      )}
       {/* Conceit bar */}
       <div className="bg-white border border-slate-200 rounded-lg px-6 py-4">
         <div className="flex items-start justify-between gap-4">
@@ -204,8 +198,9 @@ export default function CampaignCanvas({
         // Match by position first (most accurate), fall back to type.
         const spec = sectionStructure[i] ?? sectionStructure.find((s) => s.type === section.type);
         const gridCols = section.type === "product_grid" ? (spec?.grid_cols ?? 2) : undefined;
+        const isNewest = isGenerating && i === campaign.sections.length - 1;
         return (
-          <div key={section.id} className="relative">
+          <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
             {regeneratingSection === section.id && (
               <div className="absolute inset-0 bg-white/70 rounded-lg flex items-center justify-center z-10">
                 <span className="font-mono text-xs text-slate-500 animate-pulse">Regenerating...</span>
@@ -227,6 +222,16 @@ export default function CampaignCanvas({
           </div>
         );
       })}
+
+      {/* "more coming" affordance while streaming */}
+      {isGenerating && (
+        <div className="rounded-md border border-line bg-surface p-6 space-y-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+        </div>
+      )}
 
       {regenModal && (
         <RegenerateModal

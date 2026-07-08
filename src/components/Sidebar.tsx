@@ -28,9 +28,11 @@ interface Props {
   onDeleteSaved: (id: string) => void;
   onViewLibrary: (id: string) => void;
   onDeleteLibrary: (id: string) => void;
+  activeSavedId?: string | null;
+  activeLibraryId?: string | null;
 }
 
-export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary }: Props) {
+export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary, activeSavedId, activeLibraryId }: Props) {
   const [tab, setTab] = useState<"saved" | "library">("saved");
   const [libraryFilter, setLibraryFilter] = useState("");
 
@@ -44,36 +46,34 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 pt-4 pb-2">
-        <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-3">Raycon Copy Builder</div>
-        <div className="flex rounded-md border border-slate-200 overflow-hidden">
-          <button
-            onClick={() => setTab("saved")}
-            className={`flex-1 text-xs py-1.5 font-medium transition-colors ${tab === "saved" ? "bg-slate-900 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-          >
-            Saved ({savedItems.length})
-          </button>
-          <button
-            onClick={() => setTab("library")}
-            className={`flex-1 text-xs py-1.5 font-medium transition-colors ${tab === "library" ? "bg-slate-900 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-          >
-            Library ({libraryItems.length})
-          </button>
+      <div className="px-3 pt-4">
+        <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-3">Copy Builder</div>
+        <div className="flex gap-4 border-b border-line">
+          {([["saved", "Saved", savedItems.length], ["library", "Library", libraryItems.length]] as const).map(([key, label, count]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`relative pb-2 text-sm font-medium transition-colors ${tab === key ? "text-ink" : "text-ink-muted hover:text-ink-secondary"}`}
+            >
+              {label} <span className="font-normal text-ink-muted">({count})</span>
+              {tab === key && <span aria-hidden className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-accent" />}
+            </button>
+          ))}
         </div>
       </div>
 
       {tab === "library" && (
-        <div className="px-3 pb-2">
+        <div className="px-3 pt-3">
           <input
             value={libraryFilter}
             onChange={(e) => setLibraryFilter(e.target.value)}
-            placeholder="Filter..."
-            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-slate-400 bg-white"
+            placeholder="Filter…"
+            className="w-full text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors"
           />
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-1.5">
+      <div className="flex-1 overflow-y-auto px-3 pt-3 pb-4 space-y-1.5">
         {tab === "saved" && (
           <>
             {savedItems.length === 0 && (
@@ -82,7 +82,11 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
             {savedItems.map((item) => (
               <div
                 key={item.id}
-                className="group flex items-start justify-between gap-2 p-2.5 rounded-md border border-slate-100 hover:border-slate-300 bg-white hover:bg-slate-50 cursor-pointer transition-all"
+                className={`group flex items-start justify-between gap-2 p-2.5 rounded-md border cursor-pointer transition-[background-color,border-color] duration-150 ${
+                  activeSavedId === item.id
+                    ? "border-accent-200 border-l-2 border-l-accent bg-accent-50"
+                    : "border-line hover:border-line-strong bg-surface hover:bg-chrome"
+                }`}
                 onClick={() => onLoadSaved(item.id)}
               >
                 <div className="min-w-0">
@@ -111,7 +115,11 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
             {filteredLibrary.map((item) => (
               <div
                 key={item.id}
-                className="group flex items-start justify-between gap-2 p-2.5 rounded-md border border-slate-100 hover:border-slate-300 bg-white hover:bg-slate-50 cursor-pointer transition-all"
+                className={`group flex items-start justify-between gap-2 p-2.5 rounded-md border cursor-pointer transition-[background-color,border-color] duration-150 ${
+                  activeLibraryId === item.id
+                    ? "border-accent-200 border-l-2 border-l-accent bg-accent-50"
+                    : "border-line hover:border-line-strong bg-surface hover:bg-chrome"
+                }`}
                 onClick={() => onViewLibrary(item.id)}
               >
                 <div className="min-w-0">

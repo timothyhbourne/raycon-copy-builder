@@ -58,6 +58,64 @@ function DeepLinkReader({ onPlanner, onCampaign }: {
   return null;
 }
 
+type StepKey = "form" | "conceits" | "canvas";
+const STEP_ORDER: Record<StepKey, number> = { form: 0, conceits: 1, canvas: 2 };
+
+// Compact Brief → Conceit → Canvas stepper. Current in accent, completed in ink
+// with a check, future muted. Completed steps navigate back where possible.
+function Stepper({ activeKey, canGoBack, onNavigate }: {
+  activeKey: StepKey;
+  canGoBack: (key: StepKey) => boolean;
+  onNavigate: (key: StepKey) => void;
+}) {
+  const steps: { key: StepKey; label: string }[] = [
+    { key: "form", label: "Brief" },
+    { key: "conceits", label: "Conceit" },
+    { key: "canvas", label: "Canvas" },
+  ];
+  const activeIdx = STEP_ORDER[activeKey];
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      {steps.map((s, i) => {
+        const idx = STEP_ORDER[s.key];
+        const state = idx < activeIdx ? "done" : idx === activeIdx ? "current" : "future";
+        const clickable = state === "done" && canGoBack(s.key);
+        return (
+          <div key={s.key} className="flex items-center gap-2">
+            {clickable ? (
+              <button type="button" onClick={() => onNavigate(s.key)} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+                <StepDot state={state} index={i} />
+                <span className="font-medium text-ink">{s.label}</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <StepDot state={state} index={i} />
+                <span className={`font-medium ${state === "current" ? "text-accent" : state === "done" ? "text-ink" : "text-ink-muted"}`}>{s.label}</span>
+              </div>
+            )}
+            {i < steps.length - 1 && <span className="text-ink-muted" aria-hidden>→</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function StepDot({ state, index }: { state: "done" | "current" | "future"; index: number }) {
+  return (
+    <span className={`flex items-center justify-center w-5 h-5 rounded-full font-mono text-[10px] ${
+      state === "current" ? "bg-accent text-white" : state === "done" ? "bg-ink text-white" : "bg-chrome text-ink-muted border border-line"
+    }`}>
+      {state === "done" ? "✓" : index + 1}
+    </span>
+  );
+}
+function CollapseIcon() {
+  return (<svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>);
+}
+function PanelIcon() {
+  return (<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></svg>);
+}
+
 interface LibraryMeta extends Omit<LibraryCampaign, "body"> {}
 interface SavedMeta extends Omit<SavedCampaign, "campaign" | "expanded_brief" | "section_structure"> {}
 
@@ -108,6 +166,9 @@ export default function Home() {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" } | null>(null);
   const [pendingBriefInput, setPendingBriefInput] = useState<BriefInput | null>(null);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
+  // Stage-aware chrome (Phase 3a): collapsible sidebar + brief panel.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [briefOpen, setBriefOpen] = useState(true);
 
   // Tracks where the canvas content came from
   const [canvasSource, setCanvasSource] = useState<CanvasSource>("new");
@@ -171,6 +232,30 @@ export default function Home() {
       }));
     }
   }, [campaign, expandedBrief, chosenConceit, sectionStructure, currentDraftId, currentBriefInput, canvasSource, plannerLink]);
+
+  // Auto-collapse the brief panel on the canvas, auto-expand on the form. Runs
+  // only on stage change, so a manual toggle persists within a stage.
+  useEffect(() => {
+    if (stage === "canvas") setBriefOpen(false);
+    else if (stage === "form") setBriefOpen(true);
+  }, [stage]);
+
+  // ⌘/Ctrl+S → Save Draft. Kept in a ref (refreshed each render) so the single
+  // listener always sees current state without re-subscribing.
+  const saveShortcutRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveShortcutRef.current = () => { if (campaign && stage === "canvas" && savingStatus !== "saving") handleSaveDraft(); };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveShortcutRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // --- Planner handoff ---------------------------------------------------
 
@@ -424,6 +509,7 @@ export default function Home() {
           }
         }
       }
+      toast.success(`Campaign written — ${sections.length} section${sections.length === 1 ? "" : "s"}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
       setCampaign(null);
@@ -856,7 +942,7 @@ export default function Home() {
     }
     return (
       <div className="flex gap-2">
-        <Button variant="secondary" size="sm" loading={saving} onClick={handleSaveDraft}>
+        <Button variant="secondary" size="sm" loading={saving} onClick={handleSaveDraft} title="Save Draft (⌘S)">
           Save Draft
         </Button>
         <Button variant="primary" size="sm" loading={saving} onClick={handleSaveFinal}>
@@ -866,6 +952,18 @@ export default function Home() {
     );
   };
 
+  // Stepper state derived from stage + loading phase.
+  const activeKey: StepKey = loadingPhase === "conceits" ? "conceits" : loadingPhase === "generating" ? "canvas" : (stage as StepKey);
+  const canGoBack = (key: StepKey) => {
+    if (key === "form") return activeKey === "conceits";
+    if (key === "conceits") return activeKey === "canvas" && conceits.length > 0;
+    return false;
+  };
+  const onStepNavigate = (key: StepKey) => {
+    if (key === "form") setStage("form");
+    else if (key === "conceits") setStage("conceits");
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-chrome">
       {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
@@ -873,30 +971,58 @@ export default function Home() {
         <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
       </Suspense>
 
-      {/* Sidebar */}
-      <div className="w-60 shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
-        <Sidebar
-          libraryItems={libraryItems}
-          savedItems={savedItems}
-          onLoadSaved={handleLoadSaved}
-          onDeleteSaved={handleDeleteSaved}
-          onViewLibrary={handleViewLibrary}
-          onDeleteLibrary={handleDeleteLibrary}
-        />
+      {/* Sidebar (collapsible) */}
+      <div className={`shrink-0 border-r border-line bg-surface overflow-hidden transition-[width] duration-[250ms] ease-out-soft ${sidebarOpen ? "w-60" : "w-12"}`}>
+        {sidebarOpen ? (
+          <div className="relative h-full overflow-y-auto">
+            <button onClick={() => setSidebarOpen(false)} title="Collapse" aria-label="Collapse sidebar"
+              className="absolute top-3.5 right-2 z-10 text-ink-muted hover:text-ink p-1 rounded-sm hover:bg-chrome transition-colors">
+              <CollapseIcon />
+            </button>
+            <Sidebar
+              libraryItems={libraryItems}
+              savedItems={savedItems}
+              onLoadSaved={handleLoadSaved}
+              onDeleteSaved={handleDeleteSaved}
+              onViewLibrary={handleViewLibrary}
+              onDeleteLibrary={handleDeleteLibrary}
+              activeSavedId={currentDraftId}
+              activeLibraryId={currentLibraryId}
+            />
+          </div>
+        ) : (
+          <button onClick={() => setSidebarOpen(true)} title="Saved & Library" aria-label="Expand sidebar"
+            className="w-full flex justify-center pt-4 text-ink-muted hover:text-ink transition-colors">
+            <PanelIcon />
+          </button>
+        )}
       </div>
 
-      {/* Input form panel */}
-      <div className="w-96 shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
-        <div className="p-5">
-          <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-4">Campaign Brief</div>
+      {/* Brief panel (collapsible; the form stays mounted so its state is never lost) */}
+      <div className={`shrink-0 border-r border-line bg-surface overflow-hidden transition-[width] duration-[250ms] ease-out-soft ${briefOpen ? "w-96" : "w-12"}`}>
+        {!briefOpen && (
+          <button onClick={() => setBriefOpen(true)} title="Expand brief" aria-label="Expand brief"
+            className="h-full w-full flex flex-col items-center gap-3 pt-4 text-ink-secondary hover:text-ink hover:bg-chrome transition-colors">
+            <PanelIcon />
+            <span className="[writing-mode:vertical-rl] rotate-180 font-mono text-[11px] uppercase tracking-wide">Brief</span>
+          </button>
+        )}
+        <div className={briefOpen ? "h-full overflow-y-auto p-5" : "hidden"}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-mono text-xs text-ink-secondary uppercase tracking-wide">Campaign Brief</div>
+            <button onClick={() => setBriefOpen(false)} title="Collapse brief" aria-label="Collapse brief"
+              className="text-ink-muted hover:text-ink p-1 rounded-sm hover:bg-chrome transition-colors">
+              <CollapseIcon />
+            </button>
+          </div>
           {seedingProducts && (
-            <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
-              <span className="w-3 h-3 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
+            <div className="mb-3 flex items-center gap-2 text-xs text-ink-muted">
+              <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" />
               Suggesting products &amp; hero angle…
             </div>
           )}
           {seedAiFailed && (
-            <div className="mb-3 text-xs text-amber-600 leading-relaxed">
+            <div className="mb-3 text-xs text-warning-600 leading-relaxed">
               AI suggestions unavailable — add products and a hero angle to continue.
             </div>
           )}
@@ -912,97 +1038,106 @@ export default function Home() {
 
       {/* Main canvas area */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-8">
-          {/* Top bar */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3 min-w-0">
-              {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
-                <input
-                  value={currentBriefInput.campaign_name}
-                  onChange={(e) => handleRenameCampaign(e.target.value)}
-                  className="font-mono text-xs text-slate-700 uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-slate-500 focus:outline-none min-w-0 w-48 transition-colors"
-                  title="Click to rename campaign"
-                />
-              ) : (
-                <div className="font-mono text-xs text-slate-500 uppercase tracking-wide">
-                  {stage === "form" && loadingPhase === null && "Waiting for brief..."}
-                  {loadingPhase === "conceits" && "Generating conceits..."}
-                  {stage === "conceits" && loadingPhase === null && "Pick a conceit"}
-                  {loadingPhase === "generating" && "Writing campaign..."}
-                </div>
-              )}
-              {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
-              {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+        <div className="max-w-3xl mx-auto px-6 pb-8">
+          {/* Sticky top bar + stepper */}
+          <div className="sticky top-0 z-10 bg-chrome border-b border-line -mx-6 px-6">
+            <div className="flex items-center justify-between gap-3 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
+                  <div className="group relative flex items-center min-w-0">
+                    <input
+                      value={currentBriefInput.campaign_name}
+                      onChange={(e) => handleRenameCampaign(e.target.value)}
+                      className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 pr-5 transition-colors"
+                      title="Click to rename campaign"
+                    />
+                    <svg aria-hidden className="pointer-events-none absolute right-0 w-3.5 h-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </div>
+                ) : (
+                  <span className="font-mono text-xs text-ink-muted uppercase tracking-wide">New campaign</span>
+                )}
+                {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
+                {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {campaign && (
+                  <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
+                    <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                    Copy
+                  </Button>
+                )}
+                {renderSaveButtons()}
+                {campaign && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowNewConfirm(true)} title="Start new campaign">
+                    New
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {campaign && (
-                <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
-                  Copy
-                </Button>
-              )}
-              {renderSaveButtons()}
-              {campaign && (
-                <Button variant="ghost" size="sm" onClick={() => setShowNewConfirm(true)} title="Start new campaign">
-                  New
-                </Button>
+            <div className="flex items-center gap-4 pb-3">
+              <Stepper activeKey={activeKey} canGoBack={canGoBack} onNavigate={onStepNavigate} />
+              {loadingPhase === "conceits" && <span className="text-xs text-ink-muted">Generating conceits…</span>}
+              {loadingPhase === "generating" && (
+                <span className="text-xs text-ink-muted">
+                  Writing — section {Math.min((campaign?.sections.length ?? 0) + 1, sectionStructure.length || 99)} of {sectionStructure.length || "…"}
+                </span>
               )}
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+            <div className="mt-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">
               {error}
             </div>
           )}
 
-          {stage === "form" && loadingPhase === null && (
-            <EmptyState
-              icon={
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
-              }
-              title="Start a campaign"
-              description="Fill in the brief on the left and click Generate Brief to begin."
-            />
-          )}
+          <div className="pt-5">
+            {stage === "form" && loadingPhase === null && (
+              <EmptyState
+                icon={
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                }
+                title="Start a campaign"
+                description="Fill in the brief on the left and click Generate Brief to begin."
+              />
+            )}
 
-          {loadingPhase === "conceits" && (
-            <div className="flex flex-col items-center justify-center py-32 gap-5">
-              <div className="w-9 h-9 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
-              <div className="font-mono text-xs text-slate-400 uppercase tracking-wide">Generating conceits...</div>
-            </div>
-          )}
+            {loadingPhase === "conceits" && (
+              <ConceitPicker loading conceits={[]} chosen={null} onPick={() => {}} />
+            )}
 
-          {stage === "conceits" && loadingPhase === null && (
-            <div>
-              {expandedBrief && (
-                <div className="bg-white border border-slate-200 rounded-lg px-6 py-4 mb-6">
-                  <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2">Expanded Brief</div>
-                  <p className="text-sm text-slate-700 leading-relaxed">{expandedBrief.headline_thesis}</p>
-                  <p className="text-sm text-slate-500 mt-2 leading-relaxed">{expandedBrief.tonal_direction}</p>
-                </div>
-              )}
-              <ConceitPicker conceits={conceits} chosen={chosenConceit} onPick={handlePickConceit} />
-            </div>
-          )}
+            {stage === "conceits" && loadingPhase === null && (
+              <div>
+                {expandedBrief && (
+                  <div className="bg-surface border border-line rounded-md px-6 py-4 mb-6">
+                    <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-2">Expanded Brief</div>
+                    <p className="text-sm text-ink leading-relaxed">{expandedBrief.headline_thesis}</p>
+                    <p className="text-sm text-ink-secondary mt-2 leading-relaxed">{expandedBrief.tonal_direction}</p>
+                  </div>
+                )}
+                <ConceitPicker conceits={conceits} chosen={chosenConceit} onPick={handlePickConceit} onShuffle={handleNewConceits} />
+              </div>
+            )}
 
-          {stage === "canvas" && campaign && (
-            <CampaignCanvas
-              campaign={campaign}
-              expandedBrief={expandedBrief}
-              chosenConceit={chosenConceit}
-              retrievedExamples={retrievedExamples}
-              sectionStructure={sectionStructure}
-              toneDial={currentBriefInput?.tone_dial ?? 1}
-              isGenerating={loadingPhase === "generating"}
-              offer={currentBriefInput?.offer ?? ""}
-              onChange={setCampaign}
-              onConceitEdit={() => setStage("conceits")}
-              onNewConceits={handleNewConceits}
-            />
-          )}
+            {stage === "canvas" && campaign && (
+              <CampaignCanvas
+                campaign={campaign}
+                expandedBrief={expandedBrief}
+                chosenConceit={chosenConceit}
+                retrievedExamples={retrievedExamples}
+                sectionStructure={sectionStructure}
+                toneDial={currentBriefInput?.tone_dial ?? 1}
+                isGenerating={loadingPhase === "generating"}
+                offer={currentBriefInput?.offer ?? ""}
+                onChange={setCampaign}
+                onConceitEdit={() => setStage("conceits")}
+                onNewConceits={handleNewConceits}
+              />
+            )}
+          </div>
         </div>
       </div>
       {/* Confirmations (shared Modal primitive) */}
