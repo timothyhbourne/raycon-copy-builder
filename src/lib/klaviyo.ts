@@ -22,7 +22,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
+// Optional per-call fetch behavior. Background jobs (the metrics sync) can wait
+// out longer 429 Retry-After windows than an interactive request should:
+// Klaviyo's reporting endpoints have a 2/min steady quota whose Retry-After can
+// approach a minute, which the interactive threshold deliberately refuses.
+interface KlaviyoFetchOpts {
+  patientThresholdS?: number; // max Retry-After (s) we'll sleep through (default PATIENT_RETRY_THRESHOLD_S)
+  maxRetryDelayMs?: number;   // cap on a single sleep (default PATIENT_RETRY_DELAY_MS)
+}
+
+async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit, opts?: KlaviyoFetchOpts): Promise<T> {
   const key = process.env.KLAVIYO_API_KEY;
   if (!key) {
     throw new Error("KLAVIYO_API_KEY is not set in .env.local. Add it and restart the dev server.");
@@ -40,14 +49,16 @@ async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit): Prom
     if (res.status === 429) {
       const retryAfterRaw = res.headers.get("Retry-After");
       const retryAfterSec = retryAfterRaw ? Math.ceil(parseFloat(retryAfterRaw)) : 1;
-      // Long waits indicate steady-state throttle exhaustion — surface to caller
-      // instead of blocking the request for minutes.
-      if (retryAfterSec > PATIENT_RETRY_THRESHOLD_S || attempt >= MAX_RETRIES) {
+      const thresholdS = opts?.patientThresholdS ?? PATIENT_RETRY_THRESHOLD_S;
+      const maxDelayMs = opts?.maxRetryDelayMs ?? PATIENT_RETRY_DELAY_MS;
+      // Waits beyond the caller's patience indicate steady-state throttle
+      // exhaustion — surface to caller instead of blocking for minutes.
+      if (retryAfterSec > thresholdS || attempt >= MAX_RETRIES) {
         throw new Error(
           `Klaviyo rate-limited this request. Available in ~${retryAfterSec}s. Wait and click Load again.`
         );
       }
-      await sleep(Math.min(retryAfterSec * 1000, PATIENT_RETRY_DELAY_MS));
+      await sleep(Math.min(retryAfterSec * 1000, maxDelayMs));
       continue;
     }
     if (!res.ok) {
@@ -465,6 +476,93 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ re
     },
   };
   return fetchAllPages<CampaignValuesResult>("/campaign-values-reports/", body);
+}
+
+// ---------------------------------------------------------------------------
+// Series Reports — per-interval (daily) stats for ALL flows / campaigns in ONE
+// call. This is how the metrics sync stays inside Klaviyo's reporting quota
+// (burst 1/s, steady 2/m, 225/day — shared across the reporting endpoints): a
+// whole 60-day backfill is 1 flow-series + 1 campaign-series call instead of
+// 2 calls per day. Response shape: attributes.date_times[] (one ISO datetime
+// per interval bucket, account-timezone day boundaries) and attributes.results[]
+// where each result = { groupings, statistics: { stat: number[] } } with arrays
+// aligned to date_times.
+// ---------------------------------------------------------------------------
+
+// Only what the daily store needs — fewer statistics, fewer failure modes.
+const SERIES_STATISTICS = ["recipients", "opens_unique", "clicks_unique", "conversion_value"];
+
+export interface SeriesResult<G> {
+  groupings: G;
+  statistics: Record<string, number[]>;
+}
+
+interface SeriesReportResponse<G> {
+  data: { attributes: { date_times: string[]; results: SeriesResult<G>[] } };
+  links?: { next?: string | null };
+}
+
+export interface SeriesReport<G> {
+  dateTimes: string[];
+  results: SeriesResult<G>[];
+  truncated: boolean;
+}
+
+// Series calls run in background jobs, so they can afford to sleep through the
+// long Retry-After of the 2/min steady quota rather than failing the run.
+const SERIES_FETCH_OPTS = { patientThresholdS: 90, maxRetryDelayMs: 90_000 };
+
+async function fetchAllSeriesPages<G>(endpoint: string, body: unknown): Promise<SeriesReport<G>> {
+  const bodyStr = JSON.stringify(body);
+  const results: SeriesResult<G>[] = [];
+  let dateTimes: string[] = [];
+  let url: string | null = endpoint;
+  let pages = 0;
+  while (url && pages < MAX_REPORT_PAGES) {
+    const resp: SeriesReportResponse<G> = await klaviyoFetch<SeriesReportResponse<G>>(
+      url,
+      { method: "POST", body: bodyStr },
+      SERIES_FETCH_OPTS
+    );
+    if (!dateTimes.length) dateTimes = resp.data.attributes.date_times ?? [];
+    results.push(...resp.data.attributes.results);
+    const nextLink: string | null | undefined = resp.links?.next;
+    url = nextLink ? nextLink.replace(BASE, "") : null;
+    pages++;
+  }
+  return { dateTimes, results, truncated: url !== null };
+}
+
+export function flowSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{ flow_id?: string; send_channel?: string }>> {
+  const body = {
+    data: {
+      type: "flow-series-report",
+      attributes: {
+        statistics: SERIES_STATISTICS,
+        timeframe: { start: opts.start, end: opts.end },
+        interval: "daily",
+        conversion_metric_id: opts.conversionMetricId,
+        filter: REPORT_CHANNEL_FILTER,
+      },
+    },
+  };
+  return fetchAllSeriesPages("/flow-series-reports/", body);
+}
+
+export function campaignSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{ campaign_id?: string; send_channel?: string }>> {
+  const body = {
+    data: {
+      type: "campaign-series-report",
+      attributes: {
+        statistics: SERIES_STATISTICS,
+        timeframe: { start: opts.start, end: opts.end },
+        interval: "daily",
+        conversion_metric_id: opts.conversionMetricId,
+        filter: REPORT_CHANNEL_FILTER,
+      },
+    },
+  };
+  return fetchAllSeriesPages("/campaign-series-reports/", body);
 }
 
 export function dayRangeISO(startYMD: string, endYMD: string): { start: string; end: string } {
