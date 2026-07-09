@@ -7,17 +7,20 @@ import type { OverviewData } from "./types";
 import { ymd, formatMoney, formatInt, formatPct } from "./format";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
+import { toast } from "@/components/ui/Toast";
 
 type Preset = "7d" | "30d" | "90d" | "custom";
 
-// Range presets set the window and load immediately; "Custom" reveals the two
-// date inputs instead. Default is 30d, which also drives the mount auto-load.
+// Range presets set the window and read the store immediately; "Custom" reveals
+// the two date inputs. Default is 30d, which also drives the mount auto-load.
 const PRESETS: { key: Preset; label: string; days: number | null }[] = [
   { key: "7d", label: "7d", days: 7 },
   { key: "30d", label: "30d", days: 30 },
   { key: "90d", label: "90d", days: 90 },
   { key: "custom", label: "Custom", days: null },
 ];
+
+const MAX_POLLS = 6; // ~1 minute of background-coverage polling
 
 function daysAgo(n: number): string {
   const t = new Date();
@@ -34,6 +37,18 @@ function RefreshIcon({ className = "" }: { className?: string }) {
   );
 }
 
+// Relative freshness from last_synced_at; stale (amber) once older than an hour.
+function relSync(iso?: string | null): { label: string; stale: boolean } {
+  if (!iso) return { label: "never synced", stale: true };
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const stale = mins > 60;
+  const label = mins < 1 ? "just now"
+    : mins < 60 ? `${mins}m ago`
+    : mins < 1440 ? `${Math.floor(mins / 60)}h ago`
+    : `${Math.floor(mins / 1440)}d ago`;
+  return { label, stale };
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [start, setStart] = useState(() => daysAgo(30));
   const [end, setEnd] = useState(() => ymd(new Date()));
@@ -41,41 +56,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadedAt, setLoadedAt] = useState<string | null>(null);
-  const [servedFromCache, setServedFromCache] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false); // background stale-while-revalidate in flight
+  const [syncing, setSyncing] = useState(false);       // "Sync now" (Klaviyo pull) in flight
+  const [pollAttempts, setPollAttempts] = useState(0); // background coverage polling
 
   const pathname = usePathname();
 
-  // Load accepts explicit start/end so presets can fetch the new range in the
-  // same tick without waiting for the setState to flush.
-  const load = useCallback(async (forceFresh = false, s = start, e = end) => {
+  // Read the store for a range. Instant (no Klaviyo) — accepts explicit start/end
+  // so a preset click reads the new range in the same tick.
+  const load = useCallback(async (s = start, e = end) => {
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/klaviyo/overview?start=${s}&end=${e}${forceFresh ? "&nocache=1" : ""}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/klaviyo/overview?start=${s}&end=${e}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Klaviyo fetch failed");
+      if (!res.ok) throw new Error(json.error || "Failed to load");
       setData(json as OverviewData);
-      setLoadedAt(new Date().toLocaleTimeString());
-      setServedFromCache(json.served_from_cache ? new Date(json.served_from_cache).toLocaleTimeString() : null);
-      // Stale-while-revalidate: an expired cache hit paints immediately, then we
-      // pull fresh data in the background (no spinner) and swap it in.
-      if (!forceFresh && json.stale) {
-        setRefreshing(true);
-        fetch(`/api/klaviyo/overview?start=${s}&end=${e}&nocache=1`)
-          .then((r) => r.json())
-          .then((fresh) => {
-            if (fresh && !fresh.error) {
-              setData(fresh as OverviewData);
-              setLoadedAt(new Date().toLocaleTimeString());
-              setServedFromCache(null);
-            }
-          })
-          .catch(() => { /* keep the stale copy on failure */ })
-          .finally(() => setRefreshing(false));
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Load failed");
       setData(null);
@@ -84,9 +79,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [start, end]);
 
-  // Auto-load once on mount with the default 30-day range — no empty "click
-  // Load" state. Intentionally runs a single time.
-  useEffect(() => { load(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-load once on mount (default 30-day range). Runs a single time.
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset the coverage-poll counter whenever the range changes.
+  useEffect(() => { setPollAttempts(0); }, [start, end]);
+
+  // If the range has un-synced days, the overview route fills them in the
+  // background — poll every 10s (capped) until coverage completes.
+  useEffect(() => {
+    const missing = data?.missing_days?.length ?? 0;
+    if (missing === 0 || pollAttempts >= MAX_POLLS) return;
+    const id = setTimeout(() => { setPollAttempts((a) => a + 1); load(); }, 10_000);
+    return () => clearTimeout(id);
+  }, [data, pollAttempts, load]);
 
   const applyPreset = (p: Preset, days: number | null) => {
     setPreset(p);
@@ -95,13 +101,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const e = ymd(new Date());
     setStart(s);
     setEnd(e);
-    load(false, s, e);
+    load(s, e);
+  };
+
+  // "Sync now" — explicit freshness pull. Triggers the background sync route,
+  // then re-reads the store. Outcome goes to a toast.
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/metrics/sync", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Sync failed");
+      const synced = json.days_synced ?? 0;
+      const failed = json.days_failed ?? 0;
+      if (failed > 0) toast.info(`Synced ${synced} day(s) · ${failed} rate-limited, retry shortly`);
+      else toast.success(`Synced ${synced} day(s)`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+      await load(); // re-read the freshly-synced store
+    }
   };
 
   const hasData = data !== null;
   const revenue = data?.revenue ?? null;
   const warnings = data?.warnings ?? [];
+  const missingDays = data?.missing_days ?? [];
   const firstLoad = loading && !hasData;
+  const freshness = relSync(data?.last_synced_at);
 
   const tabs = [
     { href: "/dashboard/flows", label: "Flows" },
@@ -111,7 +139,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-8 py-8">
-        {/* Header: title + range presets / custom inputs + refresh controls */}
+        {/* Header: title + range presets / custom inputs + Sync now */}
         <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
           <div>
             <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-1">Dashboard</div>
@@ -140,23 +168,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
                     className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
                 </div>
-                <Button variant="secondary" size="sm" loading={loading} onClick={() => load(false)}>Load</Button>
+                <Button variant="secondary" size="sm" loading={loading} onClick={() => load()}>Apply</Button>
               </>
             )}
-            {preset !== "custom" && (
-              <Button variant="secondary" size="sm" loading={loading} onClick={() => load(false)}>Refresh</Button>
-            )}
-            <Button variant="ghost" size="sm" disabled={loading} onClick={() => load(true)}
-              title="Bypass cache and re-fetch from Klaviyo" aria-label="Force refresh from Klaviyo">
-              <RefreshIcon />
+            <Button variant="secondary" size="sm" loading={syncing} onClick={syncNow}
+              title="Pull the latest metrics from Klaviyo (may take a moment)">
+              <RefreshIcon className="mr-1.5" /> Sync now
             </Button>
           </div>
         </div>
 
         {error && (
           <div className="bg-danger-50 border border-danger-200 rounded-md p-4 mb-6">
-            <div className="font-mono text-xs text-danger-600 uppercase tracking-wide mb-1">Klaviyo error</div>
+            <div className="font-mono text-xs text-danger-600 uppercase tracking-wide mb-1">Error</div>
             <div className="text-sm text-danger-600 font-mono whitespace-pre-wrap break-words">{error}</div>
+          </div>
+        )}
+
+        {/* Coverage notice — range has un-synced days; filling in the background. */}
+        {hasData && missingDays.length > 0 && (
+          <div className="bg-warning-50 border border-warning-200 rounded-md p-4 mb-6 flex items-center gap-2">
+            <RefreshIcon className={`text-warning-600 shrink-0 ${pollAttempts < MAX_POLLS ? "animate-spin" : ""}`} />
+            <div className="text-sm text-ink-secondary">
+              {missingDays.length} day{missingDays.length === 1 ? "" : "s"} in this range {missingDays.length === 1 ? "hasn't" : "haven't"} been synced yet — totals may be incomplete.
+              {pollAttempts < MAX_POLLS ? " Syncing in background…" : " Click Sync now to finish."}
+            </div>
           </div>
         )}
 
@@ -169,7 +205,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        {/* Revenue tiles — skeletons on first load, real values once fetched */}
+        {/* Revenue tiles — skeletons on first load, real values once read */}
         {firstLoad ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             {[0, 1].map((i) => (
@@ -207,7 +243,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </>
         ) : null}
 
-        {/* Tabs (underline) + loaded-at line */}
+        {/* Tabs (underline) + freshness line */}
         <div className="flex items-end justify-between border-b border-line mb-6">
           <div className="flex items-center gap-6">
             {tabs.map((t) => {
@@ -223,12 +259,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
           </div>
-          {loadedAt && (
-            <div className="pb-2.5 text-xs text-ink-muted font-mono flex items-center gap-1.5">
-              <RefreshIcon className={`opacity-60 ${refreshing ? "animate-spin" : ""}`} />
-              Loaded {loadedAt}
-              {servedFromCache && <span>· cached {servedFromCache}</span>}
-              {refreshing && <span className="text-accent">· refreshing…</span>}
+          {hasData && (
+            <div className={`pb-2.5 text-xs font-mono flex items-center gap-1.5 ${freshness.stale ? "text-warning-600" : "text-ink-muted"}`}
+              title={data?.last_synced_at ? `Last synced ${new Date(data.last_synced_at).toLocaleString()}` : undefined}>
+              <RefreshIcon className={`opacity-70 ${syncing ? "animate-spin" : ""}`} />
+              Synced {freshness.label}
             </div>
           )}
         </div>
