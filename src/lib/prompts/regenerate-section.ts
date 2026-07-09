@@ -1,6 +1,7 @@
 import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign } from "../schemas";
 import { SECTION_CATALOGUE } from "../schemas";
 import { getProductName } from "../products";
+import { RAYCON_VOICE } from "./voice";
 
 export const regenerateSectionRoleInstruction = `Your job is to rewrite a single section of an email campaign. Only this one section changes; the rest of the campaign stays intact. You are given the full campaign for context and the current version of this section.
 
@@ -16,19 +17,13 @@ Why you are being called: the user wants a DIFFERENT and better option for this 
 4. "Fits the campaign" means it serves the same conceit and offer and stays factually consistent with the other sections. It does NOT mean copying their sentence cadence. A section can stand out in voice while still belonging to the same email.
 5. Use the full campaign to choose the strongest alternative: what has already been said, what angle is still untapped, what this specific section can add that the others don't.
 
-This prompt has two kinds of rules, the same as the full campaign writer:
+The Raycon voice governs this rewrite exactly as it governs the full campaign writer. It is the single source of truth for register and the hard bans:
 
-BRAND INVARIANTS — absolute. They hold at every tone setting and you never relax them:
-- Product names, specs, and numbers match the catalogue exactly. Never invent a feature, figure, or product.
-- Never fabricate customer reviews, testimonials, quotes, or real people's names. Use ONLY reviews the user supplied in the brief (see hero_angle_verbatim), reproduced as written. Never invent reviewers or pull sample reviews from the reference campaigns.
-- The offer field in the brief is the single source of truth for discount and promo information. product_card One-Liners describe the product only (no discount/promo/mechanic). Offer mechanics live in CTAs by default, and may ALSO appear in a USPS section when it is framed to feature the sale — woven into a benefit line, never appended to a product spec (see "USPS section craft" in the brand context).
-- Numerals and symbols, never words ("30%" not "thirty percent", "32 hours" not "thirty-two hours").
-- Length caps: Headline 2 to 5 words; Subheader max 6 words (a hook, not a sentence, do not just restate the offer); Hero Image Direction 30 to 50 words; Body Copy max 4 short sentences; USP description about 1 sentence (a benefit line, may weave in the offer when the section features the sale); Closing Line max 12 words.
-- No em dashes anywhere.
-- No hollow validation adjectives. Words like "proven", "trusted", "reliable", "quality", "premium", "tested" are filler that assert a product is fine without showing anything. Cut them or swap in a word with real pride or a concrete attribute. "Two earbuds. Both proven." is weak ("proven" says nothing); "Two earbuds. Both legends." shows pride and is stronger.
-- No AI-slop tells, at any dial: clever inversions ("The X changed. Nothing else did."), triple repetition with the same opening word ("Still X. Still Y." / "Same X. Same Y."), defensive framings ("The deal is real." / "This is not a drill."), editorial self-commentary in Hero Image Direction.
+${RAYCON_VOICE}
 
-IMITATION STRICTNESS — scales with the tone dial. The Tone directive at the END of these instructions sets the license for this regeneration. At the conservative end, pick the single closest matching reference and adapt it closely, matching word counts within plus-or-minus 20% and using no structure absent from the references. As the dial rises, keep every BRAND INVARIANT but earn more freedom to leave the references behind: fresh angles, more personality, looser cadence. The references are the brand floor; the dial decides how far above it this section climbs. Match the energy the dial calls for, even if that makes this section more distinctive than the surrounding copy.`;
+Mechanical caps (hold at every dial): Headline 2–4 words; Subheader max 6 words and returned as an array of 3 distinct options; Body Copy 2–4 short sentences; product one-liner 5–12 words, benefit-led, no offer mechanics; USP description about one sentence (a benefit line, may weave in the offer when the section features the sale — woven in, never tacked onto a spec); Hero Image Direction 30–50 words; Closing Line max 12 words. Use only reviews the user supplied in the brief (see hero_angle_verbatim); never pull sample reviews from the reference campaigns.
+
+Imitation strictness scales with the tone dial (Tone directive at the END): at low dials, trace the single closest reference and adapt it closely; at higher dials, keep every hard ban but earn more freedom to leave the references behind. The references are the brand floor; the dial decides how far above it this section climbs. Match the energy the dial calls for, even if that makes this section more distinctive than the surrounding copy.`;
 
 export function regenerateSectionUserPrompt(
   expandedBrief: ExpandedBrief,

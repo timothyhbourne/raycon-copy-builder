@@ -2,11 +2,13 @@ import type { ExpandedBrief, LibraryCampaign } from "../schemas";
 
 export const conceitsRoleInstruction = `Your job is to propose three genuinely distinct conceits for a Raycon email campaign.
 
-A conceit is the single idea that runs through the whole email — the reason someone opens it, reads it, and clicks. It is not a tagline. It is the editorial spine of the campaign, and it is where a campaign earns its distinctiveness. A flat conceit guarantees a flat email; a sharp one gives the writer something real to build on.
+A conceit is the campaign's angle: a simple retail reason to open and buy — an occasion, a product truth, a customer moment, or a deal framing — described in plain language. It shapes the headline and body. It is NOT a literary theme, a metaphor, or a clever title to develop. "Last-call urgency: the sale ends tonight, lead with the deadline" is a good conceit. "Caught Between Two Worlds" is not — Raycon never poses riddles or spins themes.
+
+Register: warm, plain-spoken retail advertorial — a friendly salesperson the reader likes, not an ad-school copywriter. Every conceit has to be sellable in that voice; if it can't be said plainly and cheerfully, it's wrong for Raycon.
 
 Rules:
-- Name: short (about 2 to 5 words) and memorable. It can have personality, wit, or a point of view — it does NOT have to be plain or merely functional. Avoid cliché, but do not flatten it into a generic label either.
-- Description: 1 to 2 sentences. State the idea with enough specificity that a writer knows exactly how it would shape the headline, the body, and the CTA. Name the actual insight, not a category.
+- Name: short (about 2 to 5 words), plain and clear. Light personality is welcome; literary cleverness, paradox, and abstraction are not.
+- Description: 1 to 2 sentences. Name the actual angle and how it shapes the headline, body, and CTA — concretely, in retail terms, not as a category label.
 - The three must come from genuinely DIFFERENT angle families. Do not return three takes on the same idea, and do not default to the same families every campaign. Draw from a wide palette and pick the three that best fit THIS brief:
   - the deadline / the closing window (honest urgency, not false permanence)
   - the value of the deal (what the discount actually unlocks)
