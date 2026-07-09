@@ -611,7 +611,7 @@ interface CampaignsListResponse {
       created_at?: string | null;
       updated_at?: string | null;
       send_strategy?: { datetime?: string | null } | null;
-      audiences?: { included?: string[] } | null;
+      audiences?: { included?: string[]; excluded?: string[] } | null;
     };
   }>;
   links?: { next?: string | null };
@@ -675,4 +675,41 @@ export async function fetchCampaignsByStatus(status: string): Promise<{ campaign
     pages++;
   }
   return { campaigns: out, truncated: url !== null };
+}
+
+// Audiences of a single campaign, ids resolved to names. Reads
+// audiences.included / audiences.excluded off the campaign retrieve endpoint
+// (GET /campaigns/{id}/ — same attribute shape parsed in fetchCampaignsByIds)
+// plus the campaign status, then resolves each id against the segment + list
+// catalogues. Unresolvable ids come back labeled "(unknown audience)" rather
+// than being dropped. Used by the planner editor to auto-populate audiences from
+// the linked Klaviyo campaign.
+export interface CampaignAudienceRef { id: string; name: string; type: "segment" | "list" }
+export interface CampaignAudiences { status: string; included: CampaignAudienceRef[]; excluded: CampaignAudienceRef[] }
+
+interface CampaignRetrieveResponse {
+  data?: {
+    id: string;
+    attributes: {
+      status?: string;
+      audiences?: { included?: string[]; excluded?: string[] } | null;
+    };
+  };
+}
+
+export async function getCampaignAudiences(campaignId: string): Promise<CampaignAudiences> {
+  const resp = await klaviyoFetch<CampaignRetrieveResponse>(`/campaigns/${encodeURIComponent(campaignId)}/`);
+  const attrs = resp.data?.attributes;
+  const includedIds = attrs?.audiences?.included ?? [];
+  const excludedIds = attrs?.audiences?.excluded ?? [];
+  // Resolve ids → names once per call. Sequential (different endpoint families,
+  // but we honor the burst limit rather than fan out).
+  const segs = await listSegments();
+  const lists = await listLists();
+  const nameMap = new Map<string, CampaignAudienceRef>();
+  for (const s of segs) nameMap.set(s.id, { id: s.id, name: s.name, type: "segment" });
+  for (const l of lists) nameMap.set(l.id, { id: l.id, name: l.name, type: "list" });
+  const resolve = (ids: string[]): CampaignAudienceRef[] =>
+    ids.map((id) => nameMap.get(id) ?? { id, name: "(unknown audience)", type: "segment" });
+  return { status: attrs?.status ?? "", included: resolve(includedIds), excluded: resolve(excludedIds) };
 }
