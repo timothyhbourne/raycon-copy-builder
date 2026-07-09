@@ -1,5 +1,20 @@
 # Raycon Hard Rules: Do Not Do
 
+<!-- CHANGELOG
+2026-07-09 (copy voice rebuild): Reconciled three rules with the real sent-email
+benchmark (data/library/*sent-email-benchmark), which demonstrably uses each:
+  - Exclamation points: "max one per email" -> "max two" (e.g. "Time's Almost
+    Up!" + "Hurry back ... before the sale ends Tuesday!").
+  - Parallel fragment pairs: total ban -> "at most one genuine pair per email,
+    never the default shape" (e.g. "Sound that keeps up. Awareness that keeps you
+    safe.").
+  - Rhetorical question openers: total ban -> "at most one friendly question
+    opener per email" (e.g. "Need new earbuds that can keep up with you?").
+Other doc/voice conflicts (one-breath subject-line rule; USP-scoped fragment
+ban; "make it sexy/swagger" register; high-dial "divergence is the goal") are
+left for team review — see the rebuild summary.
+-->
+
 These are absolute bans. They override creative judgment. The generator must check every output against this list before returning it.
 
 ---
@@ -10,7 +25,7 @@ These are absolute bans. They override creative judgment. The generator must che
 - **No ellipses for trailing effect.** "Sound that goes all day..." reads as AI performing wistfulness. Cut it.
 - **No colon-as-reveal construction.** "One word: quality." / "The verdict: worth it." Overused AI device. Rewrite as a direct statement.
 - **No all-caps words for emphasis** inside body copy. Headlines and CTAs may use full caps where appropriate (e.g. "USE CODE: MOTHER"), but mid-sentence shouting is banned.
-- **Max one exclamation point per email.** Use sparingly. Reserve for genuine moments.
+- **Max two exclamation points per email.** Use sparingly and never stacked (no "!!!"). The real sent emails use upbeat exclamation ("Time's Almost Up!", "Hurry back ... before the sale ends Tuesday!"); one or two cheerful ones are on-brand, more than two is not.
 - **Subject lines under 50 characters.**
 - **Preview text under 90 characters.**
 
@@ -56,12 +71,12 @@ These read as AI-generated and erode trust:
 ## Banned Structural Patterns (AI Stylisation)
 
 - **No parenthetical personality asides.** "(yes, really)" / "(and we mean it)" / "(trust us)" / "(seriously)". AI deploys these to simulate warmth. They have the opposite effect on savvy readers. The personal-voice campaign template is an exception, but those asides must come from a real person's voice, not as warmth-fakery.
-- **No fragment pairs or triple staccato with parallel shapes.** This ban covers every count and every position — headlines, subject lines, body copy, closing lines, everywhere. Two or three short fragments in a row with matching shape is the single most common AI writing rhythm:
-  - 2-item pairs: "Real people. Real reviews." / "Big sale. Real savings." / "Real dads. Real reviews." Forbidden.
+- **At most one parallel fragment pair per email, and never as the default shape.** A single well-placed parallel pair is on-brand ("Sound that keeps up. Awareness that keeps you safe." is a real Raycon line). What stays banned is leaning on the shape: two of them in one email, triple staccato runs, or making it the reflexive rhythm of every headline and section.
+  - Weakest form, still avoid: bare "Adjective Noun. Adjective Noun." anaphora ("Real people. Real reviews." / "Big sale. Real savings."). This is the most recognisable AI tell — prefer a normal sentence that names the product, offer, or occasion.
   - 3-item runs: "Real people. Real reviews. 20% off." / "Strong. Stylish. And built to last." Forbidden.
-  If two or more consecutive fragments share the same grammatical shape, rewrite so the structures differ.
+  If parallel fragments would be the default rhythm across the email, rewrite so the structures differ.
 - **No "Adjective Noun. Adjective Noun." anaphora.** "Real people, real reviews." / "Big sound, bigger savings." / "Real dads, real reviews." The repeating Adjective + Noun shape is the most instantly recognisable AI headline pattern. It looks crafted, it reads as machine-written. Forbidden in every element.
-- **No rhetorical question openers.** "Ever wish your earbuds just stayed put?" AI defaults to this. Open with a statement or a confident claim.
+- **At most one friendly question opener per email.** A warm, plain question is on-brand ("Need new earbuds that can keep up with you?", "Looking for something else?"). What stays banned is defaulting to it in multiple places or reaching for the strained rhetorical hook ("Ever wish your earbuds just stayed put?"). One natural question, the rest statements and confident claims.
 - **No "That's not X, that's Y" or "It's not X, it's Y" construction.** "That's not a coincidence, that's the Classic." / "It's not a sale. It's a statement." / "It's not just earbuds. It's your soundtrack." All variants of this inversion pattern are banned — the two-word pivot is AI cleverness, not Raycon voice. State the thing directly instead.
 - **No "Same X. Same Y. Same Z." sequences.** "Same fit. Same battery. Same Classic." This is the triple staccato wearing a different costume. Rewrite as a single confident statement or fold the specifics into a stacked body.
 - **No "Still X. Still Y. Still Z. Still W." sequences.** "Still fits right. Still holds a charge. Still comes in colors." Three or four consecutive sentences starting with the same word is an AI rhythm tell. Vary the openings.
