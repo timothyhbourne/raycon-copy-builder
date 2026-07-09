@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { generateRoleInstruction, generateUserPrompt, toneDirective } from "@/lib/prompts/generate";
+import { legacyGenerateRoleInstruction, legacyToneDirective } from "@/lib/prompts/legacy-generate";
 import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
@@ -14,7 +15,13 @@ export async function POST(req: NextRequest) {
       tone_dial?: number;
     } = await req.json();
 
-    const roleInstruction = generateRoleInstruction + toneDirective(body.tone_dial ?? 1);
+    // ROLLBACK LEVER: COPY_PROMPT_LEGACY=1 reverts to the pre-rebuild prompt
+    // (src/lib/prompts/legacy-generate.ts) if the new voice ever regresses.
+    const dial = body.tone_dial ?? 1;
+    const useLegacy = process.env.COPY_PROMPT_LEGACY === "1";
+    const roleInstruction = useLegacy
+      ? legacyGenerateRoleInstruction + legacyToneDirective(dial)
+      : generateRoleInstruction + toneDirective(dial);
     const systemBlocks = buildSystemBlocks(getBrandContext(), roleInstruction);
     const userPrompt = generateUserPrompt(
       body.expanded_brief,
