@@ -82,11 +82,22 @@ export async function GET(req: NextRequest) {
 
     const warnings: string[] = [];
 
+    // Step 0 instrumentation: time every external call so we can prove where the
+    // 20–60s goes and verify the win after the rearchitecture. `timed` records
+    // wall-time per label; the `timings_ms` map is exposed under ?debug=1 and the
+    // total is always console.logged.
+    const timings: Record<string, number> = {};
+    const t0 = Date.now();
+    const timed = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      const s = Date.now();
+      try { return await fn(); } finally { timings[label] = Date.now() - s; }
+    };
+
     // Timezone + conversion metric first. The metric is PINNED (env/default), so
     // this is now O(1) — no /metrics/ scan — and never raises the old
     // "multiple Placed Order metrics" ambiguity warning.
-    const timezone = await getAccountTimezone();
-    const metric = await resolvePlacedOrderMetric();
+    const timezone = await timed("timezone", () => getAccountTimezone());
+    const metric = await timed("metric", () => resolvePlacedOrderMetric());
     const placedId = metric.id;
     if (metric.ambiguous) {
       const list = metric.candidates
@@ -99,16 +110,16 @@ export async function GET(req: NextRequest) {
 
     // Sequential — Klaviyo report endpoints are 1 req/sec burst; fan-out just hits
     // the throttle. Order: aggregate, flow report, campaign report, then metadata.
-    const totalAgg = await aggregateMetric({
+    const totalAgg = await timed("aggregate", () => aggregateMetric({
       metricId: placedId,
       start,
       end,
       measurements: ["sum_value", "count"],
       timezone, // same TZ basis as the values-report timeframe
-    });
-    const flowReport = await flowValuesReport({ start, end, conversionMetricId: placedId });
-    const campaignReport = await campaignValuesReport({ start, end, conversionMetricId: placedId });
-    const flowList = await listFlows();
+    }));
+    const flowReport = await timed("flow_report", () => flowValuesReport({ start, end, conversionMetricId: placedId }));
+    const campaignReport = await timed("campaign_report", () => campaignValuesReport({ start, end, conversionMetricId: placedId }));
+    const flowList = await timed("flows_list", () => listFlows());
 
     const flowResults = flowReport.results;
     const campaignResults = campaignReport.results;
@@ -175,7 +186,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Metadata only for the active campaigns (sent, in range) — one call per ~50.
-    const activeCampaignMeta = activeCampaignIds.length ? await fetchCampaignsByIds(activeCampaignIds) : [];
+    const activeCampaignMeta = activeCampaignIds.length ? await timed("campaign_meta", () => fetchCampaignsByIds(activeCampaignIds)) : [];
     const campaignMetaById = new Map(activeCampaignMeta.map((c) => [c.id, c]));
 
     const campaignRows: CampaignRow[] = [];
@@ -206,8 +217,8 @@ export async function GET(req: NextRequest) {
       send_time: c.send_time ?? c.strategy_datetime ?? null,
       audience_count: c.audience_count,
     });
-    const draftRes = await fetchCampaignsByStatus("Draft");
-    const scheduledRes = await fetchCampaignsByStatus("Scheduled");
+    const draftRes = await timed("drafts", () => fetchCampaignsByStatus("Draft"));
+    const scheduledRes = await timed("scheduled", () => fetchCampaignsByStatus("Scheduled"));
     if (draftRes.truncated) warnings.push("More draft campaigns exist than shown (showing the 100 most recent).");
     if (scheduledRes.truncated) warnings.push("More scheduled campaigns exist than shown (showing the 100 most recent).");
 
@@ -218,6 +229,9 @@ export async function GET(req: NextRequest) {
     const sent = activeCampaignMeta
       .map(toMeta)
       .sort((a, b) => (b.send_time || "").localeCompare(a.send_time || ""));
+
+    timings.total = Date.now() - t0;
+    console.log(`[klaviyo/overview] ${startYMD}..${endYMD} total ${timings.total}ms`, timings);
 
     const response: Record<string, unknown> = {
       revenue: {
@@ -240,6 +254,7 @@ export async function GET(req: NextRequest) {
     if (debug) {
       const flowRaw = await flowValuesReportRaw({ start, end, conversionMetricId: placedId });
       response.debug = {
+        timings_ms: timings,
         resolved_conversion_metric_id: placedId,
         conversion_metric_source: metric.source, // "env" | "default" | "auto"
         conversion_metric_pinned: metric.source !== "auto",
