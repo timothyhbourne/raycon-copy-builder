@@ -374,13 +374,11 @@ export default function Home() {
     setSeedAiFailed(false);
   };
 
-  // If a campaign is already on screen, hold the input and show a confirmation dialog
+  // Always confirm before generating: a plain "done with the brief?" check when
+  // the canvas is empty, and a stronger "start over?" warning when a campaign
+  // is already on screen (generating would replace it).
   const handleBriefSubmitRequest = (input: BriefInput) => {
-    if (campaign) {
-      setPendingBriefInput(input);
-    } else {
-      handleBriefSubmit(input);
-    }
+    setPendingBriefInput(input);
   };
 
   const handleBriefSubmit = async (input: BriefInput) => {
@@ -1161,10 +1159,12 @@ export default function Home() {
       <ConfirmModal
         open={!!pendingBriefInput}
         onClose={() => setPendingBriefInput(null)}
-        onConfirm={() => { const input = pendingBriefInput; setPendingBriefInput(null); if (input) { resetAll(); handleBriefSubmit(input); } }}
-        title="Start over?"
-        body="This will clear the current campaign and start a new brief. Any unsaved changes will be lost."
-        confirmLabel="Yes, regenerate"
+        onConfirm={() => { const input = pendingBriefInput; setPendingBriefInput(null); if (input) { if (campaign) resetAll(); handleBriefSubmit(input); } }}
+        title={campaign ? "Start over?" : "Generate the brief?"}
+        body={campaign
+          ? "This will clear the current campaign and start a new brief. Any unsaved changes will be lost."
+          : "Make sure you're done with the brief — this will expand it and generate conceits."}
+        confirmLabel={campaign ? "Yes, regenerate" : "Yes, generate"}
       />
       <ConfirmModal
         open={!!pendingDelete}

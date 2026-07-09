@@ -152,6 +152,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
               })()}
             </div>
             <button
+              type="button"
               onClick={() => remove(s.id)}
               className="text-slate-300 hover:text-red-400 transition-colors mt-0.5 text-xs"
             >
@@ -163,6 +164,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
 
       <div className="relative">
         <button
+          type="button"
           onClick={() => setShowAddMenu(!showAddMenu)}
           className="w-full text-xs text-slate-400 hover:text-slate-700 border border-dashed border-slate-300 rounded py-1.5 transition-colors"
         >
@@ -172,6 +174,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
           <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-slate-200 rounded shadow-lg py-1">
             {SECTION_TYPES.map((t) => (
               <button
+                type="button"
                 key={t}
                 onClick={() => addSection(t)}
                 className="w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-slate-50 transition-colors"
