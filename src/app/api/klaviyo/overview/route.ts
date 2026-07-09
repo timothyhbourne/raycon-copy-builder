@@ -1,87 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { eachDay, readDimensions, readRange, type CampaignDim } from "@/lib/metrics/store";
+import { syncMetrics } from "@/lib/metrics/sync";
 
-// Two-tier response cache keyed by date range (L1 in-memory + L2 on-disk).
-// Klaviyo's report endpoints are slow and rate-limited; re-running the same range
-// within the TTL should be instant, and the L2 disk copy lets warm loads survive
-// process restarts (the L1 Map alone never shares across serverless workers).
-// NOTE: BOTH tiers are an interim measure. Step 4 replaces them with the daily
-// metrics store (reads never touch Klaviyo), at which point this cache is deleted.
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const overviewCache = new Map<string, { ts: number; data: unknown }>();
-
-interface CacheEntry { ts: number; data: unknown }
-const DISK_CACHE_DIR = path.join(process.cwd(), "data/cache/overview");
-function diskCachePath(key: string): string { return path.join(DISK_CACHE_DIR, `${key}.json`); }
-function readDiskCache(key: string): CacheEntry | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(diskCachePath(key), "utf8"));
-    if (parsed && typeof parsed.ts === "number") return parsed as CacheEntry;
-  } catch { /* missing/corrupt → no entry */ }
-  return null;
-}
-function writeDiskCache(key: string, entry: CacheEntry): void {
-  try {
-    fs.mkdirSync(DISK_CACHE_DIR, { recursive: true });
-    fs.writeFileSync(diskCachePath(key), JSON.stringify(entry), "utf8");
-  } catch { /* read-only FS (e.g. Vercel) → memory-only, never crash the read */ }
-}
-// Newest of L1/L2 (any age); hydrates L1 from a newer disk copy. null if neither.
-function newestCacheEntry(key: string): CacheEntry | null {
-  const l1 = overviewCache.get(key) ?? null;
-  const l2 = readDiskCache(key);
-  const entry = !l1 ? l2 : !l2 ? l1 : l2.ts > l1.ts ? l2 : l1;
-  if (entry && (!l1 || entry.ts > l1.ts)) overviewCache.set(key, entry);
-  return entry;
-}
-
-import {
-  aggregateMetric,
-  campaignValuesReport,
-  dayRangeISO,
-  fetchCampaignsByIds,
-  fetchCampaignsByStatus,
-  flowValuesReport,
-  flowValuesReportRaw,
-  getAccountTimezone,
-  listFlows,
-  resolvePlacedOrderMetric,
-  sumArray,
-} from "@/lib/klaviyo";
+// Overview read path — sync-then-read. This handler makes ZERO Klaviyo calls: it
+// sums the local daily metrics store (written by the background sync) into the
+// dashboard's response shape. Reads are O(days-in-range file I/O), so a 30-day
+// range returns in a few ms instead of the old 20–60s live-recompute.
+//
+// The old in-memory Map and the Step 1 on-disk response cache are gone — the
+// store is the cache now. ?nocache=1 (Force refresh) triggers a synchronous sync
+// of the range's unfrozen days and then re-reads; it may be slow, by design.
 
 interface FlowRow {
-  flow_id: string;
-  name: string;
-  status?: string;
-  recipients: number;
-  opens: number;
-  clicks: number;
-  revenue: number;
-  revenue_per_recipient: number;
+  flow_id: string; name: string; status?: string;
+  recipients: number; opens: number; clicks: number; revenue: number; revenue_per_recipient: number;
 }
-
 interface CampaignRow {
-  campaign_id: string;
-  name: string;
-  status?: string;
-  send_time: string | null;
-  recipients: number;
-  opens: number;
-  clicks: number;
-  revenue: number;
-  revenue_per_recipient: number;
+  campaign_id: string; name: string; status?: string; send_time: string | null;
+  recipients: number; opens: number; clicks: number; revenue: number; revenue_per_recipient: number;
 }
-
 interface CampaignMeta {
-  campaign_id: string;
-  name: string;
-  status: string;
-  send_time: string | null;
-  audience_count: number;
+  campaign_id: string; name: string; status: string; send_time: string | null; audience_count: number;
+}
+interface Totals { recipients: number; opens: number; clicks: number; revenue: number }
+
+// Guard so concurrent reads with missing days don't stampede the background sync.
+let bgSyncInFlight = false;
+function triggerBackgroundSync(backfillDays: number): void {
+  if (bgSyncInFlight) return;
+  bgSyncInFlight = true;
+  // Fire-and-forget: fill the gap for a later read; never blocks this response.
+  syncMetrics({ backfillDays })
+    .catch((e) => console.error("[klaviyo/overview] background sync failed", e))
+    .finally(() => { bgSyncInFlight = false; });
 }
 
-interface Totals { recipients: number; opens: number; clicks: number; revenue: number }
+// Whole days from `ymd` (UTC) to now — used to size a backfill that reaches a
+// given day.
+function daysAgo(ymd: string): number {
+  const then = new Date(`${ymd}T00:00:00Z`).getTime();
+  const now = Date.now();
+  return Math.max(0, Math.ceil((now - then) / 86_400_000));
+}
+
+const toMetaFromDim = (c: CampaignDim): CampaignMeta => ({
+  campaign_id: c.campaign_id, name: c.name, status: c.status, send_time: c.send_time, audience_count: c.audience_count,
+});
 
 export async function GET(req: NextRequest) {
   try {
@@ -94,187 +58,115 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "start and end query params required (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    const cacheKey = `${startYMD}_${endYMD}`;
-    // Stale-while-revalidate: serve a fresh hit instantly; serve an expired hit
-    // immediately tagged `stale: true` (the UI paints it, then refetches with
-    // nocache=1 in the background and swaps in the fresh result).
-    if (!debug && !nocache) {
-      const entry = newestCacheEntry(cacheKey);
-      if (entry) {
-        return NextResponse.json({
-          ...(entry.data as Record<string, unknown>),
-          served_from_cache: new Date(entry.ts).toISOString(),
-          cache_age_seconds: Math.round((Date.now() - entry.ts) / 1000),
-          stale: Date.now() - entry.ts >= CACHE_TTL_MS,
-        });
-      }
-    }
-
-    const warnings: string[] = [];
-
-    // Step 0 instrumentation: time every external call so we can prove where the
-    // 20–60s goes and verify the win after the rearchitecture. `timed` records
-    // wall-time per label; the `timings_ms` map is exposed under ?debug=1 and the
-    // total is always console.logged.
     const timings: Record<string, number> = {};
     const t0 = Date.now();
-    const timed = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const warnings: string[] = [];
+
+    // Force refresh: synchronously sync the range's unfrozen days, then read.
+    // syncMetrics always re-fetches the trailing window and backfills missing
+    // days within the horizon, so a backfill that reaches `start` covers the
+    // requested range's unfrozen days. Slow but explicit — this is the button.
+    if (nocache) {
       const s = Date.now();
-      try { return await fn(); } finally { timings[label] = Date.now() - s; }
-    };
-
-    // Timezone + conversion metric first. The metric is PINNED (env/default), so
-    // this is now O(1) — no /metrics/ scan — and never raises the old
-    // "multiple Placed Order metrics" ambiguity warning.
-    const timezone = await timed("timezone", () => getAccountTimezone());
-    const metric = await timed("metric", () => resolvePlacedOrderMetric());
-    const placedId = metric.id;
-    if (metric.ambiguous) {
-      const list = metric.candidates
-        .map((c) => `${c.integrationKey || c.integrationName || "unknown"}:${c.id}`)
-        .join(", ");
-      warnings.push(`Multiple "Placed Order" metrics found (${list}). Using ${placedId}.`);
+      try {
+        const summary = await syncMetrics({ backfillDays: Math.max(daysAgo(startYMD), 1) });
+        if (summary.days_failed > 0) warnings.push(`Force refresh: ${summary.days_failed} day(s) could not sync (Klaviyo rate limit) — try again shortly.`);
+      } catch (e) {
+        warnings.push(`Force refresh sync failed: ${e instanceof Error ? e.message : e}`);
+      }
+      timings.sync = Date.now() - s;
     }
 
-    const { start, end } = dayRangeISO(startYMD, endYMD);
+    // ---- Read + aggregate (zero external calls) ----
+    const readStart = Date.now();
+    const { days, missing } = readRange(startYMD, endYMD);
+    const dims = readDimensions();
+    timings.store_read = Date.now() - readStart;
 
-    // Step 1: parallelize across DIFFERENT endpoint families. Klaviyo throttles
-    // per family, so these three groups run concurrently while each stays
-    // sequential internally — total ≈ max(groups) instead of sum(all). If 429s
-    // appear in testing, collapse to fewer groups (reports together, metadata
-    // parallel).
-    //   A: metric-aggregate
-    //   B: flow values report → flows list
-    //   C: campaign values report → campaign metadata (active ids) → drafts → scheduled
-    const [totalAgg, flowGroup, campaignGroup] = await Promise.all([
-      timed("aggregate", () => aggregateMetric({
-        metricId: placedId, start, end, measurements: ["sum_value", "count"], timezone,
-      })),
-      (async () => {
-        const flowReport = await timed("flow_report", () => flowValuesReport({ start, end, conversionMetricId: placedId }));
-        const flowList = await timed("flows_list", () => listFlows());
-        return { flowReport, flowList };
-      })(),
-      (async () => {
-        const campaignReport = await timed("campaign_report", () => campaignValuesReport({ start, end, conversionMetricId: placedId }));
-        // Aggregate by campaign_id inside this family so metadata is fetched only
-        // for the active ids (that call must chain after the report here).
-        const byCampaign = new Map<string, Totals>();
-        for (const r of campaignReport.results) {
-          const id = r.groupings.campaign_id;
-          if (!id) continue;
-          const cur = byCampaign.get(id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
-          cur.recipients += r.statistics.recipients ?? 0;
-          cur.opens += r.statistics.opens_unique ?? r.statistics.opens ?? 0;
-          cur.clicks += r.statistics.clicks_unique ?? r.statistics.clicks ?? 0;
-          cur.revenue += r.statistics.conversion_value ?? 0;
-          byCampaign.set(id, cur);
-        }
-        const activeCampaignIds: string[] = [];
-        for (const [id, t] of byCampaign) if (t.recipients > 0 || t.revenue > 0) activeCampaignIds.push(id);
-        const activeCampaignMeta = activeCampaignIds.length ? await timed("campaign_meta", () => fetchCampaignsByIds(activeCampaignIds)) : [];
-        const draftRes = await timed("drafts", () => fetchCampaignsByStatus("Draft"));
-        const scheduledRes = await timed("scheduled", () => fetchCampaignsByStatus("Scheduled"));
-        return { campaignReport, byCampaign, activeCampaignIds, activeCampaignMeta, draftRes, scheduledRes };
-      })(),
-    ]);
+    // Headline totals straight from the per-day revenue buckets.
+    let total = 0;
+    let orderCount = 0;
+    for (const d of days) { total += d.revenue.total; orderCount += d.revenue.order_count; }
 
-    const { flowReport, flowList } = flowGroup;
-    const { campaignReport, byCampaign, activeCampaignIds, activeCampaignMeta, draftRes, scheduledRes } = campaignGroup;
-    const flowResults = flowReport.results;
-    const campaignResults = campaignReport.results;
-
-    // Truncation → warnings (never drop silently).
-    if (flowReport.truncated) warnings.push("Flow values report hit the page cap — some flows may be missing. Revenue understated.");
-    if (campaignReport.truncated) warnings.push("Campaign values report hit the page cap — some campaigns may be missing. Revenue understated.");
-    if (draftRes.truncated) warnings.push("More draft campaigns exist than shown (showing the 100 most recent).");
-    if (scheduledRes.truncated) warnings.push("More scheduled campaigns exist than shown (showing the 100 most recent).");
-
-    // Headline totals are computed from the FULL report results, before any
-    // row-level activity filtering, so filtering idle rows never changes them.
-    const total = totalAgg.data.reduce((acc, g) => acc + sumArray(g.measurements.sum_value), 0);
-    const orderCount = totalAgg.data.reduce((acc, g) => acc + sumArray(g.measurements.count), 0);
-    const attributedFromFlows = flowResults.reduce((acc, r) => acc + (r.statistics.conversion_value ?? 0), 0);
-    const attributedFromCampaigns = campaignResults.reduce((acc, r) => acc + (r.statistics.conversion_value ?? 0), 0);
-    const attributed = attributedFromFlows + attributedFromCampaigns;
-
-    // ---- Flow rows: build from the (activity-scoped) report, join names, and
-    // keep only flows with real activity. Idle flows no longer render. ----
+    // Flows: sum each flow across the days, join names from dimensions, keep only
+    // rows with activity. Attributed-from-flows is the full flow revenue sum.
     const byFlow = new Map<string, Totals>();
-    for (const r of flowResults) {
-      const id = r.groupings.flow_id;
-      if (!id) continue;
-      const cur = byFlow.get(id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
-      cur.recipients += r.statistics.recipients ?? 0;
-      cur.opens += r.statistics.opens_unique ?? r.statistics.opens ?? 0;
-      cur.clicks += r.statistics.clicks_unique ?? r.statistics.clicks ?? 0;
-      cur.revenue += r.statistics.conversion_value ?? 0;
-      byFlow.set(id, cur);
+    for (const d of days) {
+      for (const f of d.flows) {
+        const cur = byFlow.get(f.flow_id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
+        cur.recipients += f.recipients; cur.opens += f.opens; cur.clicks += f.clicks; cur.revenue += f.revenue;
+        byFlow.set(f.flow_id, cur);
+      }
     }
-    const flowMeta = new Map(flowList.map((f) => [f.id, f]));
+    let attributedFromFlows = 0;
+    const flowMeta = new Map(dims.flows.map((f) => [f.flow_id, f]));
     const flowRows: FlowRow[] = [];
     for (const [id, t] of byFlow) {
-      if (t.recipients <= 0 && t.revenue <= 0) continue; // only rows with activity
+      attributedFromFlows += t.revenue;
+      if (t.recipients <= 0 && t.revenue <= 0) continue;
       const meta = flowMeta.get(id);
       flowRows.push({
-        flow_id: id,
-        name: meta?.name ?? `(unknown flow ${id})`,
-        status: meta?.status,
-        recipients: t.recipients,
-        opens: t.opens,
-        clicks: t.clicks,
-        revenue: t.revenue,
+        flow_id: id, name: meta?.name ?? `(unknown flow ${id})`, status: meta?.status,
+        recipients: t.recipients, opens: t.opens, clicks: t.clicks, revenue: t.revenue,
         revenue_per_recipient: t.recipients > 0 ? t.revenue / t.recipients : 0,
       });
     }
     flowRows.sort((a, b) => b.revenue - a.revenue);
 
-    // ---- Campaign rows: byCampaign/activeCampaignIds computed in group C above;
-    // join the metadata we already fetched for the active ids. ----
-    const campaignMetaById = new Map(activeCampaignMeta.map((c) => [c.id, c]));
+    // Campaigns: same shape; join metadata from dimensions.
+    const byCampaign = new Map<string, Totals>();
+    for (const d of days) {
+      for (const c of d.campaigns) {
+        const cur = byCampaign.get(c.campaign_id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
+        cur.recipients += c.recipients; cur.opens += c.opens; cur.clicks += c.clicks; cur.revenue += c.revenue;
+        byCampaign.set(c.campaign_id, cur);
+      }
+    }
+    let attributedFromCampaigns = 0;
+    const campaignMeta = new Map(dims.campaigns.map((c) => [c.campaign_id, c]));
     const campaignRows: CampaignRow[] = [];
-    for (const id of activeCampaignIds) {
-      const t = byCampaign.get(id)!;
-      const meta = campaignMetaById.get(id);
+    for (const [id, t] of byCampaign) {
+      attributedFromCampaigns += t.revenue;
+      if (t.recipients <= 0 && t.revenue <= 0) continue;
+      const meta = campaignMeta.get(id);
       campaignRows.push({
-        campaign_id: id,
-        name: meta?.name ?? `(unknown campaign ${id})`,
-        status: meta?.status,
+        campaign_id: id, name: meta?.name ?? `(unknown campaign ${id})`, status: meta?.status,
         send_time: meta?.send_time ?? null,
-        recipients: t.recipients,
-        opens: t.opens,
-        clicks: t.clicks,
-        revenue: t.revenue,
+        recipients: t.recipients, opens: t.opens, clicks: t.clicks, revenue: t.revenue,
         revenue_per_recipient: t.recipients > 0 ? t.revenue / t.recipients : 0,
       });
     }
     campaignRows.sort((a, b) => b.revenue - a.revenue);
 
-    // ---- Status subsections: Draft / Scheduled fetched by status in group C.
-    // Sent = the active-in-range campaigns we already have metadata for, so it
-    // lines up with the performance table above. ----
-    const toMeta = (c: (typeof activeCampaignMeta)[number]): CampaignMeta => ({
-      campaign_id: c.id,
-      name: c.name,
-      status: c.status,
-      send_time: c.send_time ?? c.strategy_datetime ?? null,
-      audience_count: c.audience_count,
-    });
-    const draft = draftRes.campaigns.map(toMeta);
-    const scheduled = scheduledRes.campaigns
-      .map(toMeta)
-      .sort((a, b) => (a.send_time || "").localeCompare(b.send_time || ""));
-    const sent = activeCampaignMeta
-      .map(toMeta)
-      .sort((a, b) => (b.send_time || "").localeCompare(a.send_time || ""));
+    const attributed = attributedFromFlows + attributedFromCampaigns;
+
+    // Status subsections. Draft / Scheduled come straight from dimensions. Sent =
+    // the campaigns with activity in-range (lines up with the performance table).
+    const draft = dims.draft.map(toMetaFromDim);
+    const scheduled = [...dims.scheduled].map(toMetaFromDim).sort((a, b) => (a.send_time || "").localeCompare(b.send_time || ""));
+    const sent: CampaignMeta[] = campaignRows.map((c) => {
+      const meta = campaignMeta.get(c.campaign_id);
+      return { campaign_id: c.campaign_id, name: c.name, status: meta?.status ?? c.status ?? "", send_time: c.send_time, audience_count: meta?.audience_count ?? 0 };
+    }).sort((a, b) => (b.send_time || "").localeCompare(a.send_time || ""));
+
+    // Freshness: OLDEST synced_at across returned days (never overstate). Falls
+    // back to the dimensions timestamp when the range has no days yet.
+    const syncedAts = days.map((d) => d.synced_at).filter(Boolean);
+    const lastSyncedAt = syncedAts.length ? syncedAts.reduce((m, s) => (s < m ? s : m)) : dims.synced_at;
+
+    const requestedDays = eachDay(startYMD, endYMD).length;
+    if (missing.length) {
+      warnings.push(`${missing.length} of ${requestedDays} day(s) in this range aren't synced yet — totals may be incomplete. Syncing in background…`);
+      // Fire-and-forget fill for the gap (oldest missing day sets the horizon).
+      if (!nocache) triggerBackgroundSync(Math.max(daysAgo(missing[0]), 1));
+    }
 
     timings.total = Date.now() - t0;
-    console.log(`[klaviyo/overview] ${startYMD}..${endYMD} total ${timings.total}ms`, timings);
+    console.log(`[klaviyo/overview] ${startYMD}..${endYMD} total ${timings.total}ms coverage ${days.length}/${requestedDays}`);
 
     const response: Record<string, unknown> = {
       revenue: {
-        total,
-        attributed,
+        total, attributed,
         attributed_from_flows: attributedFromFlows,
         attributed_from_campaigns: attributedFromCampaigns,
         order_count: orderCount,
@@ -284,30 +176,26 @@ export async function GET(req: NextRequest) {
       campaign_status: { draft, scheduled, sent },
       warnings,
       range: { start: startYMD, end: endYMD },
+      last_synced_at: lastSyncedAt,
+      missing_days: missing,
+      coverage: { requested_days: requestedDays, found_days: days.length },
     };
-    if (!debug) {
-      const entry = { ts: Date.now(), data: response };
-      overviewCache.set(cacheKey, entry); // L1
-      writeDiskCache(cacheKey, entry);    // L2 (survives process restarts)
-    }
 
     if (debug) {
-      const flowRaw = await flowValuesReportRaw({ start, end, conversionMetricId: placedId });
       response.debug = {
         timings_ms: timings,
-        resolved_conversion_metric_id: placedId,
-        conversion_metric_source: metric.source, // "env" | "default" | "auto"
-        conversion_metric_pinned: metric.source !== "auto",
-        conversion_metric_ambiguous: metric.ambiguous,
-        account_timezone: timezone,
-        channel_filter: "equals(send_channel,'email') (both flows and campaigns)",
-        window: { start, end, note: "naive-local ISO, interpreted in account_timezone" },
-        flow_report_row_count: flowResults.length,
+        note: "store-backed read — zero Klaviyo calls on this path (timings.sync only set when nocache=1 forced a sync)",
+        account_timezone: dims.timezone,
+        dimensions_synced_at: dims.synced_at,
+        coverage: {
+          requested_days: requestedDays,
+          found_days: days.length,
+          missing_days: missing,
+          found_dates: days.map((d) => d.date),
+          frozen_days: days.filter((d) => d.frozen).length,
+        },
         flow_rows_with_activity: flowRows.length,
-        flow_report_truncated: flowReport.truncated,
-        campaign_report_row_count: campaignResults.length,
         campaign_rows_with_activity: campaignRows.length,
-        active_campaign_meta_fetched: activeCampaignMeta.length,
         draft_count: draft.length,
         scheduled_count: scheduled.length,
         attributed_reconciliation: {
@@ -317,8 +205,6 @@ export async function GET(req: NextRequest) {
           attributed,
           matches: Math.abs(attributedFromFlows + attributedFromCampaigns - attributed) < 0.01,
         },
-        flow_report_raw_response: flowRaw,
-        campaign_report_first_3: campaignResults.slice(0, 3),
       };
     }
     return NextResponse.json(response);
