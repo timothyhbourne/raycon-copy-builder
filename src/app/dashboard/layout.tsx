@@ -43,6 +43,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [servedFromCache, setServedFromCache] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false); // background stale-while-revalidate in flight
 
   const pathname = usePathname();
 
@@ -59,6 +60,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setData(json as OverviewData);
       setLoadedAt(new Date().toLocaleTimeString());
       setServedFromCache(json.served_from_cache ? new Date(json.served_from_cache).toLocaleTimeString() : null);
+      // Stale-while-revalidate: an expired cache hit paints immediately, then we
+      // pull fresh data in the background (no spinner) and swap it in.
+      if (!forceFresh && json.stale) {
+        setRefreshing(true);
+        fetch(`/api/klaviyo/overview?start=${s}&end=${e}&nocache=1`)
+          .then((r) => r.json())
+          .then((fresh) => {
+            if (fresh && !fresh.error) {
+              setData(fresh as OverviewData);
+              setLoadedAt(new Date().toLocaleTimeString());
+              setServedFromCache(null);
+            }
+          })
+          .catch(() => { /* keep the stale copy on failure */ })
+          .finally(() => setRefreshing(false));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Load failed");
       setData(null);
@@ -208,9 +225,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           {loadedAt && (
             <div className="pb-2.5 text-xs text-ink-muted font-mono flex items-center gap-1.5">
-              <RefreshIcon className="opacity-60" />
+              <RefreshIcon className={`opacity-60 ${refreshing ? "animate-spin" : ""}`} />
               Loaded {loadedAt}
               {servedFromCache && <span>· cached {servedFromCache}</span>}
+              {refreshing && <span className="text-accent">· refreshing…</span>}
             </div>
           )}
         </div>

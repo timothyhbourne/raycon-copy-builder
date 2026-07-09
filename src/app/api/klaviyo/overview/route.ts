@@ -1,14 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 
-// In-memory cache keyed by date range. Klaviyo's report endpoints are slow and
-// rate-limited; re-running the same range within 10 minutes is the common path
-// and should be instant. TTL is short enough that data feels current.
-// LIMITATION: this Map lives in one process. It does NOT share across serverless
-// workers, and a fresh Klaviyo send won't invalidate it — a normal Load within
-// the TTL can serve slightly stale data. "Force refresh" (nocache=1) always
-// bypasses it. A distributed cache is out of scope for now.
+// Two-tier response cache keyed by date range (L1 in-memory + L2 on-disk).
+// Klaviyo's report endpoints are slow and rate-limited; re-running the same range
+// within the TTL should be instant, and the L2 disk copy lets warm loads survive
+// process restarts (the L1 Map alone never shares across serverless workers).
+// NOTE: BOTH tiers are an interim measure. Step 4 replaces them with the daily
+// metrics store (reads never touch Klaviyo), at which point this cache is deleted.
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const overviewCache = new Map<string, { ts: number; data: unknown }>();
+
+interface CacheEntry { ts: number; data: unknown }
+const DISK_CACHE_DIR = path.join(process.cwd(), "data/cache/overview");
+function diskCachePath(key: string): string { return path.join(DISK_CACHE_DIR, `${key}.json`); }
+function readDiskCache(key: string): CacheEntry | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(diskCachePath(key), "utf8"));
+    if (parsed && typeof parsed.ts === "number") return parsed as CacheEntry;
+  } catch { /* missing/corrupt → no entry */ }
+  return null;
+}
+function writeDiskCache(key: string, entry: CacheEntry): void {
+  try {
+    fs.mkdirSync(DISK_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(diskCachePath(key), JSON.stringify(entry), "utf8");
+  } catch { /* read-only FS (e.g. Vercel) → memory-only, never crash the read */ }
+}
+// Newest of L1/L2 (any age); hydrates L1 from a newer disk copy. null if neither.
+function newestCacheEntry(key: string): CacheEntry | null {
+  const l1 = overviewCache.get(key) ?? null;
+  const l2 = readDiskCache(key);
+  const entry = !l1 ? l2 : !l2 ? l1 : l2.ts > l1.ts ? l2 : l1;
+  if (entry && (!l1 || entry.ts > l1.ts)) overviewCache.set(key, entry);
+  return entry;
+}
 
 import {
   aggregateMetric,
@@ -69,13 +95,17 @@ export async function GET(req: NextRequest) {
     }
 
     const cacheKey = `${startYMD}_${endYMD}`;
+    // Stale-while-revalidate: serve a fresh hit instantly; serve an expired hit
+    // immediately tagged `stale: true` (the UI paints it, then refetches with
+    // nocache=1 in the background and swaps in the fresh result).
     if (!debug && !nocache) {
-      const cached = overviewCache.get(cacheKey);
-      if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      const entry = newestCacheEntry(cacheKey);
+      if (entry) {
         return NextResponse.json({
-          ...(cached.data as Record<string, unknown>),
-          served_from_cache: new Date(cached.ts).toISOString(),
-          cache_age_seconds: Math.round((Date.now() - cached.ts) / 1000),
+          ...(entry.data as Record<string, unknown>),
+          served_from_cache: new Date(entry.ts).toISOString(),
+          cache_age_seconds: Math.round((Date.now() - entry.ts) / 1000),
+          stale: Date.now() - entry.ts >= CACHE_TTL_MS,
         });
       }
     }
@@ -108,25 +138,57 @@ export async function GET(req: NextRequest) {
 
     const { start, end } = dayRangeISO(startYMD, endYMD);
 
-    // Sequential — Klaviyo report endpoints are 1 req/sec burst; fan-out just hits
-    // the throttle. Order: aggregate, flow report, campaign report, then metadata.
-    const totalAgg = await timed("aggregate", () => aggregateMetric({
-      metricId: placedId,
-      start,
-      end,
-      measurements: ["sum_value", "count"],
-      timezone, // same TZ basis as the values-report timeframe
-    }));
-    const flowReport = await timed("flow_report", () => flowValuesReport({ start, end, conversionMetricId: placedId }));
-    const campaignReport = await timed("campaign_report", () => campaignValuesReport({ start, end, conversionMetricId: placedId }));
-    const flowList = await timed("flows_list", () => listFlows());
+    // Step 1: parallelize across DIFFERENT endpoint families. Klaviyo throttles
+    // per family, so these three groups run concurrently while each stays
+    // sequential internally — total ≈ max(groups) instead of sum(all). If 429s
+    // appear in testing, collapse to fewer groups (reports together, metadata
+    // parallel).
+    //   A: metric-aggregate
+    //   B: flow values report → flows list
+    //   C: campaign values report → campaign metadata (active ids) → drafts → scheduled
+    const [totalAgg, flowGroup, campaignGroup] = await Promise.all([
+      timed("aggregate", () => aggregateMetric({
+        metricId: placedId, start, end, measurements: ["sum_value", "count"], timezone,
+      })),
+      (async () => {
+        const flowReport = await timed("flow_report", () => flowValuesReport({ start, end, conversionMetricId: placedId }));
+        const flowList = await timed("flows_list", () => listFlows());
+        return { flowReport, flowList };
+      })(),
+      (async () => {
+        const campaignReport = await timed("campaign_report", () => campaignValuesReport({ start, end, conversionMetricId: placedId }));
+        // Aggregate by campaign_id inside this family so metadata is fetched only
+        // for the active ids (that call must chain after the report here).
+        const byCampaign = new Map<string, Totals>();
+        for (const r of campaignReport.results) {
+          const id = r.groupings.campaign_id;
+          if (!id) continue;
+          const cur = byCampaign.get(id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
+          cur.recipients += r.statistics.recipients ?? 0;
+          cur.opens += r.statistics.opens_unique ?? r.statistics.opens ?? 0;
+          cur.clicks += r.statistics.clicks_unique ?? r.statistics.clicks ?? 0;
+          cur.revenue += r.statistics.conversion_value ?? 0;
+          byCampaign.set(id, cur);
+        }
+        const activeCampaignIds: string[] = [];
+        for (const [id, t] of byCampaign) if (t.recipients > 0 || t.revenue > 0) activeCampaignIds.push(id);
+        const activeCampaignMeta = activeCampaignIds.length ? await timed("campaign_meta", () => fetchCampaignsByIds(activeCampaignIds)) : [];
+        const draftRes = await timed("drafts", () => fetchCampaignsByStatus("Draft"));
+        const scheduledRes = await timed("scheduled", () => fetchCampaignsByStatus("Scheduled"));
+        return { campaignReport, byCampaign, activeCampaignIds, activeCampaignMeta, draftRes, scheduledRes };
+      })(),
+    ]);
 
+    const { flowReport, flowList } = flowGroup;
+    const { campaignReport, byCampaign, activeCampaignIds, activeCampaignMeta, draftRes, scheduledRes } = campaignGroup;
     const flowResults = flowReport.results;
     const campaignResults = campaignReport.results;
 
     // Truncation → warnings (never drop silently).
     if (flowReport.truncated) warnings.push("Flow values report hit the page cap — some flows may be missing. Revenue understated.");
     if (campaignReport.truncated) warnings.push("Campaign values report hit the page cap — some campaigns may be missing. Revenue understated.");
+    if (draftRes.truncated) warnings.push("More draft campaigns exist than shown (showing the 100 most recent).");
+    if (scheduledRes.truncated) warnings.push("More scheduled campaigns exist than shown (showing the 100 most recent).");
 
     // Headline totals are computed from the FULL report results, before any
     // row-level activity filtering, so filtering idle rows never changes them.
@@ -167,28 +229,9 @@ export async function GET(req: NextRequest) {
     }
     flowRows.sort((a, b) => b.revenue - a.revenue);
 
-    // ---- Campaign rows: aggregate the report by campaign_id, keep only rows
-    // with activity, then fetch metadata for JUST those ids. ----
-    const byCampaign = new Map<string, Totals>();
-    for (const r of campaignResults) {
-      const id = r.groupings.campaign_id;
-      if (!id) continue;
-      const cur = byCampaign.get(id) ?? { recipients: 0, opens: 0, clicks: 0, revenue: 0 };
-      cur.recipients += r.statistics.recipients ?? 0;
-      cur.opens += r.statistics.opens_unique ?? r.statistics.opens ?? 0;
-      cur.clicks += r.statistics.clicks_unique ?? r.statistics.clicks ?? 0;
-      cur.revenue += r.statistics.conversion_value ?? 0;
-      byCampaign.set(id, cur);
-    }
-    const activeCampaignIds: string[] = [];
-    for (const [id, t] of byCampaign) {
-      if (t.recipients > 0 || t.revenue > 0) activeCampaignIds.push(id);
-    }
-
-    // Metadata only for the active campaigns (sent, in range) — one call per ~50.
-    const activeCampaignMeta = activeCampaignIds.length ? await timed("campaign_meta", () => fetchCampaignsByIds(activeCampaignIds)) : [];
+    // ---- Campaign rows: byCampaign/activeCampaignIds computed in group C above;
+    // join the metadata we already fetched for the active ids. ----
     const campaignMetaById = new Map(activeCampaignMeta.map((c) => [c.id, c]));
-
     const campaignRows: CampaignRow[] = [];
     for (const id of activeCampaignIds) {
       const t = byCampaign.get(id)!;
@@ -207,9 +250,9 @@ export async function GET(req: NextRequest) {
     }
     campaignRows.sort((a, b) => b.revenue - a.revenue);
 
-    // ---- Status subsections: Draft / Scheduled fetched by status (not date-
-    // bound, small pages). Sent = the active-in-range campaigns we already have
-    // metadata for, so it lines up with the performance table above. ----
+    // ---- Status subsections: Draft / Scheduled fetched by status in group C.
+    // Sent = the active-in-range campaigns we already have metadata for, so it
+    // lines up with the performance table above. ----
     const toMeta = (c: (typeof activeCampaignMeta)[number]): CampaignMeta => ({
       campaign_id: c.id,
       name: c.name,
@@ -217,11 +260,6 @@ export async function GET(req: NextRequest) {
       send_time: c.send_time ?? c.strategy_datetime ?? null,
       audience_count: c.audience_count,
     });
-    const draftRes = await timed("drafts", () => fetchCampaignsByStatus("Draft"));
-    const scheduledRes = await timed("scheduled", () => fetchCampaignsByStatus("Scheduled"));
-    if (draftRes.truncated) warnings.push("More draft campaigns exist than shown (showing the 100 most recent).");
-    if (scheduledRes.truncated) warnings.push("More scheduled campaigns exist than shown (showing the 100 most recent).");
-
     const draft = draftRes.campaigns.map(toMeta);
     const scheduled = scheduledRes.campaigns
       .map(toMeta)
@@ -248,7 +286,9 @@ export async function GET(req: NextRequest) {
       range: { start: startYMD, end: endYMD },
     };
     if (!debug) {
-      overviewCache.set(cacheKey, { ts: Date.now(), data: response });
+      const entry = { ts: Date.now(), data: response };
+      overviewCache.set(cacheKey, entry); // L1
+      writeDiskCache(cacheKey, entry);    // L2 (survives process restarts)
     }
 
     if (debug) {

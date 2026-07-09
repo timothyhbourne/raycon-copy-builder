@@ -55,4 +55,5 @@ export interface OverviewData {
   range: { start: string; end: string };
   served_from_cache?: string;
   cache_age_seconds?: number;
+  stale?: boolean; // served from an expired cache; UI revalidates in the background
 }
