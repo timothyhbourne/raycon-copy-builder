@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "sync:metrics": "tsx scripts/sync-metrics.ts",
     "ingest:doc": "tsx scripts/ingest-doc.ts",
     "ingest:designs": "tsx scripts/ingest-designs.ts",
     "ingest:design-spec": "tsx scripts/extract-design-spec.ts"

@@ -14,7 +14,7 @@ const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/logout"]);
 // Routes that enforce their OWN auth (a shared secret) so an external caller —
 // e.g. the weekly-report cron, which has no app cookie — can reach them. The
 // handler is responsible for rejecting bad callers.
-const SELF_PROTECTED_PATHS = new Set(["/api/reports/weekly/run"]);
+const SELF_PROTECTED_PATHS = new Set(["/api/reports/weekly/run", "/api/metrics/sync"]);
 
 export function proxy(request: NextRequest) {
   // No credentials configured → gate disabled (open access for local/dev).
