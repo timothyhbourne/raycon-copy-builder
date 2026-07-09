@@ -6,29 +6,25 @@ import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef,
 import { PLANNER_STATUSES, PLANNER_CHANNELS, EVERGREEN_OFFER } from "@/lib/planner-types";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
+import Chip, { type ChipTone } from "@/components/ui/Chip";
+import Drawer from "@/components/ui/Drawer";
+import SkeletonBlock from "@/components/ui/Skeleton";
+import { toast } from "@/components/ui/Toast";
 
 // Copy Builder link state for a row, resolved against the set of saved copy ids.
 type CopyEntry = "sms" | "unlinked" | "draft" | "final";
 
 // ---------- formatting ----------
-const CHANNEL_STYLE: Record<PlannerChannel, { dot: string; chip: string; label: string }> = {
-  email: { dot: "bg-indigo-500", chip: "bg-indigo-50 text-indigo-700 border-indigo-200", label: "Email" },
-  sms: { dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 border-emerald-200", label: "SMS" },
+// Channel + status colors map onto the shared Chip tones (accent = indigo).
+const CHANNEL: Record<PlannerChannel, { tone: ChipTone; dot: string; label: string }> = {
+  email: { tone: "accent", dot: "bg-accent", label: "Email" },
+  sms: { tone: "success", dot: "bg-success-600", label: "SMS" },
 };
-const STATUS_PILL: Record<PlannerStatus, string> = {
-  idea: "bg-slate-100 text-slate-600 border-slate-200",
-  draft: "bg-amber-50 text-amber-700 border-amber-200",
-  scheduled: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  sent: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  cancelled: "bg-rose-50 text-rose-700 border-rose-200",
+const STATUS_TONE: Record<PlannerStatus, ChipTone> = {
+  idea: "muted", draft: "warning", scheduled: "accent", sent: "success", cancelled: "danger",
 };
-function StatusPill({ status }: { status: PlannerStatus }) {
-  return <span className={`inline-block text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${STATUS_PILL[status]}`}>{status}</span>;
-}
-const COPY_CHIP: Record<"draft" | "final", string> = {
-  draft: "bg-amber-50 text-amber-700 border-amber-200",
-  final: "bg-emerald-50 text-emerald-700 border-emerald-200",
-};
+const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };
+
 // Inline copy affordance for a table row's Name cell. stopPropagation so the
 // links don't also open the row editor (the row onClick opens edit). Email only;
 // SMS renders nothing.
@@ -37,16 +33,16 @@ function CopyLink({ entry, rowId, copyId }: { entry: CopyEntry; rowId: string; c
   if (entry === "unlinked") {
     return (
       <Link href={`/copy-builder?planner=${rowId}`} onClick={(e) => e.stopPropagation()}
-        className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-indigo-600 hover:underline">
+        className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
         Write copy
       </Link>
     );
   }
   return (
     <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
-      <span className={`text-[10px] font-mono uppercase border rounded px-1 py-0.5 ${COPY_CHIP[entry]}`}>Copy: {entry}</span>
+      <Chip tone={COPY_TONE[entry]}>Copy: {entry}</Chip>
       <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
-        className="text-[10px] font-mono uppercase tracking-wide text-indigo-600 hover:underline">
+        className="text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
         Open copy
       </Link>
     </span>
@@ -74,6 +70,20 @@ function reDate(iso: string, newYmd: string): string {
   return nd.toISOString();
 }
 
+// Small chevron for styled native <select>s (kept native under the hood for a11y).
+function Chevron() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wide";
+const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
+const dateCls = "text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
+
 interface AudienceItem { id: string; name: string; type: "segment" | "list" }
 interface CampaignItem { id: string; name: string; status: string; send_time: string | null }
 
@@ -85,7 +95,6 @@ export default function PlannerPage() {
   const [editing, setEditing] = useState<PlannerRow | "new" | null>(null);
   const [newDate, setNewDate] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [syncResults, setSyncResults] = useState<{ synced: number; postscript_connected: boolean; results: SyncResult[]; warnings: string[] } | null>(null);
   const now = new Date();
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
 
@@ -170,17 +179,24 @@ export default function PlannerPage() {
     return row.copy_status === "final" ? "final" : "draft";
   }, [copyIds, copyIdsLoaded]);
 
+  // Sync metrics from Klaviyo/Postscript. Outcome goes to a toast (no inline dump).
   const sync = async () => {
     setSyncing(true);
-    setSyncResults(null);
     try {
       const res = await fetch("/api/planner/sync", { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Sync failed");
       setRows(json.rows as PlannerRow[]);
-      setSyncResults({ synced: json.synced, postscript_connected: json.postscript_connected, results: json.results ?? [], warnings: json.warnings ?? [] });
+      const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched).length;
+      const parts = [`Synced ${json.synced} campaign${json.synced === 1 ? "" : "s"}`];
+      if (failed > 0) parts.push(`${failed} unmatched`);
+      if (!json.postscript_connected) parts.push("Postscript not connected");
+      const msg = parts.join(" · ");
+      // No dedicated warning tone in the toast manager — info carries the caveats.
+      if (json.postscript_connected && failed === 0) toast.success(msg);
+      else toast.info(msg);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed");
+      toast.error(e instanceof Error ? e.message : "Sync failed");
     } finally {
       setSyncing(false);
     }
@@ -201,7 +217,7 @@ export default function PlannerPage() {
       if (!res.ok) throw new Error();
     } catch {
       setRows(prev); // rollback
-      setError("Could not save the new date. Reverted.");
+      toast.error("Could not save the new date. Reverted.");
     }
   };
 
@@ -218,8 +234,8 @@ export default function PlannerPage() {
     <div>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
         <div>
-          <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Campaign Planner</div>
-          <h1 className="text-2xl font-semibold text-slate-900">Plan &amp; learnings</h1>
+          <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-1">Campaign Planner</div>
+          <h1 className="text-2xl font-semibold text-ink">Plan &amp; learnings</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
@@ -227,20 +243,28 @@ export default function PlannerPage() {
         </div>
       </div>
 
-      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-4">
+      <div className="inline-flex rounded-md border border-line bg-surface p-0.5 mb-4">
         {(["calendar", "table"] as const).map((v) => (
           <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 text-sm rounded-md font-medium transition-colors capitalize ${view === v ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}>{v}</button>
+            className={`px-4 py-1.5 text-sm rounded-[6px] font-medium capitalize transition-colors duration-150 ease-out-soft ${
+              view === v ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"
+            }`}>{v}</button>
         ))}
       </div>
 
-      {syncResults && <SyncSummary res={syncResults} onClose={() => setSyncResults(null)} />}
-      {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-900 flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)} className="text-red-500">✕</button></div>}
+      {error && (
+        <div className="bg-danger-50 border border-danger-200 rounded-md p-3 mb-4 text-sm text-danger-600 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} aria-label="Dismiss" className="opacity-70 hover:opacity-100 transition-opacity">✕</button>
+        </div>
+      )}
 
       {loading ? (
-        <Skeleton />
+        <div className="bg-surface border border-line rounded-md shadow-card p-4 space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonBlock key={i} className="h-9 w-full" />)}
+        </div>
       ) : rows.length === 0 ? (
-        <div className="bg-white border border-line rounded-md shadow-card">
+        <div className="bg-surface border border-line rounded-md shadow-card">
           <EmptyState
             icon={
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -273,29 +297,6 @@ export default function PlannerPage() {
   );
 }
 
-// ---------- sync summary ----------
-const REASON_LABEL: Record<string, string> = {
-  matched: "synced", not_linked: "not linked", not_sent_yet: "not sent yet",
-  no_activity_in_window: "no activity found", postscript_not_connected: "Postscript not connected",
-};
-function SyncSummary({ res, onClose }: { res: { synced: number; postscript_connected: boolean; results: SyncResult[]; warnings: string[] }; onClose: () => void }) {
-  const failed = res.results.filter((r) => !r.matched);
-  return (
-    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-slate-700">Synced {res.synced} campaign{res.synced === 1 ? "" : "s"}.{!res.postscript_connected ? " Postscript not connected (SMS skipped)." : ""}</span>
-        <button onClick={onClose} className="text-slate-400">✕</button>
-      </div>
-      {failed.length > 0 && (
-        <ul className="mt-2 text-xs text-slate-500 space-y-0.5">
-          {failed.map((r) => <li key={r.id}>· <span className="text-slate-700">{r.name}</span>: {REASON_LABEL[r.reason] ?? r.reason}</li>)}
-        </ul>
-      )}
-      {res.warnings.map((w, i) => <div key={i} className="mt-1 text-xs text-amber-700">{w}</div>)}
-    </div>
-  );
-}
-
 // ---------- calendar ----------
 function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, copyEntry }: {
   rows: PlannerRow[]; cursor: { y: number; m: number }; setCursor: (c: { y: number; m: number }) => void;
@@ -318,6 +319,11 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
   while (cells.length % 7 !== 0) cells.push(null);
   const dayKey = (d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
+  const goPrev = () => setCursor(m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 });
+  const goNext = () => setCursor(m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 });
+  const goToday = () => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); };
+  const navBtn = "w-7 h-7 inline-flex items-center justify-center rounded-sm border border-line text-ink-secondary hover:bg-chrome transition-colors";
+
   const onDragEnd = (res: DropResult) => {
     if (!res.destination) return;
     const dest = res.destination.droppableId.replace("cal:", "");
@@ -327,65 +333,78 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <div className="font-mono text-xs text-slate-500 uppercase tracking-wide">{first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3 text-[10px] font-mono text-slate-400">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /> Email</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> SMS</span>
-            </div>
-            <div className="flex gap-1">
-              <button onClick={() => setCursor(m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 })} className="px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50">←</button>
-              <button onClick={() => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); }} className="px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50">Today</button>
-              <button onClick={() => setCursor(m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 })} className="px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50">→</button>
-            </div>
+      <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+          <div className="flex items-center gap-2">
+            <button onClick={goPrev} aria-label="Previous month" title="Previous month" className={navBtn}>←</button>
+            <div className="text-sm font-medium text-ink min-w-[9rem] text-center">{first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
+            <button onClick={goNext} aria-label="Next month" title="Next month" className={navBtn}>→</button>
+            <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-mono text-ink-muted">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-accent" /> Email</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success-600" /> SMS</span>
           </div>
         </div>
-        <div className="grid grid-cols-7 text-[10px] font-mono uppercase tracking-wide text-slate-400 border-b border-slate-100">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="px-2 py-1.5 text-center">{d}</div>)}
-        </div>
-        <div className="grid grid-cols-7">
-          {cells.map((d, i) => {
-            if (!d) return <div key={`e-${i}`} className="min-h-[96px] border-b border-r border-slate-100 bg-slate-50/40" />;
-            const key = dayKey(d);
-            const entries = byDay.get(key) ?? [];
-            const isToday = key === todayYmd;
-            return (
-              <Droppable droppableId={`cal:${key}`} key={key}>
-                {(provided, snapshot) => (
-                  <div ref={provided.innerRef} {...provided.droppableProps}
-                    onClick={() => onDay(key)}
-                    className={`min-h-[96px] border-b border-r border-slate-100 p-1.5 cursor-pointer transition-colors ${snapshot.isDraggingOver ? "bg-indigo-50" : "hover:bg-slate-50"}`}>
-                    <div className={`text-[11px] font-mono mb-1 ${isToday ? "text-slate-900 font-semibold" : "text-slate-400"}`}>{d}</div>
-                    <div className="space-y-1">
-                      {entries.map((r, idx) => (
-                        <Draggable draggableId={r.id} index={idx} key={r.id}>
-                          {(dp) => (
-                            <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
-                              onClick={(e) => { e.stopPropagation(); onEntry(r); }}
-                              className="flex items-center gap-1 rounded px-1 py-0.5 bg-white border border-slate-200 hover:border-slate-300 shadow-sm">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_STYLE[r.channel].dot}`} />
-                              <span className={`text-[11px] truncate ${r.status === "cancelled" ? "line-through text-slate-400" : "text-slate-700"}`}>{r.name}</span>
-                              {(() => {
-                                const ce = copyEntry(r);
-                                return ce === "draft" || ce === "final"
-                                  ? <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-emerald-500" : "bg-amber-500"}`} title={`Copy: ${ce}`} />
-                                  : null;
-                              })()}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {provided.placeholder}
+        <div key={`${y}-${m}`} className="rc-animate-fade">
+          <div className="grid grid-cols-7 text-[10px] font-mono uppercase tracking-wide text-ink-muted border-b border-line">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="px-2 py-1.5 text-center">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7">
+            {cells.map((d, i) => {
+              const weekend = i % 7 === 0 || i % 7 === 6;
+              if (!d) return <div key={`e-${i}`} className={`min-h-[96px] border-b border-r border-line ${weekend ? "bg-chrome/60" : "bg-canvas"}`} />;
+              const key = dayKey(d);
+              const entries = byDay.get(key) ?? [];
+              const isToday = key === todayYmd;
+              return (
+                <Droppable droppableId={`cal:${key}`} key={key}>
+                  {(provided, snapshot) => (
+                    <div ref={provided.innerRef} {...provided.droppableProps}
+                      onClick={() => onDay(key)}
+                      className={`relative min-h-[96px] border-b border-r border-line p-1.5 cursor-pointer transition-colors ${
+                        snapshot.isDraggingOver ? "bg-accent-50" : weekend ? "bg-chrome/60 hover:bg-chrome" : "hover:bg-chrome"
+                      } ${isToday ? "ring-1 ring-inset ring-accent" : ""}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[11px] font-mono ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
+                        {isToday && <span className="font-mono text-[9px] uppercase tracking-wide text-accent">Today</span>}
+                      </div>
+                      <div className="space-y-1">
+                        {entries.map((r, idx) => (
+                          <Draggable draggableId={r.id} index={idx} key={r.id}>
+                            {(dp, snap) => {
+                              const ce = copyEntry(r);
+                              // dnd owns the inline transform while dragging; append the tilt
+                              // rather than overwrite it so the drag position is preserved.
+                              const style = snap.isDragging
+                                ? { ...dp.draggableProps.style, transform: `${dp.draggableProps.style?.transform ?? ""} rotate(1deg)` }
+                                : dp.draggableProps.style;
+                              return (
+                                <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps} style={style}
+                                  onClick={(e) => { e.stopPropagation(); onEntry(r); }}
+                                  className={`flex items-center gap-1 rounded-sm px-1.5 py-1 bg-surface border transition-[box-shadow,border-color] duration-150 ease-out-soft ${
+                                    snap.isDragging ? "border-line-strong shadow-pop" : "border-line hover:border-line-strong hover:shadow-card"
+                                  }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL[r.channel].dot}`} />
+                                  <span className={`text-[11px] truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink-secondary"}`}>{r.name}</span>
+                                  {(ce === "draft" || ce === "final") && (
+                                    <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-success-600" : "bg-warning-600"}`} title={`Copy: ${ce}`} />
+                                  )}
+                                </div>
+                              );
+                            }}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </Droppable>
-            );
-          })}
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
         </div>
-        <div className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">Drag an entry to another day to reschedule · click to edit</div>
+        <div className="px-4 py-2 text-[11px] text-ink-muted border-t border-line">Drag an entry to another day to reschedule · click to edit</div>
       </div>
     </DragDropContext>
   );
@@ -431,74 +450,92 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
 
   const cell = "px-3 py-2.5 text-sm flex items-center min-w-0";
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 flex-wrap">
-        <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
-          <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus)} className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
-          <option value="all">All statuses</option>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input type="date" value={fStart} onChange={(e) => setFStart(e.target.value)} className="text-xs border border-slate-200 rounded px-2 py-1 bg-white" title="From" />
-        <input type="date" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className="text-xs border border-slate-200 rounded px-2 py-1 bg-white" title="To" />
-        <div className="flex items-center gap-1 ml-2">
-          <span className="text-[10px] font-mono uppercase text-slate-400">Sort</span>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className="text-xs border border-slate-200 rounded px-2 py-1 bg-white">
-            <option value="date">Planned send</option><option value="revenue">Revenue</option>
-          </select>
-        </div>
-        <div className="ml-auto text-xs text-slate-500">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
+    <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
+      <div className="flex items-end gap-3 px-4 py-3 border-b border-line flex-wrap">
+        <label className="flex flex-col gap-1">
+          <span className={microLabel}>Channel</span>
+          <div className="relative">
+            <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className={selectCls}>
+              <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select><Chevron />
+          </div>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={microLabel}>Status</span>
+          <div className="relative">
+            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus)} className={selectCls}>
+              <option value="all">All statuses</option>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select><Chevron />
+          </div>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={microLabel}>From</span>
+          <input type="date" value={fStart} onChange={(e) => setFStart(e.target.value)} className={dateCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={microLabel}>To</span>
+          <input type="date" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className={dateCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={microLabel}>Sort</span>
+          <div className="relative">
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className={selectCls}>
+              <option value="date">Planned send</option><option value="revenue">Revenue</option>
+            </select><Chevron />
+          </div>
+        </label>
+        <div className="ml-auto self-end text-xs text-ink-muted font-mono pb-1.5">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-auto max-h-[calc(100vh-20rem)]">
         <div style={{ minWidth: 1360 }}>
-          {/* header */}
-          <div className="grid bg-slate-50 border-b border-slate-200 text-slate-500 font-mono text-[10px] uppercase tracking-wide" style={{ gridTemplateColumns: GRID }}>
+          {/* header — sticky within this scroll region */}
+          <div className="sticky top-0 z-20 grid bg-chrome border-b border-line text-ink-muted font-mono text-[10px] uppercase tracking-wide" style={{ gridTemplateColumns: GRID }}>
             <div className="px-3 py-2">Name</div><div className="px-3 py-2">Channel</div><div className="px-3 py-2">Status</div>
             <div className="px-3 py-2">Planned</div><div className="px-3 py-2">Offer</div><div className="px-3 py-2">Audience</div>
-            <div className="px-3 py-2 border-l border-slate-200 bg-slate-100/60">Recipients</div><div className="px-3 py-2 bg-slate-100/60">Open</div>
-            <div className="px-3 py-2 bg-slate-100/60">Click</div><div className="px-3 py-2 bg-slate-100/60">Revenue</div>
-            <div className="px-3 py-2 bg-slate-100/60">Rev/recip</div><div className="px-3 py-2">Notes / learnings</div>
+            <div className="px-3 py-2 border-l border-line">Recipients</div><div className="px-3 py-2">Open</div>
+            <div className="px-3 py-2">Click</div><div className="px-3 py-2">Revenue</div>
+            <div className="px-3 py-2">Rev/recip</div><div className="px-3 py-2">Notes / learnings</div>
           </div>
 
           <DragDropContext onDragEnd={onDragEnd}>
             {groups.map((g) => (
               <div key={g.day || "flat"}>
                 {sortBy === "date" && (
-                  <div className="px-3 py-1.5 bg-slate-50/70 border-b border-slate-100 text-[11px] font-mono text-slate-500">{g.day ? fmtDate(g.day + "T00:00:00") : ""}</div>
+                  <div className="px-3 py-1.5 bg-canvas border-b border-line text-[11px] font-mono text-ink-secondary">{g.day ? fmtDate(g.day + "T00:00:00") : ""}</div>
                 )}
                 <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
                   {(provided, snap) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-indigo-50/50" : ""}>
+                    <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/50" : ""}>
                       {g.rows.map((r, idx) => (
                         <Draggable draggableId={r.id} index={idx} key={r.id} isDragDisabled={sortBy !== "date"}>
-                          {(dp) => (
+                          {(dp, snap2) => (
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
-                              className="grid border-b border-slate-100 hover:bg-slate-50 cursor-pointer bg-white" style={{ gridTemplateColumns: GRID }}>
+                              className={`grid border-b border-line hover:bg-chrome cursor-pointer bg-surface transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`} style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
                               <div className={cell}>
                                 <div className="min-w-0 flex flex-col">
-                                  <span className={`truncate ${r.status === "cancelled" ? "line-through text-slate-400" : "text-slate-900"}`}>{r.name}</span>
+                                  <span className={`truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}`}>{r.name}</span>
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} />
                                 </div>
                               </div>
-                              <div className={cell}><span className={`text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${CHANNEL_STYLE[r.channel].chip}`}>{CHANNEL_STYLE[r.channel].label}</span></div>
-                              <div className={cell}><StatusPill status={r.status} /></div>
-                              <div className={`${cell} text-slate-600 whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
-                              <div className={`${cell} text-slate-700`}><span className="truncate">{offerLabel(r)}</span></div>
-                              <div className={`${cell} text-[11px] text-slate-500`}>
+                              <div className={cell}><Chip tone={CHANNEL[r.channel].tone} dot>{CHANNEL[r.channel].label}</Chip></div>
+                              <div className={cell}><Chip tone={STATUS_TONE[r.status]}>{r.status}</Chip></div>
+                              <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
+                              <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerLabel(r)}</span></div>
+                              <div className={`${cell} text-[11px] text-ink-muted`}>
                                 <span className="truncate">
                                   {r.audience_included.length > 0 && `+ ${r.audience_included.map((a) => a.name).join(", ")}`}
                                   {r.audience_excluded.length > 0 && ` − ${r.audience_excluded.map((a) => a.name).join(", ")}`}
                                   {r.audience_included.length === 0 && r.audience_excluded.length === 0 && "—"}
                                 </span>
                               </div>
-                              <div className={`${cell} justify-end tabular-nums text-slate-700 border-l border-slate-100 bg-slate-50/40`}>{int(r.recipients)}</div>
-                              <div className={`${cell} justify-end tabular-nums text-slate-700 bg-slate-50/40`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
-                              <div className={`${cell} justify-end tabular-nums text-slate-700 bg-slate-50/40`}>{pct(r.click_rate)}</div>
-                              <div className={`${cell} justify-end tabular-nums text-slate-900 font-medium bg-slate-50/40`}>{money(r.revenue)}</div>
-                              <div className={`${cell} justify-end tabular-nums text-slate-700 bg-slate-50/40`}>{rpr(r.revenue_per_recipient)}</div>
-                              <div className={`${cell} text-[11px] text-slate-500`}><span className="truncate">{r.notes || "—"}</span></div>
+                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary border-l border-line`}>{int(r.recipients)}</div>
+                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
+                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{pct(r.click_rate)}</div>
+                              <div className={`${cell} justify-end font-mono tabular-nums text-ink font-medium`}>{money(r.revenue)}</div>
+                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{rpr(r.revenue_per_recipient)}</div>
+                              <div className={`${cell} text-[11px] text-ink-muted`}><span className="truncate">{r.notes || "—"}</span></div>
                             </div>
                           )}
                         </Draggable>
@@ -512,27 +549,18 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
           </DragDropContext>
 
           {/* summary */}
-          <div className="grid border-t-2 border-slate-200 bg-slate-50 text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
-            <div className="px-3 py-2.5 text-slate-700">{summary.count} total</div>
+          <div className="grid border-t-2 border-line bg-chrome text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
+            <div className="px-3 py-2.5 text-ink-secondary">{summary.count} total</div>
             <div /><div /><div /><div /><div />
-            <div className="px-3 py-2.5 text-right tabular-nums text-slate-700 border-l border-slate-200">{int(summary.recipients)}</div>
-            <div className="px-3 py-2.5 text-right tabular-nums text-slate-500">{pct(summary.avgOpen)}</div>
-            <div className="px-3 py-2.5 text-right tabular-nums text-slate-500">{pct(summary.avgClick)}</div>
-            <div className="px-3 py-2.5 text-right tabular-nums text-slate-900">{money(summary.revenue)}</div>
-            <div /><div className="px-3 py-2.5 text-[10px] text-slate-400 font-mono self-center">avg open/click</div>
+            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-secondary border-l border-line">{int(summary.recipients)}</div>
+            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgOpen)}</div>
+            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgClick)}</div>
+            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink">{money(summary.revenue)}</div>
+            <div /><div className="px-3 py-2.5 text-[10px] text-ink-muted font-mono self-center">avg open/click</div>
           </div>
         </div>
       </div>
-      {sortBy === "revenue" && <div className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">Switch sort to “Planned send” to drag-reschedule.</div>}
-    </div>
-  );
-}
-
-// ---------- skeleton ----------
-function Skeleton() {
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
-      {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-8 bg-slate-100 rounded animate-pulse" />)}
+      {sortBy === "revenue" && <div className="px-4 py-2 text-[11px] text-ink-muted border-t border-line">Switch sort to “Planned send” to drag-reschedule.</div>}
     </div>
   );
 }
@@ -549,11 +577,11 @@ function AudiencePicker({ label, selected, onChange, audiences, audiencesFailed 
   const remove = (key: string) => onChange(selected.filter((s) => (s.id || s.name) !== key));
   return (
     <div>
-      <label className="block font-mono text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</label>
+      <label className="block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1">{label}</label>
       <div className="flex flex-wrap gap-1 mb-1">
         {selected.map((s) => (
-          <span key={s.id || s.name} className="inline-flex items-center gap-1 text-[11px] bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">
-            {s.name}<button type="button" onClick={() => remove(s.id || s.name)} className="text-slate-400 hover:text-slate-700">✕</button>
+          <span key={s.id || s.name} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
+            {s.name}<button type="button" onClick={() => remove(s.id || s.name)} aria-label={`Remove ${s.name}`} className="text-ink-muted hover:text-ink">✕</button>
           </span>
         ))}
       </div>
@@ -561,19 +589,19 @@ function AudiencePicker({ label, selected, onChange, audiences, audiencesFailed 
         <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder={audiencesFailed ? "Type a name, Enter to add" : "Search segments & lists…"}
           onKeyDown={(e) => { if (e.key === "Enter" && q.trim() && audiencesFailed) { e.preventDefault(); add({ id: "", name: q.trim(), type: "segment" }); } }}
-          className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:border-slate-400" />
+          className="w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
         {open && !audiencesFailed && matches.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+          <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-48 overflow-y-auto">
             {matches.map((a) => (
               <button key={a.id} type="button" onMouseDown={(e) => { e.preventDefault(); add({ id: a.id, name: a.name, type: a.type }); }}
-                className="w-full text-left px-2 py-1.5 text-sm hover:bg-slate-50 flex items-center justify-between">
-                <span>{a.name}</span><span className="text-[10px] font-mono uppercase text-slate-400">{a.type}</span>
+                className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome flex items-center justify-between transition-colors">
+                <span className="text-ink">{a.name}</span><span className="text-[10px] font-mono uppercase text-ink-muted">{a.type}</span>
               </button>
             ))}
           </div>
         )}
       </div>
-      {audiencesFailed && <div className="text-[10px] text-amber-600 mt-1">Klaviyo audiences unavailable — free-type names for now.</div>}
+      {audiencesFailed && <div className="text-[10px] text-warning-600 mt-1">Klaviyo audiences unavailable — free-type names for now.</div>}
     </div>
   );
 }
@@ -603,8 +631,8 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
   const [campQ, setCampQ] = useState("");
   const [campOpen, setCampOpen] = useState(false);
 
-  const label = "block font-mono text-[10px] text-slate-500 uppercase tracking-wide mb-1";
-  const input = "w-full border border-slate-200 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:border-slate-400";
+  const label = "block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1";
+  const input = "w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
 
   const build = (overrides: Record<string, unknown> = {}) => ({
     id: row?.id, name: name.trim(), channel, status, planned_send_at: localInputToIso(plannedSendAt),
@@ -625,132 +653,132 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
   const save = async () => {
     if (!name.trim()) { setErr("Name is required"); return; }
     setSaving(true); setErr(null);
-    try { await post(build()); onSaved(); } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
+    try { await post(build()); toast.success(row ? "Campaign updated" : "Campaign created"); onSaved(); } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
   };
   const duplicate = async () => {
     setSaving(true); setErr(null);
     try {
       // Clone plan fields; clear link + metrics so the copy is a fresh plan.
       await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "idea", klaviyo_campaign_id: undefined, klaviyo_send_time: null, postscript_campaign_id: undefined }));
+      toast.success("Campaign duplicated");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Duplicate failed"); setSaving(false); }
   };
   const del = async () => {
     if (!row) return; setSaving(true);
-    try { await fetch(`/api/planner?id=${encodeURIComponent(row.id)}`, { method: "DELETE" }); onSaved(); } catch { setSaving(false); }
+    try { await fetch(`/api/planner?id=${encodeURIComponent(row.id)}`, { method: "DELETE" }); toast.success("Campaign deleted"); onSaved(); } catch { setSaving(false); }
   };
 
   const campMatches = campaigns.filter((c) => c.name.toLowerCase().includes(campQ.toLowerCase())).slice(0, 8);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white z-10">
-          <span className="font-mono text-xs text-slate-500 uppercase tracking-wide">{row ? "Edit campaign" : "New campaign"}</span>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-sm">✕</button>
+    <Drawer
+      open
+      onClose={onClose}
+      title={row ? "Edit campaign" : "New campaign"}
+      footer={
+        <>
+          <Button variant="primary" loading={saving} onClick={save} className="flex-1">Save</Button>
+          {row && <Button variant="secondary" disabled={saving} onClick={duplicate}>Duplicate</Button>}
+          {row && !confirmDel && (
+            <Button variant="secondary" disabled={saving} onClick={() => setConfirmDel(true)}
+              className="text-danger-600 border-danger-200 hover:bg-danger-50 hover:border-danger-200 hover:text-danger-600">
+              Delete
+            </Button>
+          )}
+          {row && confirmDel && <Button variant="danger" disabled={saving} onClick={del}>Confirm delete</Button>}
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div><label className={label}>Name</label><input className={input} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Prime Day last call" /></div>
+        <div className="grid grid-cols-3 gap-3">
+          <div><label className={label}>Channel</label>
+            <select className={input} value={channel} onChange={(e) => setChannel(e.target.value as PlannerChannel)}>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+          <div><label className={label}>Status</label>
+            <select className={input} value={status} onChange={(e) => setStatus(e.target.value as PlannerStatus)}>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+          <div><label className={label}>Planned send</label><input type="datetime-local" className={input} value={plannedSendAt} onChange={(e) => setPlannedSendAt(e.target.value)} /></div>
         </div>
-        <div className="p-5 space-y-3">
-          <div><label className={label}>Name</label><input className={input} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Prime Day last call" /></div>
-          <div className="grid grid-cols-3 gap-3">
-            <div><label className={label}>Channel</label>
-              <select className={input} value={channel} onChange={(e) => setChannel(e.target.value as PlannerChannel)}>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
-            <div><label className={label}>Status</label>
-              <select className={input} value={status} onChange={(e) => setStatus(e.target.value as PlannerStatus)}>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div><label className={label}>Planned send</label><input type="datetime-local" className={input} value={plannedSendAt} onChange={(e) => setPlannedSendAt(e.target.value)} /></div>
-          </div>
 
-          {/* offer toggle */}
+        {/* offer toggle */}
+        <div>
+          <label className={label}>Offer</label>
+          <div className="inline-flex rounded-md border border-line p-0.5 mb-2">
+            {(["evergreen", "promo"] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setOfferType(t)}
+                className={`px-3 py-1 text-xs rounded-[6px] font-medium transition-colors ${offerType === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>
+                {t === "evergreen" ? `Evergreen (${EVERGREEN_OFFER})` : "Custom promo"}
+              </button>
+            ))}
+          </div>
+          {offerType === "promo" && (
+            <div className="grid grid-cols-2 gap-3">
+              <input className={input} value={offer} onChange={(e) => setOffer(e.target.value)} placeholder="20% off sitewide" />
+              <input className={input} value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="Promo code (PRIME)" />
+            </div>
+          )}
+        </div>
+
+        <AudiencePicker label="Audience included" selected={included} onChange={setIncluded} audiences={audiences} audiencesFailed={audiencesFailed} />
+        <AudiencePicker label="Audience excluded" selected={excluded} onChange={setExcluded} audiences={audiences} audiencesFailed={audiencesFailed} />
+
+        {channel === "email" ? (
           <div>
-            <label className={label}>Offer</label>
-            <div className="inline-flex rounded-md border border-slate-200 p-0.5 mb-2">
-              {(["evergreen", "promo"] as const).map((t) => (
-                <button key={t} type="button" onClick={() => setOfferType(t)}
-                  className={`px-3 py-1 text-xs rounded font-medium ${offerType === t ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
-                  {t === "evergreen" ? `Evergreen (${EVERGREEN_OFFER})` : "Custom promo"}
-                </button>
-              ))}
-            </div>
-            {offerType === "promo" && (
-              <div className="grid grid-cols-2 gap-3">
-                <input className={input} value={offer} onChange={(e) => setOffer(e.target.value)} placeholder="20% off sitewide" />
-                <input className={input} value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="Promo code (PRIME)" />
-              </div>
-            )}
-          </div>
-
-          <AudiencePicker label="Audience included" selected={included} onChange={setIncluded} audiences={audiences} audiencesFailed={audiencesFailed} />
-          <AudiencePicker label="Audience excluded" selected={excluded} onChange={setExcluded} audiences={audiences} audiencesFailed={audiencesFailed} />
-
-          {channel === "email" ? (
-            <div>
-              <label className={label}>Link Klaviyo campaign (to sync metrics)</label>
-              <div className="relative">
-                <input className={input} value={campQ || klaviyoId} onFocus={() => setCampOpen(true)} onBlur={() => setTimeout(() => setCampOpen(false), 150)}
-                  onChange={(e) => { setCampQ(e.target.value); setKlaviyoId(e.target.value); setKlaviyoSendTime(null); setCampOpen(true); }}
-                  placeholder="Search campaigns or paste id…" />
-                {campOpen && campMatches.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-56 overflow-y-auto">
-                    {campMatches.map((c) => (
-                      <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); setKlaviyoId(c.id); setKlaviyoSendTime(c.send_time); setCampQ(""); setCampOpen(false); }}
-                        className="w-full text-left px-2 py-1.5 text-sm hover:bg-slate-50">
-                        <div className="text-slate-800 truncate">{c.name}</div>
-                        <div className="text-[10px] font-mono text-slate-400">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {klaviyoId && (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] font-mono text-slate-400 truncate">linked: {klaviyoId}{klaviyoSendTime ? ` · sent ${fmtDate(klaviyoSendTime)}` : ""}</span>
-                  <a href={`https://www.klaviyo.com/campaign/${klaviyoId}/reports`} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 hover:underline shrink-0">Open in Klaviyo ↗</a>
+            <label className={label}>Link Klaviyo campaign (to sync metrics)</label>
+            <div className="relative">
+              <input className={input} value={campQ || klaviyoId} onFocus={() => setCampOpen(true)} onBlur={() => setTimeout(() => setCampOpen(false), 150)}
+                onChange={(e) => { setCampQ(e.target.value); setKlaviyoId(e.target.value); setKlaviyoSendTime(null); setCampOpen(true); }}
+                placeholder="Search campaigns or paste id…" />
+              {campOpen && campMatches.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-56 overflow-y-auto">
+                  {campMatches.map((c) => (
+                    <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); setKlaviyoId(c.id); setKlaviyoSendTime(c.send_time); setCampQ(""); setCampOpen(false); }}
+                      className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
+                      <div className="text-ink truncate">{c.name}</div>
+                      <div className="text-[10px] font-mono text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          ) : (
-            <div><label className={label}>Postscript campaign id (to sync metrics)</label>
-              <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" /></div>
-          )}
-
-          {channel === "email" && row && (
-            <div className="border-t border-slate-100 pt-3">
-              <label className={label}>Copy Builder</label>
-              {row.copy_campaign_id ? (
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-mono uppercase border rounded px-1.5 py-0.5 ${COPY_CHIP[row.copy_status === "final" ? "final" : "draft"]}`}>Copy: {row.copy_status ?? "draft"}</span>
-                  <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-indigo-600 hover:underline">Open copy ↗</Link>
-                </div>
-              ) : (
-                <Link href={`/copy-builder?planner=${row.id}`} className="inline-block text-sm text-indigo-600 hover:underline">Write copy for this campaign →</Link>
-              )}
-            </div>
-          )}
-
-          <div><label className={label}>Notes / learnings</label><textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" /></div>
-
-          {row && (row.recipients != null || row.revenue != null) && (
-            <div className="text-[11px] text-slate-500 font-mono bg-slate-50 border border-slate-200 rounded px-3 py-2">
-              Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
-              {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
-            </div>
-          )}
-
-          {err && <div className="text-sm text-red-600">{err}</div>}
-
-          <div className="flex items-center gap-2 pt-1">
-            <Button variant="primary" loading={saving} onClick={save} className="flex-1">Save</Button>
-            {row && <Button variant="secondary" disabled={saving} onClick={duplicate}>Duplicate</Button>}
-            {row && !confirmDel && (
-              <Button variant="secondary" disabled={saving} onClick={() => setConfirmDel(true)}
-                className="text-danger-600 border-danger-200 hover:bg-danger-50 hover:border-danger-200 hover:text-danger-600">
-                Delete
-              </Button>
+            {klaviyoId && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[10px] font-mono text-ink-muted truncate">linked: {klaviyoId}{klaviyoSendTime ? ` · sent ${fmtDate(klaviyoSendTime)}` : ""}</span>
+                <a href={`https://www.klaviyo.com/campaign/${klaviyoId}/reports`} target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline shrink-0">Open in Klaviyo ↗</a>
+              </div>
             )}
-            {row && confirmDel && <Button variant="danger" disabled={saving} onClick={del}>Confirm delete</Button>}
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
           </div>
-        </div>
+        ) : (
+          <div><label className={label}>Postscript campaign id (to sync metrics)</label>
+            <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" /></div>
+        )}
+
+        {channel === "email" && row && (
+          <div className="border-t border-line pt-3">
+            <label className={label}>Copy Builder</label>
+            {row.copy_campaign_id ? (
+              <div className="flex items-center gap-2">
+                <Chip tone={COPY_TONE[row.copy_status === "final" ? "final" : "draft"]}>Copy: {row.copy_status ?? "draft"}</Chip>
+                <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-accent hover:underline">Open copy ↗</Link>
+              </div>
+            ) : (
+              <Link href={`/copy-builder?planner=${row.id}`} className="inline-block text-sm text-accent hover:underline">Write copy for this campaign →</Link>
+            )}
+          </div>
+        )}
+
+        <div><label className={label}>Notes / learnings</label><textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" /></div>
+
+        {row && (row.recipients != null || row.revenue != null) && (
+          <div className="text-[11px] text-ink-muted font-mono bg-chrome border border-line rounded-sm px-3 py-2">
+            Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
+            {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
+          </div>
+        )}
+
+        {err && <div className="text-sm text-danger-600">{err}</div>}
       </div>
-    </div>
+    </Drawer>
   );
 }
