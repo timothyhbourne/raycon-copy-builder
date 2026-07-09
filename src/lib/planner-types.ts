@@ -6,11 +6,22 @@
 // email-copy SavedCampaign (lib/campaigns.ts) — do not conflate them.
 
 export type PlannerChannel = "email" | "sms";
-export type PlannerStatus = "idea" | "draft" | "scheduled" | "sent" | "cancelled";
+// Scheduling-state model. "Sent" is DERIVED (see isEffectivelySent), not stored —
+// a row is effectively sent once it is scheduled in Klaviyo and its planned send
+// time has passed. Legacy statuses migrate on read (see lib/planner.ts).
+export type PlannerStatus = "writing_brief" | "planned" | "scheduled_in_klaviyo" | "cancelled";
 export type OfferType = "evergreen" | "promo";
 
-export const PLANNER_STATUSES: PlannerStatus[] = ["idea", "draft", "scheduled", "sent", "cancelled"];
+export const PLANNER_STATUSES: PlannerStatus[] = ["writing_brief", "planned", "scheduled_in_klaviyo", "cancelled"];
 export const PLANNER_CHANNELS: PlannerChannel[] = ["email", "sms"];
+
+// Human-facing labels for each status.
+export const PLANNER_STATUS_LABELS: Record<PlannerStatus, string> = {
+  writing_brief: "Writing brief",
+  planned: "Planned",
+  scheduled_in_klaviyo: "Scheduled in Klaviyo",
+  cancelled: "Cancelled",
+};
 
 // Raycon's standing offer. Evergreen campaigns use this and carry no promo code.
 export const EVERGREEN_OFFER = "20% off";
@@ -69,6 +80,13 @@ export interface SyncedMetrics {
   revenue: number | null;
   revenue_per_recipient: number | null;
   metrics_synced_at: string;
+}
+
+// "Sent" is derived, never stored: a row counts as effectively sent once it is
+// scheduled in Klaviyo and its planned send time is in the past. Use this instead
+// of a status === "sent" check anywhere sent-ness matters (table filter, etc.).
+export function isEffectivelySent(row: PlannerRow): boolean {
+  return row.status === "scheduled_in_klaviyo" && new Date(row.planned_send_at).getTime() < Date.now();
 }
 
 // Per-row sync outcome so the UI can explain exactly why a row did/didn't sync.

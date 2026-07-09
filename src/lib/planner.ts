@@ -42,6 +42,21 @@ function backfillAudience(raw: any): AudienceRef[] {
     .filter((a): a is AudienceRef => a !== null);
 }
 
+// Migrate a legacy status literal to the current model. New values pass through;
+// anything unrecognised falls back to the first stage.
+//   idea → writing_brief, draft → planned,
+//   scheduled/sent → scheduled_in_klaviyo, cancelled → cancelled
+function backfillStatus(s: unknown): PlannerRow["status"] {
+  switch (s) {
+    case "writing_brief": case "planned": case "scheduled_in_klaviyo": case "cancelled":
+      return s;
+    case "idea": return "writing_brief";
+    case "draft": return "planned";
+    case "scheduled": case "sent": return "scheduled_in_klaviyo";
+    default: return "writing_brief";
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function backfillRow(r: any): PlannerRow {
   const offer_type = r.offer_type === "evergreen" || r.offer_type === "promo"
@@ -50,6 +65,7 @@ function backfillRow(r: any): PlannerRow {
   return {
     ...r,
     offer_type,
+    status: backfillStatus(r.status),
     audience_included: backfillAudience(r.audience_included),
     audience_excluded: backfillAudience(r.audience_excluded),
   } as PlannerRow;
@@ -110,7 +126,7 @@ export function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; ch
     offer_type: input.offer_type ?? existing?.offer_type ?? "evergreen",
     offer: input.offer ?? existing?.offer ?? "",
     planned_send_at: input.planned_send_at ?? existing?.planned_send_at ?? now,
-    status: input.status ?? existing?.status ?? "idea",
+    status: input.status ?? existing?.status ?? "writing_brief",
     audience_included: input.audience_included ?? existing?.audience_included ?? [],
     audience_excluded: input.audience_excluded ?? existing?.audience_excluded ?? [],
     notes: input.notes ?? existing?.notes ?? "",
@@ -163,9 +179,9 @@ export function linkCopyCampaign(
     copy_campaign_id: copyCampaignId,
     copy_status: copyStatus,
     copy_linked_at: now,
-    // Nudge the plan forward only from the initial "idea" stage. Never downgrade
-    // a row that's already scheduled/sent (or cancelled).
-    status: rows[idx].status === "idea" ? "draft" : rows[idx].status,
+    // Nudge the plan forward only from the initial "writing brief" stage. Never
+    // downgrade a row that's already scheduled in Klaviyo (or cancelled).
+    status: rows[idx].status === "writing_brief" ? "planned" : rows[idx].status,
     updated_at: now,
   };
   writeAll(rows);

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
-import { PLANNER_STATUSES, PLANNER_CHANNELS, EVERGREEN_OFFER } from "@/lib/planner-types";
+import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import Chip, { type ChipTone } from "@/components/ui/Chip";
@@ -20,9 +20,30 @@ const CHANNEL: Record<PlannerChannel, { tone: ChipTone; dot: string; label: stri
   email: { tone: "accent", dot: "bg-accent", label: "Email" },
   sms: { tone: "success", dot: "bg-success-600", label: "SMS" },
 };
-const STATUS_TONE: Record<PlannerStatus, ChipTone> = {
-  idea: "muted", draft: "warning", scheduled: "accent", sent: "success", cancelled: "danger",
+// Status-driven pill styling (Step 2). Explicit palette classes so the exact
+// colors from the spec render regardless of the token layer. `check` prefixes a
+// ✓ glyph; `strike` strikes the name.
+const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
+  writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
+  planned: { pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  scheduled_in_klaviyo: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
+  cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
 };
+// Channel signal = a small colored dot. SMS is amber (not emerald) so it can't be
+// confused with the scheduled-in-Klaviyo green.
+const CHANNEL_DOT: Record<PlannerChannel, string> = { email: "bg-indigo-500", sms: "bg-amber-500" };
+
+// Small status pill, shape-matched to the Chip primitive. Used in the calendar
+// entries, the table status column, and (filled) the editor segmented control.
+function StatusPill({ status, className = "" }: { status: PlannerStatus; className?: string }) {
+  const st = STATUS_STYLE[status];
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide leading-none ${st.pill} ${className}`}>
+      {st.check && <span aria-hidden>✓</span>}
+      <span className={st.strike ? "line-through" : ""}>{PLANNER_STATUS_LABELS[status]}</span>
+    </span>
+  );
+}
 const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };
 
 // Inline copy affordance for a table row's Name cell. stopPropagation so the
@@ -111,7 +132,8 @@ export default function PlannerPage() {
 
   // table filters + sort
   const [fChannel, setFChannel] = useState<"all" | PlannerChannel>("all");
-  const [fStatus, setFStatus] = useState<"all" | PlannerStatus>("all");
+  // "sent" is a derived filter (isEffectivelySent), not a stored status.
+  const [fStatus, setFStatus] = useState<"all" | PlannerStatus | "sent">("all");
   const [fStart, setFStart] = useState("");
   const [fEnd, setFEnd] = useState("");
   const [sortBy, setSortBy] = useState<"date" | "revenue">("date");
@@ -223,7 +245,8 @@ export default function PlannerPage() {
 
   const filtered = useMemo(() => rows.filter((r) => {
     if (fChannel !== "all" && r.channel !== fChannel) return false;
-    if (fStatus !== "all" && r.status !== fStatus) return false;
+    if (fStatus === "sent") { if (!isEffectivelySent(r)) return false; }
+    else if (fStatus !== "all" && r.status !== fStatus) return false;
     const day = ymdOf(r.planned_send_at);
     if (fStart && day < fStart) return false;
     if (fEnd && day > fEnd) return false;
@@ -272,7 +295,7 @@ export default function PlannerPage() {
               </svg>
             }
             title="No campaigns yet"
-            description="Plan your first email or SMS campaign — start at the idea stage, fill in details later."
+            description="Plan your first email or SMS campaign. Start with a brief, fill in the details later."
             action={<Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>}
           />
         </div>
@@ -342,8 +365,8 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
             <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
           </div>
           <div className="flex items-center gap-3 text-[10px] font-mono text-ink-muted">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-accent" /> Email</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success-600" /> SMS</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /> Email</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> SMS</span>
           </div>
         </div>
         <div key={`${y}-${m}`} className="rc-animate-fade">
@@ -374,6 +397,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                           <Draggable draggableId={r.id} index={idx} key={r.id}>
                             {(dp, snap) => {
                               const ce = copyEntry(r);
+                              const st = STATUS_STYLE[r.status];
                               // dnd owns the inline transform while dragging; append the tilt
                               // rather than overwrite it so the drag position is preserved.
                               const style = snap.isDragging
@@ -382,13 +406,15 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                               return (
                                 <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps} style={style}
                                   onClick={(e) => { e.stopPropagation(); onEntry(r); }}
-                                  className={`flex items-center gap-1 rounded-sm px-1.5 py-1 bg-surface border transition-[box-shadow,border-color] duration-150 ease-out-soft ${
-                                    snap.isDragging ? "border-line-strong shadow-pop" : "border-line hover:border-line-strong hover:shadow-card"
+                                  title={`${r.name} · ${PLANNER_STATUS_LABELS[r.status]}`}
+                                  className={`flex items-center gap-1 rounded-sm px-1.5 py-1 border transition-[box-shadow] duration-150 ease-out-soft ${st.pill} ${
+                                    snap.isDragging ? "shadow-pop" : "hover:shadow-card"
                                   }`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL[r.channel].dot}`} />
-                                  <span className={`text-[11px] truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink-secondary"}`}>{r.name}</span>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_DOT[r.channel]}`} />
+                                  {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
+                                  <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
                                   {(ce === "draft" || ce === "final") && (
-                                    <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-success-600" : "bg-warning-600"}`} title={`Copy: ${ce}`} />
+                                    <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-emerald-600" : "bg-amber-500"}`} title={`Copy: ${ce}`} />
                                   )}
                                 </div>
                               );
@@ -415,7 +441,7 @@ const GRID = "minmax(160px,1.4fr) 74px 92px 108px 150px minmax(150px,1fr) 92px 6
 function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
   rows: PlannerRow[]; onEdit: (r: PlannerRow) => void; onReschedule: (id: string, ymd: string) => void;
   fChannel: "all" | PlannerChannel; setFChannel: (v: "all" | PlannerChannel) => void;
-  fStatus: "all" | PlannerStatus; setFStatus: (v: "all" | PlannerStatus) => void;
+  fStatus: "all" | PlannerStatus | "sent"; setFStatus: (v: "all" | PlannerStatus | "sent") => void;
   fStart: string; setFStart: (v: string) => void; fEnd: string; setFEnd: (v: string) => void;
   sortBy: "date" | "revenue"; setSortBy: (v: "date" | "revenue") => void;
   copyEntry: (r: PlannerRow) => CopyEntry;
@@ -463,8 +489,10 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
         <label className="flex flex-col gap-1">
           <span className={microLabel}>Status</span>
           <div className="relative">
-            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus)} className={selectCls}>
-              <option value="all">All statuses</option>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus | "sent")} className={selectCls}>
+              <option value="all">All statuses</option>
+              {PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}
+              <option value="sent">Sent</option>
             </select><Chevron />
           </div>
         </label>
@@ -520,7 +548,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                                 </div>
                               </div>
                               <div className={cell}><Chip tone={CHANNEL[r.channel].tone} dot>{CHANNEL[r.channel].label}</Chip></div>
-                              <div className={cell}><Chip tone={STATUS_TONE[r.status]}>{r.status}</Chip></div>
+                              <div className={cell}><StatusPill status={r.status} /></div>
                               <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
                               <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerLabel(r)}</span></div>
                               <div className={`${cell} text-[11px] text-ink-muted`}>
@@ -614,7 +642,7 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
 }) {
   const [name, setName] = useState(row?.name ?? "");
   const [channel, setChannel] = useState<PlannerChannel>(row?.channel ?? "email");
-  const [status, setStatus] = useState<PlannerStatus>(row?.status ?? "idea");
+  const [status, setStatus] = useState<PlannerStatus>(row?.status ?? "writing_brief");
   const [plannedSendAt, setPlannedSendAt] = useState(row ? isoToLocalInput(row.planned_send_at) : defaultDateIso ? defaultDateIso : isoToLocalInput(new Date().toISOString()));
   const [offerType, setOfferType] = useState<OfferType>(row?.offer_type ?? "evergreen");
   const [offer, setOffer] = useState(row?.offer ?? EVERGREEN_OFFER);
@@ -659,7 +687,7 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
     setSaving(true); setErr(null);
     try {
       // Clone plan fields; clear link + metrics so the copy is a fresh plan.
-      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "idea", klaviyo_campaign_id: undefined, klaviyo_send_time: null, postscript_campaign_id: undefined }));
+      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, postscript_campaign_id: undefined }));
       toast.success("Campaign duplicated");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Duplicate failed"); setSaving(false); }
@@ -697,7 +725,7 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
           <div><label className={label}>Channel</label>
             <select className={input} value={channel} onChange={(e) => setChannel(e.target.value as PlannerChannel)}>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
           <div><label className={label}>Status</label>
-            <select className={input} value={status} onChange={(e) => setStatus(e.target.value as PlannerStatus)}>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+            <select className={input} value={status} onChange={(e) => setStatus(e.target.value as PlannerStatus)}>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}</select></div>
           <div><label className={label}>Planned send</label><input type="datetime-local" className={input} value={plannedSendAt} onChange={(e) => setPlannedSendAt(e.target.value)} /></div>
         </div>
 
