@@ -105,7 +105,6 @@ const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wide
 const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
 const dateCls = "text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
 
-interface AudienceItem { id: string; name: string; type: "segment" | "list" }
 interface CampaignItem { id: string; name: string; status: string; send_time: string | null }
 
 export default function PlannerPage() {
@@ -119,9 +118,8 @@ export default function PlannerPage() {
   const now = new Date();
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
 
-  // audiences + campaigns for the editor pickers (fetched once)
-  const [audiences, setAudiences] = useState<AudienceItem[]>([]);
-  const [audiencesFailed, setAudiencesFailed] = useState(false);
+  // Campaigns for the editor's Klaviyo link typeahead (fetched once). Audiences
+  // are no longer picked manually — they auto-fetch from the linked campaign.
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
 
   // Set of saved copy ids (drafts + finalized) so we can detect a stale link
@@ -155,9 +153,6 @@ export default function PlannerPage() {
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
   useEffect(() => {
-    fetch("/api/klaviyo/audiences").then((r) => r.json()).then((j) => {
-      if (j.audiences) setAudiences(j.audiences); else setAudiencesFailed(true);
-    }).catch(() => setAudiencesFailed(true));
     fetch("/api/klaviyo/campaigns-list").then((r) => r.json()).then((j) => {
       if (j.campaigns) setCampaigns(j.campaigns);
     }).catch(() => { /* picker just won't have suggestions */ });
@@ -312,7 +307,7 @@ export default function PlannerPage() {
 
       {editing && (
         <RowEditor row={editing === "new" ? null : editing} defaultDateIso={newDate}
-          audiences={audiences} audiencesFailed={audiencesFailed} campaigns={campaigns}
+          campaigns={campaigns}
           onClose={() => setEditing(null)}
           onSaved={async () => { setEditing(null); await fetchRows(); }} />
       )}
@@ -593,51 +588,10 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
   );
 }
 
-// ---------- audience picker ----------
-function AudiencePicker({ label, selected, onChange, audiences, audiencesFailed }: {
-  label: string; selected: AudienceRef[]; onChange: (v: AudienceRef[]) => void; audiences: AudienceItem[]; audiencesFailed: boolean;
-}) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const selectedIds = new Set(selected.map((s) => s.id || s.name));
-  const matches = audiences.filter((a) => a.name.toLowerCase().includes(q.toLowerCase()) && !selectedIds.has(a.id)).slice(0, 8);
-  const add = (a: AudienceRef) => { onChange([...selected, a]); setQ(""); };
-  const remove = (key: string) => onChange(selected.filter((s) => (s.id || s.name) !== key));
-  return (
-    <div>
-      <label className="block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1">{label}</label>
-      <div className="flex flex-wrap gap-1 mb-1">
-        {selected.map((s) => (
-          <span key={s.id || s.name} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
-            {s.name}<button type="button" onClick={() => remove(s.id || s.name)} aria-label={`Remove ${s.name}`} className="text-ink-muted hover:text-ink">✕</button>
-          </span>
-        ))}
-      </div>
-      <div className="relative">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder={audiencesFailed ? "Type a name, Enter to add" : "Search segments & lists…"}
-          onKeyDown={(e) => { if (e.key === "Enter" && q.trim() && audiencesFailed) { e.preventDefault(); add({ id: "", name: q.trim(), type: "segment" }); } }}
-          className="w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
-        {open && !audiencesFailed && matches.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-48 overflow-y-auto">
-            {matches.map((a) => (
-              <button key={a.id} type="button" onMouseDown={(e) => { e.preventDefault(); add({ id: a.id, name: a.name, type: a.type }); }}
-                className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome flex items-center justify-between transition-colors">
-                <span className="text-ink">{a.name}</span><span className="text-[10px] font-mono uppercase text-ink-muted">{a.type}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {audiencesFailed && <div className="text-[10px] text-warning-600 mt-1">Klaviyo audiences unavailable — free-type names for now.</div>}
-    </div>
-  );
-}
-
 // ---------- row editor ----------
-function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns, onClose, onSaved }: {
+function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
   row: PlannerRow | null; defaultDateIso: string | null;
-  audiences: AudienceItem[]; audiencesFailed: boolean; campaigns: CampaignItem[];
+  campaigns: CampaignItem[];
   onClose: () => void; onSaved: () => void;
 }) {
   const [name, setName] = useState(row?.name ?? "");
@@ -658,9 +612,44 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
   const [confirmDel, setConfirmDel] = useState(false);
   const [campQ, setCampQ] = useState("");
   const [campOpen, setCampOpen] = useState(false);
+  // Audience auto-fetch state (Step 4).
+  const [audLoading, setAudLoading] = useState(false);
+  const [klaviyoStatus, setKlaviyoStatus] = useState<string | null>(null);
+  const [audFromKlaviyo, setAudFromKlaviyo] = useState(false);
 
-  const label = "block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1";
+  // Minimal editor styling: sparse mono micro-labels, hairline section rules.
+  const label = "block font-mono text-[11px] text-ink-muted uppercase tracking-wider mb-1.5";
   const input = "w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
+  const section = "border-t border-line pt-5 mt-5";
+
+  // Pull audiences from the linked Klaviyo campaign. Only OVERWRITE the row's
+  // audiences when Klaviyo says the campaign is scheduled/sending/sent (a draft
+  // has none yet, and we must not wipe legacy manual values). A failure keeps
+  // existing values and warns.
+  const fetchAudiences = useCallback(async (id: string) => {
+    setAudLoading(true);
+    try {
+      const res = await fetch(`/api/planner/audiences?campaign_id=${encodeURIComponent(id)}`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed");
+      setKlaviyoStatus(typeof j.status === "string" ? j.status : null);
+      if (/scheduled|sending|sent|queued/i.test(j.status || "")) {
+        setIncluded(Array.isArray(j.included) ? j.included : []);
+        setExcluded(Array.isArray(j.excluded) ? j.excluded : []);
+        setAudFromKlaviyo(true);
+      }
+    } catch {
+      toast.error("Couldn't load audiences from Klaviyo — keeping existing values.");
+    } finally {
+      setAudLoading(false);
+    }
+  }, []);
+
+  // On open: refresh audiences if this row already carries a Klaviyo link.
+  useEffect(() => {
+    if (channel === "email" && klaviyoId) fetchAudiences(klaviyoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const build = (overrides: Record<string, unknown> = {}) => ({
     id: row?.id, name: name.trim(), channel, status, planned_send_at: localInputToIso(plannedSendAt),
@@ -698,6 +687,44 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
   };
 
   const campMatches = campaigns.filter((c) => c.name.toLowerCase().includes(campQ.toLowerCase())).slice(0, 8);
+  const linkedName = campaigns.find((c) => c.id === klaviyoId)?.name || klaviyoId;
+  const pickCampaign = (c: CampaignItem) => {
+    setKlaviyoId(c.id); setKlaviyoSendTime(c.send_time); setKlaviyoStatus(c.status || null);
+    setCampQ(""); setCampOpen(false);
+    fetchAudiences(c.id);
+  };
+  const unlink = () => {
+    setKlaviyoId(""); setKlaviyoSendTime(null); setKlaviyoStatus(null);
+    setAudFromKlaviyo(false); setIncluded([]); setExcluded([]); setCampQ("");
+  };
+
+  // Audience section render state.
+  const hasAud = included.length > 0 || excluded.length > 0;
+  const isDraftLink = channel === "email" && !!klaviyoId && !!klaviyoStatus && /draft/i.test(klaviyoStatus);
+  const audChips = (
+    <div className="flex flex-wrap gap-1.5">
+      {included.map((a) => (
+        <span key={`i-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
+          <span className="text-emerald-600" aria-hidden>+</span>{a.name}
+        </span>
+      ))}
+      {excluded.map((a) => (
+        <span key={`e-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-muted">
+          <span className="text-rose-500" aria-hidden>−</span>{a.name}
+        </span>
+      ))}
+    </div>
+  );
+  const audBlocked = (text: string) => <div className="text-sm text-ink-muted">{text}</div>;
+  const audMicro = (text: string) => <div className="mt-1.5 font-mono text-[10px] text-ink-muted uppercase tracking-wider">{text}</div>;
+  const renderAudiences = () => {
+    if (audLoading) return <SkeletonBlock className="h-6 w-2/3" />;
+    if (channel === "sms") return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Audiences sync from linked Klaviyo email campaigns.");
+    if (!klaviyoId) return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Link a Klaviyo campaign to pull audiences.");
+    if (isDraftLink) return audBlocked("Audiences appear when the campaign is scheduled in Klaviyo.");
+    if (hasAud) return <>{audChips}{audMicro(audFromKlaviyo ? "from Klaviyo" : "manual")}</>;
+    return audBlocked("No audiences set on this campaign yet.");
+  };
 
   return (
     <Drawer
@@ -706,107 +733,151 @@ function RowEditor({ row, defaultDateIso, audiences, audiencesFailed, campaigns,
       title={row ? "Edit campaign" : "New campaign"}
       footer={
         <>
-          <Button variant="primary" loading={saving} onClick={save} className="flex-1">Save</Button>
-          {row && <Button variant="secondary" disabled={saving} onClick={duplicate}>Duplicate</Button>}
-          {row && !confirmDel && (
-            <Button variant="secondary" disabled={saving} onClick={() => setConfirmDel(true)}
-              className="text-danger-600 border-danger-200 hover:bg-danger-50 hover:border-danger-200 hover:text-danger-600">
-              Delete
-            </Button>
-          )}
-          {row && confirmDel && <Button variant="danger" disabled={saving} onClick={del}>Confirm delete</Button>}
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          {row && (confirmDel
+            ? <Button variant="danger" size="sm" disabled={saving} onClick={del}>Confirm delete</Button>
+            : <Button variant="ghost" size="sm" disabled={saving} onClick={() => setConfirmDel(true)}
+                className="text-danger-600 hover:bg-danger-50 hover:text-danger-600">Delete</Button>)}
+          <span className="mr-auto" />
+          {row && <Button variant="ghost" size="sm" disabled={saving} onClick={duplicate}>Duplicate</Button>}
+          <Button variant="primary" size="sm" loading={saving} onClick={save}>Save</Button>
         </>
       }
     >
-      <div className="space-y-3">
-        <div><label className={label}>Name</label><input className={input} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Prime Day last call" /></div>
-        <div className="grid grid-cols-3 gap-3">
-          <div><label className={label}>Channel</label>
-            <select className={input} value={channel} onChange={(e) => setChannel(e.target.value as PlannerChannel)}>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
-          <div><label className={label}>Status</label>
-            <select className={input} value={status} onChange={(e) => setStatus(e.target.value as PlannerStatus)}>{PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}</select></div>
-          <div><label className={label}>Planned send</label><input type="datetime-local" className={input} value={plannedSendAt} onChange={(e) => setPlannedSendAt(e.target.value)} /></div>
+      {/* 1. Name (title) + channel */}
+      <div className="flex items-start gap-3">
+        <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Campaign name"
+          className="flex-1 min-w-0 bg-transparent text-xl font-medium tracking-tight text-ink placeholder:text-ink-muted/50 border-b border-transparent hover:border-line focus:border-accent focus:outline-none transition-colors pb-1" />
+        <div className="inline-flex rounded-md border border-line p-0.5 shrink-0 mt-0.5">
+          {PLANNER_CHANNELS.map((c) => (
+            <button key={c} type="button" onClick={() => setChannel(c)}
+              className={`px-2.5 py-1 text-[11px] font-mono uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
+              {c}
+            </button>
+          ))}
         </div>
+      </div>
 
-        {/* offer toggle */}
-        <div>
-          <label className={label}>Offer</label>
-          <div className="inline-flex rounded-md border border-line p-0.5 mb-2">
-            {(["evergreen", "promo"] as const).map((t) => (
-              <button key={t} type="button" onClick={() => setOfferType(t)}
-                className={`px-3 py-1 text-xs rounded-[6px] font-medium transition-colors ${offerType === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>
-                {t === "evergreen" ? `Evergreen (${EVERGREEN_OFFER})` : "Custom promo"}
+      {/* 2. Status segmented control */}
+      <div className={section}>
+        <label className={label}>Status</label>
+        <div className="flex flex-wrap gap-1.5">
+          {PLANNER_STATUSES.map((s) => {
+            const active = status === s;
+            const st = STATUS_STYLE[s];
+            return (
+              <button key={s} type="button" onClick={() => setStatus(s)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-mono uppercase tracking-wide transition-colors ${
+                  active ? `${st.pill} font-semibold` : "border-line text-ink-muted hover:bg-chrome"
+                }`}>
+                {st.check && active && <span aria-hidden>✓</span>}
+                {PLANNER_STATUS_LABELS[s]}
               </button>
-            ))}
-          </div>
-          {offerType === "promo" && (
-            <div className="grid grid-cols-2 gap-3">
-              <input className={input} value={offer} onChange={(e) => setOffer(e.target.value)} placeholder="20% off sitewide" />
-              <input className={input} value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="Promo code (PRIME)" />
-            </div>
-          )}
+            );
+          })}
         </div>
+      </div>
 
-        <AudiencePicker label="Audience included" selected={included} onChange={setIncluded} audiences={audiences} audiencesFailed={audiencesFailed} />
-        <AudiencePicker label="Audience excluded" selected={excluded} onChange={setExcluded} audiences={audiences} audiencesFailed={audiencesFailed} />
+      {/* 3. Planned send */}
+      <div className={section}>
+        <label className={label}>Planned send</label>
+        <input type="datetime-local" className={`${input} w-auto`} value={plannedSendAt} onChange={(e) => setPlannedSendAt(e.target.value)} />
+      </div>
 
-        {channel === "email" ? (
-          <div>
-            <label className={label}>Link Klaviyo campaign (to sync metrics)</label>
-            <div className="relative">
-              <input className={input} value={campQ || klaviyoId} onFocus={() => setCampOpen(true)} onBlur={() => setTimeout(() => setCampOpen(false), 150)}
-                onChange={(e) => { setCampQ(e.target.value); setKlaviyoId(e.target.value); setKlaviyoSendTime(null); setCampOpen(true); }}
-                placeholder="Search campaigns or paste id…" />
-              {campOpen && campMatches.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-56 overflow-y-auto">
-                  {campMatches.map((c) => (
-                    <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); setKlaviyoId(c.id); setKlaviyoSendTime(c.send_time); setCampQ(""); setCampOpen(false); }}
-                      className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
-                      <div className="text-ink truncate">{c.name}</div>
-                      <div className="text-[10px] font-mono text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {klaviyoId && (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] font-mono text-ink-muted truncate">linked: {klaviyoId}{klaviyoSendTime ? ` · sent ${fmtDate(klaviyoSendTime)}` : ""}</span>
-                <a href={`https://www.klaviyo.com/campaign/${klaviyoId}/reports`} target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline shrink-0">Open in Klaviyo ↗</a>
-              </div>
-            )}
+      {/* 4. Offer */}
+      <div className={section}>
+        <label className={label}>Offer</label>
+        <div className="inline-flex rounded-md border border-line p-0.5 mb-2">
+          {(["evergreen", "promo"] as const).map((t) => (
+            <button key={t} type="button" onClick={() => setOfferType(t)}
+              className={`px-3 py-1 text-xs rounded-[6px] font-medium transition-colors ${offerType === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>
+              {t === "evergreen" ? `Evergreen (${EVERGREEN_OFFER})` : "Custom promo"}
+            </button>
+          ))}
+        </div>
+        {offerType === "promo" && (
+          <div className="grid grid-cols-2 gap-3">
+            <input className={input} value={offer} onChange={(e) => setOffer(e.target.value)} placeholder="20% off sitewide" />
+            <input className={input} value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="Promo code (PRIME)" />
           </div>
-        ) : (
-          <div><label className={label}>Postscript campaign id (to sync metrics)</label>
-            <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" /></div>
         )}
+      </div>
 
-        {channel === "email" && row && (
-          <div className="border-t border-line pt-3">
-            <label className={label}>Copy Builder</label>
-            {row.copy_campaign_id ? (
-              <div className="flex items-center gap-2">
-                <Chip tone={COPY_TONE[row.copy_status === "final" ? "final" : "draft"]}>Copy: {row.copy_status ?? "draft"}</Chip>
-                <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-accent hover:underline">Open copy ↗</Link>
+      {/* 5. Klaviyo campaign link (email) / Postscript id (sms) */}
+      <div className={section}>
+        {channel === "email" ? (
+          <>
+            <label className={label}>Klaviyo campaign</label>
+            {klaviyoId ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-ink truncate">{linkedName}</span>
+                {klaviyoStatus && <span className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{klaviyoStatus}</span>}
+                <a href={`https://www.klaviyo.com/campaign/${klaviyoId}`} target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline shrink-0">Open in Klaviyo ↗</a>
+                <Button variant="ghost" size="sm" onClick={unlink} className="ml-auto">Unlink</Button>
               </div>
             ) : (
-              <Link href={`/copy-builder?planner=${row.id}`} className="inline-block text-sm text-accent hover:underline">Write copy for this campaign →</Link>
+              <div className="relative">
+                <input className={input} value={campQ} onFocus={() => setCampOpen(true)} onBlur={() => setTimeout(() => setCampOpen(false), 150)}
+                  onChange={(e) => { setCampQ(e.target.value); setCampOpen(true); }}
+                  placeholder="Search Klaviyo campaigns…" />
+                {campOpen && campMatches.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-56 overflow-y-auto">
+                    {campMatches.map((c) => (
+                      <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); pickCampaign(c); }}
+                        className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
+                        <div className="text-ink truncate">{c.name}</div>
+                        <div className="text-[10px] font-mono text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
-          </div>
+          </>
+        ) : (
+          <>
+            <label className={label}>Postscript campaign id</label>
+            <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" />
+          </>
         )}
-
-        <div><label className={label}>Notes / learnings</label><textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" /></div>
-
-        {row && (row.recipients != null || row.revenue != null) && (
-          <div className="text-[11px] text-ink-muted font-mono bg-chrome border border-line rounded-sm px-3 py-2">
-            Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
-            {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
-          </div>
-        )}
-
-        {err && <div className="text-sm text-danger-600">{err}</div>}
       </div>
+
+      {/* 6. Audiences — auto-fetched from the linked campaign, read-only */}
+      <div className={section}>
+        <label className={label}>Audiences</label>
+        {renderAudiences()}
+      </div>
+
+      {/* 7. Notes */}
+      <div className={section}>
+        <label className={label}>Notes / learnings</label>
+        <textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" />
+      </div>
+
+      {/* Copy Builder handoff — kept (not in the spec's list) so the calendar's
+          only path to writing copy isn't lost; rendered as a quiet line. */}
+      {channel === "email" && row && (
+        <div className={section}>
+          <label className={label}>Copy Builder</label>
+          {row.copy_campaign_id ? (
+            <div className="flex items-center gap-2">
+              <Chip tone={COPY_TONE[row.copy_status === "final" ? "final" : "draft"]}>Copy: {row.copy_status ?? "draft"}</Chip>
+              <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-accent hover:underline">Open copy ↗</Link>
+            </div>
+          ) : (
+            <Link href={`/copy-builder?planner=${row.id}`} className="text-sm text-accent hover:underline">Write copy for this campaign →</Link>
+          )}
+        </div>
+      )}
+
+      {err && <div className="mt-4 text-sm text-danger-600">{err}</div>}
+
+      {/* Read-only synced metrics — quiet line under everything. */}
+      {row && (row.recipients != null || row.revenue != null) && (
+        <div className="border-t border-line pt-4 mt-5 font-mono text-[11px] text-ink-muted">
+          Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
+          {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
+        </div>
+      )}
     </Drawer>
   );
 }
