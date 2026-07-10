@@ -10,6 +10,7 @@ import Chip, { type ChipTone } from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
 import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
+import CopyDocModal from "@/components/CopyDocModal";
 import { toast } from "@/components/ui/Toast";
 
 // Copy Builder link state for a row, resolved against the set of saved copy ids.
@@ -113,11 +114,12 @@ function Chevron() {
     </svg>
   );
 }
-// Small document glyph shown on calendar pills that have linked copy.
+// Small document glyph shown on calendar pills that have linked copy. Color/
+// position come from the wrapping element.
 function CopyGlyph() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden className="ml-auto shrink-0 text-ink-muted">
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
     </svg>
   );
@@ -136,6 +138,9 @@ export default function PlannerPage() {
   const [editing, setEditing] = useState<PlannerRow | "new" | null>(null);
   const [newDate, setNewDate] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  // Full-copy viewer, opened from the drawer's Copy section or a calendar glyph.
+  const [copyDoc, setCopyDoc] = useState<{ id: string; status?: "draft" | "final" } | null>(null);
+  const openCopyDoc = useCallback((id: string, status?: "draft" | "final") => setCopyDoc({ id, status }), []);
   const now = new Date();
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
 
@@ -318,7 +323,7 @@ export default function PlannerPage() {
       ) : view === "calendar" ? (
         <CalendarView rows={rows} cursor={cursor} setCursor={setCursor}
           onEntry={(r) => setEditing(r)} onDay={(d) => { setNewDate(`${d}T09:00`); setEditing("new"); }}
-          onReschedule={reschedule} copyEntry={copyEntry} />
+          onReschedule={reschedule} copyEntry={copyEntry} onViewCopy={openCopyDoc} />
       ) : (
         <TableView rows={filtered} onEdit={(r) => setEditing(r)} onReschedule={reschedule}
           fChannel={fChannel} setFChannel={setFChannel} fStatus={fStatus} setFStatus={setFStatus}
@@ -330,18 +335,24 @@ export default function PlannerPage() {
         <RowEditor row={editing === "new" ? null : editing} defaultDateIso={newDate}
           campaigns={campaigns} allRows={rows}
           onClose={() => setEditing(null)}
-          onLinkChanged={fetchRows}
+          onLinkChanged={fetchRows} onViewCopy={openCopyDoc}
           onSaved={async () => { setEditing(null); await fetchRows(); }} />
+      )}
+
+      {copyDoc && (
+        <CopyDocModal copyId={copyDoc.id} status={copyDoc.status}
+          onClose={() => setCopyDoc(null)} onStale={fetchRows} />
       )}
     </div>
   );
 }
 
 // ---------- calendar ----------
-function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, copyEntry }: {
+function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, copyEntry, onViewCopy }: {
   rows: PlannerRow[]; cursor: { y: number; m: number }; setCursor: (c: { y: number; m: number }) => void;
   onEntry: (r: PlannerRow) => void; onDay: (dayYmd: string) => void; onReschedule: (id: string, ymd: string) => void;
   copyEntry: (r: PlannerRow) => CopyEntry;
+  onViewCopy: (id: string, status?: "draft" | "final") => void;
 }) {
   const { y, m } = cursor;
   const first = new Date(y, m, 1);
@@ -430,7 +441,14 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_DOT[r.channel]}`} />
                                   {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                                   <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
-                                  {(ce === "draft" || ce === "final") && <CopyGlyph />}
+                                  {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
+                                    <button type="button"
+                                      onClick={(e) => { e.stopPropagation(); onViewCopy(r.copy_campaign_id!, ce); }}
+                                      title="View copy" aria-label="View copy"
+                                      className="ml-auto shrink-0 text-ink-muted hover:text-ink transition-colors">
+                                      <CopyGlyph />
+                                    </button>
+                                  )}
                                 </div>
                               );
                             }}
@@ -609,10 +627,12 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
 }
 
 // ---------- row editor ----------
-function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkChanged, onSaved }: {
+function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkChanged, onViewCopy, onSaved }: {
   row: PlannerRow | null; defaultDateIso: string | null;
   campaigns: CampaignItem[]; allRows: PlannerRow[];
-  onClose: () => void; onLinkChanged: () => void; onSaved: () => void;
+  onClose: () => void; onLinkChanged: () => void;
+  onViewCopy: (id: string, status?: "draft" | "final") => void;
+  onSaved: () => void;
 }) {
   const [name, setName] = useState(row?.name ?? "");
   const [channel, setChannel] = useState<PlannerChannel>(row?.channel ?? "email");
@@ -934,38 +954,25 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             <span className="font-mono text-[11px] text-ink-muted uppercase tracking-wider">Copy</span>
             {copyId && copyStatus && <Chip tone={copyStatus === "final" ? "success" : "warning"}>{copyStatus}</Chip>}
             {copyId && (
-              <span className="ml-auto flex items-center gap-3">
-                <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
-                <button type="button" onClick={() => setUnlinkConfirm(true)} className="text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
-              </span>
+              <button type="button" onClick={() => setUnlinkConfirm(true)} className="ml-auto text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
             )}
           </div>
           {copyId ? (
             copyLoading ? (
-              <div className="space-y-2"><SkeletonBlock className="h-4 w-2/3" /><SkeletonBlock className="h-4 w-1/2" /><SkeletonBlock className="h-4 w-3/4" /></div>
-            ) : copyPreview ? (
-              <div>
-                {(copyPreview.subject_lines[0] || copyPreview.preview_texts[0]) && (
-                  <div className="mb-2">
-                    {copyPreview.subject_lines[0] && <div className="text-sm text-ink font-medium truncate">{copyPreview.subject_lines[0]}</div>}
-                    {copyPreview.preview_texts[0] && <div className="text-xs text-ink-muted truncate">{copyPreview.preview_texts[0]}</div>}
-                  </div>
-                )}
-                {copyPreview.sections.length > 0 && (
-                  <div className="max-h-64 overflow-y-auto divide-y divide-line border-t border-line">
-                    {copyPreview.sections.map((s, i) => {
-                      const first = Object.entries(s.fields)[0];
-                      return (
-                        <div key={i} className="py-1.5">
-                          <div className="font-mono text-[10px] uppercase tracking-wide text-ink-muted">{s.type}</div>
-                          {first && <div className="text-sm text-ink-secondary line-clamp-2 whitespace-pre-line">{first[1]}</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ) : null
+              <SkeletonBlock className="h-4 w-2/3" />
+            ) : (
+              <>
+                {/* one-line summary — the full copy lives in the viewer modal */}
+                <div className="text-sm text-ink-secondary truncate mb-3">
+                  {copyPreview?.subject_lines?.[0] || copyPreview?.campaign_name
+                    || (copyPreview ? `${copyPreview.sections.length} section${copyPreview.sections.length === 1 ? "" : "s"}` : "Linked copy")}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button variant="secondary" size="sm" onClick={() => onViewCopy(copyId, copyStatus ?? "draft")}>View copy</Button>
+                  <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
+                </div>
+              </>
+            )
           ) : (
             <div className="flex items-center gap-2">
               <Link href={`/copy-builder?planner=${row.id}`}
