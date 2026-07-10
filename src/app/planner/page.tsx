@@ -113,6 +113,15 @@ function Chevron() {
     </svg>
   );
 }
+// Small document glyph shown on calendar pills that have linked copy.
+function CopyGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden className="ml-auto shrink-0 text-ink-muted">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+    </svg>
+  );
+}
 const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wide";
 const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
 const dateCls = "text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
@@ -421,9 +430,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_DOT[r.channel]}`} />
                                   {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                                   <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
-                                  {(ce === "draft" || ce === "final") && (
-                                    <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${ce === "final" ? "bg-emerald-600" : "bg-amber-500"}`} title={`Copy: ${ce}`} />
-                                  )}
+                                  {(ce === "draft" || ce === "final") && <CopyGlyph />}
                                 </div>
                               );
                             }}
