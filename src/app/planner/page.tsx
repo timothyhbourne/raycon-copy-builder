@@ -8,11 +8,23 @@ import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import Chip, { type ChipTone } from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
+import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 
 // Copy Builder link state for a row, resolved against the set of saved copy ids.
 type CopyEntry = "sms" | "unlinked" | "draft" | "final";
+
+// Normalized copy preview from /api/planner/copy.
+interface CopyPreview {
+  id: string;
+  source: "draft" | "library";
+  campaign_name: string;
+  updated_at: string;
+  subject_lines: string[];
+  preview_texts: string[];
+  sections: { type: string; fields: Record<string, string> }[];
+}
 
 // ---------- formatting ----------
 // Channel + status colors map onto the shared Chip tones (accent = indigo).
@@ -307,8 +319,9 @@ export default function PlannerPage() {
 
       {editing && (
         <RowEditor row={editing === "new" ? null : editing} defaultDateIso={newDate}
-          campaigns={campaigns}
+          campaigns={campaigns} allRows={rows}
           onClose={() => setEditing(null)}
+          onLinkChanged={fetchRows}
           onSaved={async () => { setEditing(null); await fetchRows(); }} />
       )}
     </div>
@@ -589,10 +602,10 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
 }
 
 // ---------- row editor ----------
-function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
+function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkChanged, onSaved }: {
   row: PlannerRow | null; defaultDateIso: string | null;
-  campaigns: CampaignItem[];
-  onClose: () => void; onSaved: () => void;
+  campaigns: CampaignItem[]; allRows: PlannerRow[];
+  onClose: () => void; onLinkChanged: () => void; onSaved: () => void;
 }) {
   const [name, setName] = useState(row?.name ?? "");
   const [channel, setChannel] = useState<PlannerChannel>(row?.channel ?? "email");
@@ -612,10 +625,18 @@ function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
   const [confirmDel, setConfirmDel] = useState(false);
   const [campQ, setCampQ] = useState("");
   const [campOpen, setCampOpen] = useState(false);
-  // Audience auto-fetch state (Step 4).
+  // Audience auto-fetch state.
   const [audLoading, setAudLoading] = useState(false);
   const [klaviyoStatus, setKlaviyoStatus] = useState<string | null>(null);
   const [audFromKlaviyo, setAudFromKlaviyo] = useState(false);
+  // Copy-embed state: the link is persisted immediately (not on Save), so track
+  // it locally and refresh the parent rows via onLinkChanged.
+  const [copyId, setCopyId] = useState<string | undefined>(row?.copy_campaign_id);
+  const [copyStatus, setCopyStatus] = useState<"draft" | "final" | undefined>(row?.copy_status);
+  const [copyPreview, setCopyPreview] = useState<CopyPreview | null>(null);
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
 
   // Minimal editor styling: sparse mono micro-labels, hairline section rules.
   const label = "block font-mono text-[11px] text-ink-muted uppercase tracking-wider mb-1.5";
@@ -650,6 +671,57 @@ function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
     if (channel === "email" && klaviyoId) fetchAudiences(klaviyoId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load the linked copy preview; a 404 means the copy was deleted — heal the
+  // stale link (clear both sides) and fall back to the unlinked state.
+  const fetchCopyPreview = useCallback(async (id: string) => {
+    if (!row) return;
+    setCopyLoading(true);
+    try {
+      const res = await fetch(`/api/planner/copy?id=${encodeURIComponent(id)}`);
+      if (res.status === 404) {
+        setCopyId(undefined); setCopyStatus(undefined); setCopyPreview(null);
+        await fetch(`/api/planner/link?row_id=${encodeURIComponent(row.id)}`, { method: "DELETE" }).catch(() => {});
+        onLinkChanged();
+        return;
+      }
+      const j = await res.json();
+      if (res.ok) setCopyPreview(j as CopyPreview);
+    } catch { /* keep whatever we have */ } finally { setCopyLoading(false); }
+  }, [row, onLinkChanged]);
+
+  useEffect(() => {
+    if (channel === "email" && row && copyId) fetchCopyPreview(copyId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const attachCopy = async (copyCampaignId: string, cs: "draft" | "final") => {
+    if (!row) return;
+    try {
+      const res = await fetch("/api/planner/link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row_id: row.id, copy_campaign_id: copyCampaignId, copy_status: cs }),
+      });
+      if (!res.ok) throw new Error();
+      setCopyId(copyCampaignId); setCopyStatus(cs); setCopyPreview(null);
+      setPickerOpen(false);
+      toast.success("Copy attached");
+      onLinkChanged();
+      fetchCopyPreview(copyCampaignId);
+    } catch { toast.error("Couldn't attach copy."); }
+  };
+
+  const unlinkCopy = async () => {
+    if (!row) return;
+    setUnlinkConfirm(false);
+    try {
+      const res = await fetch(`/api/planner/link?row_id=${encodeURIComponent(row.id)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setCopyId(undefined); setCopyStatus(undefined); setCopyPreview(null);
+      toast.success("Copy unlinked");
+      onLinkChanged();
+    } catch { toast.error("Couldn't unlink copy."); }
+  };
 
   const build = (overrides: Record<string, unknown> = {}) => ({
     id: row?.id, name: name.trim(), channel, status, planned_send_at: localInputToIso(plannedSendAt),
@@ -727,6 +799,7 @@ function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
   };
 
   return (
+    <>
     <Drawer
       open
       onClose={onClose}
@@ -847,27 +920,60 @@ function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
         {renderAudiences()}
       </div>
 
+      {/* 6b. Copy — embedded preview + attach/unlink (email rows, saved row only) */}
+      {channel === "email" && row && (
+        <div className={section}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-mono text-[11px] text-ink-muted uppercase tracking-wider">Copy</span>
+            {copyId && copyStatus && <Chip tone={copyStatus === "final" ? "success" : "warning"}>{copyStatus}</Chip>}
+            {copyId && (
+              <span className="ml-auto flex items-center gap-3">
+                <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
+                <button type="button" onClick={() => setUnlinkConfirm(true)} className="text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
+              </span>
+            )}
+          </div>
+          {copyId ? (
+            copyLoading ? (
+              <div className="space-y-2"><SkeletonBlock className="h-4 w-2/3" /><SkeletonBlock className="h-4 w-1/2" /><SkeletonBlock className="h-4 w-3/4" /></div>
+            ) : copyPreview ? (
+              <div>
+                {(copyPreview.subject_lines[0] || copyPreview.preview_texts[0]) && (
+                  <div className="mb-2">
+                    {copyPreview.subject_lines[0] && <div className="text-sm text-ink font-medium truncate">{copyPreview.subject_lines[0]}</div>}
+                    {copyPreview.preview_texts[0] && <div className="text-xs text-ink-muted truncate">{copyPreview.preview_texts[0]}</div>}
+                  </div>
+                )}
+                {copyPreview.sections.length > 0 && (
+                  <div className="max-h-64 overflow-y-auto divide-y divide-line border-t border-line">
+                    {copyPreview.sections.map((s, i) => {
+                      const first = Object.entries(s.fields)[0];
+                      return (
+                        <div key={i} className="py-1.5">
+                          <div className="font-mono text-[10px] uppercase tracking-wide text-ink-muted">{s.type}</div>
+                          {first && <div className="text-sm text-ink-secondary line-clamp-2 whitespace-pre-line">{first[1]}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link href={`/copy-builder?planner=${row.id}`}
+                className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
+              <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>Attach existing copy</Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 7. Notes */}
       <div className={section}>
         <label className={label}>Notes / learnings</label>
         <textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" />
       </div>
-
-      {/* Copy Builder handoff — kept (not in the spec's list) so the calendar's
-          only path to writing copy isn't lost; rendered as a quiet line. */}
-      {channel === "email" && row && (
-        <div className={section}>
-          <label className={label}>Copy Builder</label>
-          {row.copy_campaign_id ? (
-            <div className="flex items-center gap-2">
-              <Chip tone={COPY_TONE[row.copy_status === "final" ? "final" : "draft"]}>Copy: {row.copy_status ?? "draft"}</Chip>
-              <Link href={`/copy-builder?campaign=${row.copy_campaign_id}`} className="text-[11px] text-accent hover:underline">Open copy ↗</Link>
-            </div>
-          ) : (
-            <Link href={`/copy-builder?planner=${row.id}`} className="text-sm text-accent hover:underline">Write copy for this campaign →</Link>
-          )}
-        </div>
-      )}
 
       {err && <div className="mt-4 text-sm text-danger-600">{err}</div>}
 
@@ -879,5 +985,102 @@ function RowEditor({ row, defaultDateIso, campaigns, onClose, onSaved }: {
         </div>
       )}
     </Drawer>
+
+    <ConfirmModal open={unlinkConfirm} onClose={() => setUnlinkConfirm(false)} onConfirm={unlinkCopy}
+      title="Unlink copy?" body="This detaches the copy from this campaign. The copy itself is not deleted."
+      confirmLabel="Unlink" />
+
+    {pickerOpen && row && (
+      <AttachCopyPicker rowId={row.id} allRows={allRows}
+        onPick={attachCopy} onClose={() => setPickerOpen(false)} />
+    )}
+    </>
+  );
+}
+
+// ---------- attach-existing-copy picker ----------
+interface CopyListEntry { id: string; name: string; date: string; type: string; status: string; planner_row_id?: string }
+
+function AttachCopyPicker({ rowId, allRows, onPick, onClose }: {
+  rowId: string; allRows: PlannerRow[];
+  onPick: (copyId: string, status: "draft" | "final") => void; onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"drafts" | "library">("drafts");
+  const [q, setQ] = useState("");
+  const [drafts, setDrafts] = useState<CopyListEntry[]>([]);
+  const [library, setLibrary] = useState<CopyListEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [move, setMove] = useState<{ copyId: string; status: "draft" | "final"; otherRow: string } | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/campaigns").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/library").then((r) => r.json()).catch(() => ({})),
+    ]).then(([saved, lib]) => {
+      if (Array.isArray(saved.campaigns)) {
+        setDrafts(saved.campaigns.map((c: { id: string; campaign_name: string; updated_at: string; campaign_type: string; status: string; planner_row_id?: string }) => ({
+          id: c.id, name: c.campaign_name, date: (c.updated_at || "").slice(0, 10), type: c.campaign_type, status: c.status, planner_row_id: c.planner_row_id,
+        })));
+      }
+      if (Array.isArray(lib.campaigns)) {
+        setLibrary(lib.campaigns.map((c: { id: string; title: string; date: string; campaign_type: string; planner_row_id?: string }) => ({
+          id: c.id, name: c.title, date: c.date, type: c.campaign_type, status: "final", planner_row_id: c.planner_row_id,
+        })));
+      }
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const rowNameById = (id: string) => allRows.find((r) => r.id === id)?.name;
+  const entries = tab === "drafts" ? drafts : library;
+  const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
+  const choose = (e: CopyListEntry) => {
+    const status: "draft" | "final" = tab === "drafts" ? "draft" : "final";
+    if (e.planner_row_id && e.planner_row_id !== rowId) {
+      setMove({ copyId: e.id, status, otherRow: rowNameById(e.planner_row_id) ?? "another campaign" });
+    } else {
+      onPick(e.id, status);
+    }
+  };
+
+  return (
+    <>
+      <Modal open onClose={onClose} title="Attach existing copy" size="lg">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="inline-flex rounded-md border border-line p-0.5">
+            {(["drafts", "library"] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setTab(t)}
+                className={`px-3 py-1 text-xs font-medium rounded-[6px] capitalize transition-colors ${tab === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>{t}</button>
+            ))}
+          </div>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name…"
+            className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
+        </div>
+        <div className="max-h-80 overflow-y-auto divide-y divide-line border-t border-line">
+          {loading ? (
+            <div className="py-6"><SkeletonBlock className="h-5 w-full" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="py-8 text-center text-sm text-ink-muted">No {tab} found.</div>
+          ) : filtered.map((e) => {
+            const linkedElsewhere = e.planner_row_id && e.planner_row_id !== rowId;
+            return (
+              <button key={e.id} type="button" onClick={() => choose(e)}
+                className="w-full text-left px-1 py-2.5 flex items-center gap-3 hover:bg-chrome transition-colors">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-ink truncate">{e.name}</div>
+                  <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
+                </div>
+                {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
+                <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
+
+      <ConfirmModal open={!!move} onClose={() => setMove(null)}
+        onConfirm={() => { if (move) { onPick(move.copyId, move.status); setMove(null); } }}
+        title="Move this copy?" body={move ? `This copy is linked to ${move.otherRow}. Move it here instead?` : ""}
+        confirmLabel="Move it here" />
+    </>
   );
 }
