@@ -99,6 +99,18 @@ export function loadCampaign(id: string): SavedCampaign | null {
   return markdownToCampaign(fs.readFileSync(filepath, "utf8"));
 }
 
+// Attach/detach a planner row back-reference on a saved draft. Load→mutate→save
+// is lossless (markdownToCampaign reconstructs the whole campaign). Returns false
+// when the id doesn't resolve to a draft (caller then tries the library).
+export function setCampaignPlannerRow(id: string, plannerRowId: string | null): boolean {
+  const c = loadCampaign(id);
+  if (!c) return false;
+  c.planner_row_id = plannerRowId ?? undefined;
+  c.updated_at = new Date().toISOString();
+  saveCampaign(c);
+  return true;
+}
+
 export function deleteCampaign(id: string): boolean {
   if (!isSafeId(id)) return false;
   ensureDir();

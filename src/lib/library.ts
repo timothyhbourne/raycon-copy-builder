@@ -85,6 +85,23 @@ function campaignToLibraryBody(campaign: GeneratedCampaign): string {
   return lines.join("\n").trim();
 }
 
+// Update just the planner_row_id back-reference on a library entry, preserving
+// the body + structured snapshot. (saveToLibrary would need the full briefInput,
+// which a manual attach doesn't have.) Returns false when the id doesn't resolve.
+export function setLibraryPlannerRow(id: string, plannerRowId: string | null): boolean {
+  if (!isSafeId(id)) return false;
+  const filePath = path.join(LIBRARY_DIR, `${id}.md`);
+  if (!fs.existsSync(filePath)) return false;
+  try {
+    const { data, content } = matter(fs.readFileSync(filePath, "utf8"));
+    data.planner_row_id = plannerRowId ?? null;
+    fs.writeFileSync(filePath, matter.stringify(content, data), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function deleteFromLibrary(id: string): boolean {
   if (!isSafeId(id)) return false;
   const filePath = path.join(LIBRARY_DIR, `${id}.md`);
