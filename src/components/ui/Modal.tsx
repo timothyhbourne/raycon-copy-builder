@@ -8,10 +8,10 @@ interface ModalProps {
   title?: React.ReactNode;
   children?: React.ReactNode;
   footer?: React.ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "document";
 }
 
-const WIDTH = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg" } as const;
+const WIDTH = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", document: "max-w-3xl" } as const;
 
 const FOCUSABLE = 'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -53,6 +53,29 @@ export default function Modal({ open, onClose, title, children, footer, size = "
   }, [open, onClose]);
 
   if (!open) return null;
+
+  // Document mode: a bare, tall sheet with NO built-in chrome — the caller owns
+  // the header, padding, and internal scroll (used by the full-copy viewer). The
+  // shared focus-trap / ESC / click-outside / scroll-lock above still applies.
+  if (size === "document") {
+    return (
+      <div
+        className="fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/40 rc-animate-overlay-in"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
+          className="rc-animate-modal-in w-full max-w-3xl bg-surface rounded-lg shadow-pop max-h-[85vh] flex flex-col overflow-hidden focus:outline-none"
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/40 rc-animate-overlay-in"
