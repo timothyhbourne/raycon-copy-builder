@@ -70,10 +70,15 @@ export interface ExpandedBrief {
   campaign_specific_rules?: string;
 }
 
+// How a conceit is CONSTRUCTED (not just its angle): the deal, a moment/story, or
+// one concrete product truth as the hook. Optional for backward-compatible parse.
+export type ConceitArchitecture = "offer_led" | "story_led" | "product_truth_led";
+
 export interface Conceit {
   id: string;
   name: string;
   description: string;
+  architecture?: ConceitArchitecture;
 }
 
 export interface ProductInGrid {

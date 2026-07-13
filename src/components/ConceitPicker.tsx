@@ -1,7 +1,14 @@
 "use client";
-import type { Conceit } from "@/lib/schemas";
+import type { Conceit, ConceitArchitecture } from "@/lib/schemas";
 import Button from "./ui/Button";
+import Chip from "./ui/Chip";
 import Skeleton from "./ui/Skeleton";
+
+const ARCH_LABEL: Record<ConceitArchitecture, string> = {
+  offer_led: "Offer-led",
+  story_led: "Story-led",
+  product_truth_led: "Product-truth-led",
+};
 
 interface Props {
   conceits: Conceit[];
@@ -45,6 +52,7 @@ export default function ConceitPicker({ conceits, chosen, onPick, loading = fals
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="font-mono text-xs text-ink-muted">{String(i + 1).padStart(2, "0")}</span>
                   <span className="font-semibold text-base text-ink">{c.name}</span>
+                  {c.architecture && <Chip tone="muted" className="ml-auto self-center">{ARCH_LABEL[c.architecture]}</Chip>}
                 </div>
                 <div className="text-sm text-ink-secondary leading-relaxed">{c.description}</div>
               </button>

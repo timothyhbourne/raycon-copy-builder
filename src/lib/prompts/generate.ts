@@ -146,6 +146,11 @@ ${e.body}
     verbatimParts.push(`Campaign-specific rules (the user's, follow exactly):\n${expandedBrief.campaign_specific_rules.trim()}`);
   }
   const recentlySent = formatRecentlySent(recent);
+  const archLine =
+    chosenConceit.architecture === "offer_led" ? "Architecture: offer-led — the deal is the through-line; state it early and let sections reinforce it."
+    : chosenConceit.architecture === "story_led" ? "Architecture: story-led — hold the offer until the narrative has landed."
+    : chosenConceit.architecture === "product_truth_led" ? "Architecture: product-truth-led — one concrete product truth anchors every section; the offer supports it."
+    : "";
   const verbatimBlock = verbatimParts.length
     ? `\nUSER'S LITERAL INSTRUCTIONS — these outrank the references and your own invention. If they name specific reviews, quotes, people, products, or exact copy, use those EXACTLY and do not substitute your own:\n${verbatimParts.join("\n\n")}\n`
     : "";
@@ -155,7 +160,7 @@ ${JSON.stringify(expandedBrief, null, 2)}
 ${verbatimBlock}
 Chosen conceit:
 Name: ${chosenConceit.name}
-Description: ${chosenConceit.description}
+Description: ${chosenConceit.description}${archLine ? `\n${archLine}` : ""}
 
 ${playbookBlock(expandedBrief.campaign_type)}
 This send type has a defined job and shape — let it govern pacing and structure. It never overrides the voice rules or the user's literal instructions.
