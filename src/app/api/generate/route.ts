@@ -3,6 +3,7 @@ import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { generateRoleInstruction, generateUserPrompt, toneDirective } from "@/lib/prompts/generate";
 import { legacyGenerateRoleInstruction, legacyToneDirective } from "@/lib/prompts/legacy-generate";
+import { recentConstructions } from "@/lib/library";
 import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest) {
       body.expanded_brief,
       body.chosen_conceit,
       body.section_structure,
-      body.retrieved_examples
+      body.retrieved_examples,
+      recentConstructions(6)
     );
 
     const anthropicStream = getAnthropic().messages.stream({

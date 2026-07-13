@@ -3,6 +3,23 @@ import { SECTION_CATALOGUE } from "../schemas";
 import { getProductName } from "../products";
 import { RAYCON_VOICE } from "./voice";
 import { playbookBlock } from "./playbooks";
+import type { RecentConstruction } from "../library";
+
+// The RECENTLY SENT block — anti-repetition memory (bounded: max 6, ~200 chars/line).
+// Empty string when there's no history so the block is omitted entirely.
+export function formatRecentlySent(items: RecentConstruction[]): string {
+  if (!items.length) return "";
+  const lines = items.slice(0, 6).map((c) => {
+    const parts = [
+      c.headlines[0] ? `headline "${c.headlines[0]}"` : "",
+      c.subject_lines.length ? `subjects: ${c.subject_lines.join(" | ")}` : "",
+      c.opening ? `opened with "${c.opening}"` : "",
+    ].filter(Boolean).join("; ");
+    const line = `- ${c.date} "${c.title}": ${parts}`;
+    return line.length > 200 ? line.slice(0, 199) + "…" : line;
+  });
+  return `RECENTLY SENT — the last few campaigns used these constructions. Do not reuse their headline shapes, subject-line constructions, or opening moves. Same voice, different build:\n${lines.join("\n")}`;
+}
 
 export const generateRoleInstruction = `Your job in this step is to write the full email campaign copy.
 
@@ -74,7 +91,8 @@ export function generateUserPrompt(
   expandedBrief: ExpandedBrief,
   chosenConceit: Conceit,
   sectionStructure: SectionSpec[],
-  examples: LibraryCampaign[]
+  examples: LibraryCampaign[],
+  recent: RecentConstruction[] = []
 ): string {
   const sectionList = sectionStructure.map((s) => {
     const baseElements = SECTION_CATALOGUE[s.type] ?? [];
@@ -127,6 +145,7 @@ ${e.body}
   if (expandedBrief.campaign_specific_rules?.trim()) {
     verbatimParts.push(`Campaign-specific rules (the user's, follow exactly):\n${expandedBrief.campaign_specific_rules.trim()}`);
   }
+  const recentlySent = formatRecentlySent(recent);
   const verbatimBlock = verbatimParts.length
     ? `\nUSER'S LITERAL INSTRUCTIONS — these outrank the references and your own invention. If they name specific reviews, quotes, people, products, or exact copy, use those EXACTLY and do not substitute your own:\n${verbatimParts.join("\n\n")}\n`
     : "";
@@ -140,7 +159,7 @@ Description: ${chosenConceit.description}
 
 ${playbookBlock(expandedBrief.campaign_type)}
 This send type has a defined job and shape — let it govern pacing and structure. It never overrides the voice rules or the user's literal instructions.
-
+${recentlySent ? `\n${recentlySent}\n` : ""}
 Section structure to produce (in order):
 ${sectionList}
 

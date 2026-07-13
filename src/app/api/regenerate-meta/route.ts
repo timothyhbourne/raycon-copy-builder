@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { regenerateMetaRoleInstruction, regenerateMetaUserPrompt } from "@/lib/prompts/regenerate-meta";
+import { recentConstructions } from "@/lib/library";
 import type { ExpandedBrief, Conceit } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
@@ -10,13 +11,15 @@ export async function POST(req: NextRequest) {
       expanded_brief: ExpandedBrief;
       chosen_conceit: Conceit;
       current_campaign_summary: string;
+      library_id?: string; // exclude the campaign being re-finalized from recency memory
     } = await req.json();
 
     const systemBlocks = buildSystemBlocks(getBrandContext(), regenerateMetaRoleInstruction);
     const userPrompt = regenerateMetaUserPrompt(
       body.expanded_brief,
       body.chosen_conceit,
-      body.current_campaign_summary
+      body.current_campaign_summary,
+      recentConstructions(6, body.library_id)
     );
 
     const response = await getAnthropic().messages.create({

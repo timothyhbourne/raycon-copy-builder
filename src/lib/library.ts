@@ -51,6 +51,73 @@ export function getLibraryCampaignById(id: string): LibraryCampaign | null {
   return campaigns.find((c) => c.id === id) ?? null;
 }
 
+// Anti-repetition memory: the constructions of the most recent finalized
+// campaigns, so the generator can be told what NOT to echo. Best-effort — an
+// unparseable entry is skipped silently.
+export interface RecentConstruction {
+  title: string;
+  date: string;
+  subject_lines: string[];
+  headlines: string[];
+  opening: string; // first sentence of the first body-like element
+}
+
+function firstSentence(text: string): string {
+  const t = (text || "").trim().replace(/\s+/g, " ");
+  if (!t) return "";
+  const m = t.match(/^.*?[.!?](\s|$)/);
+  return (m ? m[0] : t).trim();
+}
+
+function constructionFrom(c: LibraryCampaign): RecentConstruction | null {
+  const base = { title: c.title || c.id, date: c.date };
+  const cam = c.structured?.campaign;
+  if (cam) {
+    const subject_lines = cam.meta?.subject_lines ?? [];
+    const headlines: string[] = [];
+    let opening = "";
+    for (const s of cam.sections ?? []) {
+      const h = s.elements?.["Headline"];
+      if (typeof h === "string" && h.trim()) headlines.push(h);
+    }
+    for (const s of cam.sections ?? []) {
+      const b = s.elements?.["Body Copy"] ?? s.elements?.["Body"];
+      if (typeof b === "string" && b.trim()) { opening = firstSentence(b); break; }
+    }
+    if (!subject_lines.length && !headlines.length && !opening) return null;
+    return { ...base, subject_lines, headlines, opening };
+  }
+  // Legacy flat body: split on "# Heading" blocks.
+  const body = c.body || "";
+  if (!body.trim()) return null;
+  const blocks = body.split(/\n(?=# )/).filter(Boolean);
+  const get = (heading: string) => {
+    const b = blocks.find((bl) => bl.match(/^# (.+)/)?.[1]?.trim() === heading);
+    return b ? b.replace(/^# .+\n?/, "").trim() : "";
+  };
+  const subj = get("Subject Line");
+  const subject_lines = subj ? subj.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+  const head = get("Headline");
+  const headlines = head ? head.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+  const bodyCopy = get("Body Copy") || get("Body");
+  const opening = bodyCopy ? firstSentence(bodyCopy) : "";
+  if (!subject_lines.length && !headlines.length && !opening) return null;
+  return { ...base, subject_lines, headlines, opening };
+}
+
+export function recentConstructions(limit = 6, excludeId?: string): RecentConstruction[] {
+  const out: RecentConstruction[] = [];
+  for (const c of getLibraryCampaigns()) { // already sorted date desc
+    if (out.length >= limit) break;
+    if (excludeId && c.id === excludeId) continue;
+    try {
+      const rc = constructionFrom(c);
+      if (rc) out.push(rc);
+    } catch { /* skip unparseable */ }
+  }
+  return out;
+}
+
 function campaignToLibraryBody(campaign: GeneratedCampaign): string {
   const lines: string[] = [];
   // Subject lines
