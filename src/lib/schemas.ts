@@ -134,6 +134,38 @@ export interface SavedCampaign {
   updated_at: string;
 }
 
+export interface SmsVariant {
+  text: string;
+}
+
+/**
+ * An SMS campaign — a distinct copy record from SavedCampaign (email). SMS copy
+ * is three construction-distinct variants (Direct / Friendly / Angle); one ships.
+ * Persisted as one JSON file per campaign under data/sms/.
+ */
+export interface SmsCampaign {
+  id: string; // date-slug, same shape as SavedCampaign ids
+  name: string;
+  /** Library/draft id this was distilled from (from-email path only). */
+  source_email_id?: string;
+  brief: {
+    offer: string;
+    promo_code?: string;
+    deadline?: string;
+    angle?: string;
+    audience?: string;
+  };
+  variants: [SmsVariant, SmsVariant, SmsVariant];
+  selected_variant: number; // 0–2, the one that ships
+  planner_row_id?: string;
+  status: "draft" | "final";
+  created_at: string;
+  updated_at: string;
+}
+
+/** The three SMS variant slots, in fixed order. Shared by prompt + UI labels. */
+export const SMS_VARIANT_LABELS = ["Direct", "Friendly", "Angle"] as const;
+
 export interface BriefInput {
   campaign_name: string;
   campaign_type: CampaignType;
