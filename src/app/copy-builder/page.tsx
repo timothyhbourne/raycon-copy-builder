@@ -3,17 +3,25 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import type {
   BriefInput, ExpandedBrief, Conceit, GeneratedCampaign, GeneratedSection,
-  LibraryCampaign, SavedCampaign, SectionType, SectionSpec
+  LibraryCampaign, SavedCampaign, SectionType, SectionSpec, SmsCampaign, SmsBrief
 } from "@/lib/schemas";
 import { SECTION_CATALOGUE } from "@/lib/schemas";
+import { smsLength } from "@/lib/sms-format";
 import type { PlannerRow } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections } from "@/lib/expand-sections";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
+import type { CheckElement, CheckMatch } from "@/lib/constructions";
+import {
+  collectCheckElements, collectMetaElements, collectSectionElements,
+  specForSection, targetForKey, type RepetitionFlag,
+} from "@/lib/repetition-client";
 import InputForm from "@/components/InputForm";
 import ConceitPicker from "@/components/ConceitPicker";
 import CampaignCanvas from "@/components/CampaignCanvas";
+import SmsForm, { type EmailSource, type SmsGenerateArgs } from "@/components/sms/SmsForm";
+import SmsCanvas from "@/components/sms/SmsCanvas";
 import Sidebar from "@/components/Sidebar";
 import Button from "@/components/ui/Button";
 import Chip from "@/components/ui/Chip";
@@ -39,7 +47,7 @@ interface PlannerLinkContext { rowId: string; name: string; channel: string }
 // through a ref so the effect only runs on real URL changes, not every parent
 // re-render (which happens on every streamed token during generation).
 function DeepLinkReader({ onPlanner, onCampaign }: {
-  onPlanner: (rowId: string) => void;
+  onPlanner: (rowId: string, channel: string | null) => void;
   onCampaign: (savedId: string) => void;
 }) {
   const searchParams = useSearchParams();
@@ -49,10 +57,11 @@ function DeepLinkReader({ onPlanner, onCampaign }: {
   useEffect(() => {
     const planner = searchParams.get("planner");
     const campaign = searchParams.get("campaign");
-    const token = planner ? `p:${planner}` : campaign ? `c:${campaign}` : null;
+    const channel = searchParams.get("channel");
+    const token = planner ? `p:${planner}:${channel ?? ""}` : campaign ? `c:${campaign}` : null;
     if (!token || lastConsumed.current === token) return;
     lastConsumed.current = token;
-    if (planner) cbRef.current.onPlanner(planner);
+    if (planner) cbRef.current.onPlanner(planner, channel);
     else if (campaign) cbRef.current.onCampaign(campaign);
   }, [searchParams]);
   return null;
@@ -109,6 +118,43 @@ function StepDot({ state, index }: { state: "done" | "current" | "future"; index
     </span>
   );
 }
+// Quiet autosave status shown for library canvases in place of the save button.
+// mono micro text: "Saving…" → "Saved ✓" (fades to a lone ✓) → "Autosave failed — Retry".
+function AutosaveStatus({ status, onRetry }: {
+  status: "idle" | "saving" | "saved" | "check" | "error";
+  onRetry: () => void;
+}) {
+  if (status === "idle") return null;
+  if (status === "error") {
+    return (
+      <div className="flex items-center gap-2 font-mono text-[11px] text-danger-600">
+        <span>Autosave failed</span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-1.5 py-0.5 rounded-sm border border-danger-200 text-danger-600 hover:bg-danger-50 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (status === "saving") {
+    return (
+      <div className="flex items-center gap-1.5 font-mono text-[11px] text-ink-muted">
+        <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" aria-hidden />
+        Saving…
+      </div>
+    );
+  }
+  // "saved" (with label) and "check" (label faded out) share the checkmark.
+  return (
+    <div className="flex items-center gap-1 font-mono text-[11px] text-ink-muted" aria-live="polite">
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
+      {status === "saved" && <span>Saved</span>}
+    </div>
+  );
+}
 function CollapseIcon() {
   return (<svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>);
 }
@@ -162,8 +208,10 @@ export default function Home() {
   const [chosenConceit, setChosenConceit] = useState<Conceit | null>(null);
   const [campaign, setCampaign] = useState<GeneratedCampaign | null>(null);
   const [sectionStructure, setSectionStructure] = useState<SectionSpec[]>([]);
+  // Similarity flags keyed by element key — see runRepetitionCheck / repetition-client.
+  const [repetitionFlags, setRepetitionFlags] = useState<Record<string, RepetitionFlag>>({});
   const [savingStatus, setSavingStatus] = useState<"idle" | "saving">("idle");
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" | "sms" } | null>(null);
   const [pendingBriefInput, setPendingBriefInput] = useState<BriefInput | null>(null);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
   // Stage-aware chrome (Phase 3a): collapsible sidebar + brief panel.
@@ -174,6 +222,21 @@ export default function Home() {
   const [canvasSource, setCanvasSource] = useState<CanvasSource>("new");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [currentLibraryId, setCurrentLibraryId] = useState<string | null>(null);
+
+  // --- Library autosave state/refs ---------------------------------------
+  // A library canvas persists every edit automatically (see the autosave block
+  // below). These refs hold the machinery; the status drives the quiet UI that
+  // replaces the "Save to Library" button when canvasSource === "library".
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "check" | "error">("idle");
+  const savingRef = useRef(false);          // a save is in flight (single-flight guard)
+  const dirtyRef = useRef(false);           // edits await persistence
+  const failCountRef = useRef(0);           // consecutive autosave failures (for one-shot toast)
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveIdRef = useRef<string | null>(null);   // library id we've baselined (don't save on load)
+  const flushSaveRef = useRef<() => void>(() => {});
+  const flushAutosaveRef = useRef<() => void>(() => {});
+  const beaconSaveRef = useRef<() => void>(() => {});
 
   const [libraryItems, setLibraryItems] = useState<LibraryMeta[]>([]);
   const [savedItems, setSavedItems] = useState<SavedMeta[]>([]);
@@ -186,13 +249,35 @@ export default function Home() {
   const [seedingProducts, setSeedingProducts] = useState(false);
   const [seedAiFailed, setSeedAiFailed] = useState(false);
   const [pendingPlannerRowId, setPendingPlannerRowId] = useState<string | null>(null);
+  const [pendingPlannerSmsRowId, setPendingPlannerSmsRowId] = useState<string | null>(null);
+
+  // --- SMS mode (channel switch) -----------------------------------------
+  // Email mode leaves every bit of the email state/logic above untouched.
+  const [channel, setChannel] = useState<"email" | "sms">("email");
+  const [smsCampaign, setSmsCampaign] = useState<SmsCampaign | null>(null);
+  const [smsSource, setSmsSource] = useState<"new" | "draft" | "final">("new");
+  const [smsCurrentId, setSmsCurrentId] = useState<string | null>(null);
+  const [smsLoading, setSmsLoading] = useState(false);
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsItems, setSmsItems] = useState<{ id: string; name: string; status: string; updated_at: string }[]>([]);
+  const [smsSeedBrief, setSmsSeedBrief] = useState<SmsBrief | null>(null);
+  const [smsSeedSourceId, setSmsSeedSourceId] = useState<string | null>(null);
+  const [pendingSmsGen, setPendingSmsGen] = useState<SmsGenerateArgs | null>(null);
 
   const refreshSidebar = useCallback(async () => {
-    const [libRes, savedRes] = await Promise.all([fetch("/api/library"), fetch("/api/campaigns")]);
+    const [libRes, savedRes, smsRes] = await Promise.all([
+      fetch("/api/library"), fetch("/api/campaigns"), fetch("/api/sms"),
+    ]);
     const lib = await libRes.json();
     const saved = await savedRes.json();
+    const sms = await smsRes.json().catch(() => ({}));
     if (lib.campaigns) setLibraryItems(lib.campaigns);
     if (saved.campaigns) setSavedItems(saved.campaigns);
+    if (sms.campaigns) {
+      setSmsItems(sms.campaigns.map((c: { id: string; name: string; status: string; updated_at: string }) => ({
+        id: c.id, name: c.name, status: c.status, updated_at: c.updated_at,
+      })));
+    }
   }, []);
 
   useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
@@ -264,6 +349,7 @@ export default function Home() {
   // the key). Used when the writer chooses to start a planner brief over an
   // existing canvas.
   const softResetToForm = () => {
+    flushAutosaveRef.current();   // persist any pending library edit before leaving
     setStage("form");
     setCampaign(null);
     setExpandedBrief(null);
@@ -315,8 +401,13 @@ export default function Home() {
     }
   };
 
-  // ?planner=<rowId>. Guard against silently discarding an unsaved canvas.
-  const handlePlannerDeepLink = (rowId: string) => {
+  // ?planner=<rowId>[&channel=sms]. Guard against silently discarding an unsaved canvas.
+  const handlePlannerDeepLink = (rowId: string, channelParam: string | null) => {
+    if (channelParam === "sms") {
+      if (smsCampaign) setPendingPlannerSmsRowId(rowId);   // confirm before replacing
+      else startSmsPlannerBrief(rowId);
+      return;
+    }
     let hasCanvas = false;
     try {
       const raw = localStorage.getItem(LS_DRAFT);
@@ -326,9 +417,42 @@ export default function Home() {
     else startPlannerBrief(rowId);
   };
 
-  // ?campaign=<savedId>. Open an existing saved campaign (draft or finalized).
+  // Seed SMS mode from a planner row: switch channel, prefill the brief from the
+  // row's offer/code, stash the planner link for write-back. Never auto-generates.
+  const startSmsPlannerBrief = async (rowId: string) => {
+    router.replace("/copy-builder");   // consume the params
+    setError(null);
+    let row: PlannerRow | null = null;
+    try {
+      const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
+      if (res.ok) row = (await res.json()).row ?? null;
+    } catch { /* fall through */ }
+    if (!row) {
+      toast.error("That planner row no longer exists.");
+      return;
+    }
+    setChannel("sms");
+    setSmsCampaign(null);
+    setSmsCurrentId(null);
+    setSmsSource("new");
+    setSmsSeedSourceId(null);
+    setSmsSeedBrief({
+      name: row.name,
+      offer: row.offer || "",
+      promo_code: row.promo_code,
+      audience: row.audience_included?.map((a) => a.name).join(", ") || undefined,
+    });
+    setPlannerLink({ rowId: row.id, name: row.name, channel: "sms" });
+  };
+
+  // ?campaign=<savedId>. Open an existing saved campaign (email draft/library, or
+  // an SMS campaign). Try the SMS store first — its ids never collide with email.
   const handleCampaignDeepLink = async (savedId: string) => {
     router.replace("/copy-builder");
+    try {
+      const res = await fetch(`/api/sms?id=${encodeURIComponent(savedId)}`);
+      if (res.ok) { await handleLoadSms(savedId); return; }
+    } catch { /* fall through to email */ }
     await handleLoadSaved(savedId);
   };
 
@@ -363,6 +487,7 @@ export default function Home() {
   // Full reset (canvas + planner handoff). Clearing the handoff matters: a stale
   // plannerLink would otherwise make the next save stamp the wrong planner row.
   const resetAll = () => {
+    flushAutosaveRef.current();   // persist any pending library edit before clearing
     resetState({
       setStage, setCampaign, setExpandedBrief, setChosenConceit,
       setSectionStructure, setCurrentBriefInput, setConceits,
@@ -372,6 +497,7 @@ export default function Home() {
     setFormSeed(null);
     setFormSeedLabel(null);
     setSeedAiFailed(false);
+    setRepetitionFlags({});
   };
 
   // Always confirm before generating: a plain "done with the brief?" check when
@@ -445,6 +571,7 @@ export default function Home() {
     // appears progressively as each JSONL line streams in.
     const empty: GeneratedCampaign = { meta: { subject_lines: [], preview_texts: [] }, sections: [] };
     setCampaign(empty);
+    setRepetitionFlags({});
     setCanvasSource("new");
     setStage("canvas");
 
@@ -508,12 +635,150 @@ export default function Home() {
         }
       }
       toast.success(`Campaign written — ${sections.length} section${sections.length === 1 ? "" : "s"}`);
+      // Post-generation similarity pass (auto-retries offenders, then flags).
+      void runRepetitionCheck({ meta, sections });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
       setCampaign(null);
       setStage("conceits");
     } finally {
       setLoadingPhase(null);
+    }
+  };
+
+  // ---- Post-generation repetition checker (Step 3c) --------------------------
+  // Collect the checkable elements, ask the check endpoint for near-duplicates,
+  // auto-retry each offending target ONCE via the existing regenerate APIs, then
+  // flag anything still too close. Fails open — never blocks saving.
+  const MAX_AUTO_RETRIES = 4;
+
+  const runRepetitionCheck = async (campaignToCheck: GeneratedCampaign) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (!campaignToCheck?.sections || !expandedBrief || !chosenConceit) return;
+
+    const excludeId = currentLibraryId ?? undefined;
+    const toneDial = currentBriefInput?.tone_dial ?? 1;
+
+    const postCheck = async (elements: CheckElement[]): Promise<CheckMatch[]> => {
+      if (!elements.length) return [];
+      const res = await fetch("/api/check-repetition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ elements, exclude_id: excludeId }),
+      });
+      if (!res.ok) throw new Error("check-repetition failed");
+      return (await res.json()).matches ?? [];
+    };
+
+    try {
+      let working = campaignToCheck;
+      const initial = collectCheckElements(working, sectionStructure);
+      const textById = new Map(initial.map((e) => [e.id, e.text]));
+      const matches = await postCheck(initial);
+      if (!matches.length) { setRepetitionFlags({}); return; }
+
+      // Group offenders by the single target that one regeneration would fix:
+      // "meta" for subject/preview lines, otherwise the owning section id.
+      const byTarget = new Map<string, CheckMatch[]>();
+      for (const m of matches) {
+        const t = targetForKey(m.id);
+        const key = t.kind === "meta" ? "meta" : t.sectionId;
+        const arr = byTarget.get(key) ?? [];
+        arr.push(m);
+        byTarget.set(key, arr);
+      }
+
+      const toFlag = (m: CheckMatch): RepetitionFlag => ({
+        match_text: m.match_text,
+        match_campaign_title: m.match_campaign_title,
+        match_date: m.match_date,
+        score: m.score,
+      });
+      const dedupNote = (m: CheckMatch) => {
+        const prev = textById.get(m.id) ?? "";
+        return `Your previous version of this element ("${prev}") duplicates a past campaign ("${m.match_text}", ${m.match_campaign_title}, ${m.match_date}). Write a structurally different construction.`;
+      };
+
+      const flags: Record<string, RepetitionFlag> = {};
+      let retriesLeft = MAX_AUTO_RETRIES;
+
+      for (const [target, targetMatches] of byTarget) {
+        if (retriesLeft <= 0) {
+          for (const m of targetMatches) flags[m.id] = toFlag(m);
+          continue;
+        }
+        retriesLeft--;
+        const note = dedupNote(targetMatches[0]);
+
+        try {
+          if (target === "meta") {
+            const summary = working.sections
+              .map((s) => `${s.type}: ${Object.values(s.elements).slice(0, 2).join(" | ")}`)
+              .join("\n");
+            const res = await fetch("/api/regenerate-meta", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                expanded_brief: expandedBrief,
+                chosen_conceit: chosenConceit,
+                current_campaign_summary: summary,
+                library_id: excludeId,
+                avoid_note: note,
+              }),
+            });
+            const data = await res.json();
+            if (data.subject_lines || data.preview_texts) {
+              working = {
+                ...working,
+                meta: {
+                  subject_lines: data.subject_lines || working.meta.subject_lines,
+                  preview_texts: data.preview_texts || working.meta.preview_texts,
+                },
+              };
+              setCampaign(working);
+            }
+            const recheck = await postCheck(collectMetaElements(working.meta));
+            for (const rm of recheck) flags[rm.id] = toFlag(rm);
+          } else {
+            const idx = working.sections.findIndex((s) => s.id === target);
+            if (idx === -1) continue;
+            const section = working.sections[idx];
+            const spec = specForSection(sectionStructure, idx, section.type) ?? { id: "", type: section.type };
+            const res = await fetch("/api/regenerate-section", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                expanded_brief: expandedBrief,
+                chosen_conceit: chosenConceit,
+                section_to_regenerate: { ...spec, current_content: section },
+                full_campaign: working,
+                steering: note,
+                tone_dial: toneDial,
+                retrieved_examples: retrievedExamples,
+              }),
+            });
+            const data = await res.json();
+            if (data.section) {
+              working = { ...working, sections: working.sections.map((s) => (s.id === target ? data.section : s)) };
+              setCampaign(working);
+            }
+            const newIdx = working.sections.findIndex((s) => s.id === target);
+            const newSection = working.sections[newIdx];
+            const recheck = newSection
+              ? await postCheck(collectSectionElements(newSection, specForSection(sectionStructure, newIdx, newSection.type)))
+              : [];
+            for (const rm of recheck) flags[rm.id] = toFlag(rm);
+          }
+        } catch {
+          // A single failed retry just leaves the original offenders flagged.
+          for (const m of targetMatches) flags[m.id] = toFlag(m);
+        }
+      }
+
+      setRepetitionFlags(flags);
+    } catch (e) {
+      // Fail open on any endpoint/offline failure — never block the user.
+      console.warn("Repetition check skipped:", e);
     }
   };
 
@@ -618,43 +883,164 @@ export default function Home() {
     }
   };
 
-  const handleUpdateLibrary = async () => {
-    if (!campaign || !currentLibraryId) { setError("Nothing to update."); return; }
-    const bi = currentBriefInput ?? deriveBriefFallback();
-    setSavingStatus("saving");
-    setError(null);
-    try {
-      const res = await fetch("/api/finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: currentLibraryId,
-          brief_input: bi,
-          conceit: chosenConceit,
-          campaign,
-          section_structure: sectionStructure,
-        }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || `Save failed (HTTP ${res.status})`);
-      }
-      setSavingStatus("idle");
-      await refreshSidebar();
-      toast.success("Library updated");
-    } catch (e) {
-      setSavingStatus("idle");
-      toast.error(e instanceof Error ? e.message : "Save failed");
+  // --- Library autosave --------------------------------------------------
+  // A library-loaded campaign is what the planner's copy viewer shows, so every
+  // edit must persist itself. The mechanics: a debounce effect marks the canvas
+  // dirty and schedules a save 1.5s after the last change; flushSave runs it
+  // single-flight with a trailing follow-up; exit paths flush synchronously.
+  //
+  // Latest state, read at flush time so a save always ships the freshest content
+  // (the debounce/single-flight callbacks fire outside the render that scheduled
+  // them). Mirrors exactly the payload the old manual "Save to Library" sent.
+  const autosaveDataRef = useRef<{
+    campaign: GeneratedCampaign | null;
+    sectionStructure: SectionSpec[];
+    briefInput: BriefInput;
+    chosenConceit: Conceit | null;
+    currentLibraryId: string | null;
+    canvasSource: CanvasSource;
+  }>(null!);
+  autosaveDataRef.current = {
+    campaign,
+    sectionStructure,
+    briefInput: currentBriefInput ?? deriveBriefFallback(),
+    chosenConceit,
+    currentLibraryId,
+    canvasSource,
+  };
+
+  // POST the current library canvas to /api/finalize. Throws on HTTP failure.
+  const runLibrarySave = async () => {
+    const d = autosaveDataRef.current;
+    if (!d.campaign || !d.currentLibraryId) return;
+    const res = await fetch("/api/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: d.currentLibraryId,
+        brief_input: d.briefInput,
+        conceit: d.chosenConceit,
+        campaign: d.campaign,
+        section_structure: d.sectionStructure,
+      }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `Save failed (HTTP ${res.status})`);
     }
   };
 
+  // Single-flight with trailing latest: never two saves at once; if edits land
+  // mid-flight the dirty flag triggers exactly one follow-up when this settles.
+  flushSaveRef.current = () => {
+    if (savingRef.current) { dirtyRef.current = true; return; }
+    if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null; }
+    if (savedFadeTimerRef.current) { clearTimeout(savedFadeTimerRef.current); savedFadeTimerRef.current = null; }
+    dirtyRef.current = false;
+    savingRef.current = true;
+    setAutosaveStatus("saving");
+    runLibrarySave()
+      .then(() => {
+        savingRef.current = false;
+        failCountRef.current = 0;
+        if (dirtyRef.current) {
+          flushSaveRef.current();          // trailing: newer edits arrived while saving
+        } else {
+          setAutosaveStatus("saved");
+          savedFadeTimerRef.current = setTimeout(() => setAutosaveStatus("check"), 2000);
+          refreshSidebar();                // keep sidebar titles in sync with edits
+        }
+      })
+      .catch(() => {
+        savingRef.current = false;
+        dirtyRef.current = true;           // keep dirty so the next edit / Retry re-attempts
+        failCountRef.current += 1;
+        setAutosaveStatus("error");
+        // One toast on the second consecutive failure — not one per retry.
+        if (failCountRef.current === 2) toast.error("Autosave failed — your changes are still here. Hit Retry.");
+      });
+  };
+
+  // Flush a pending debounced save immediately (used on exit paths).
+  flushAutosaveRef.current = () => {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      flushSaveRef.current();
+    } else if (dirtyRef.current && !savingRef.current) {
+      flushSaveRef.current();
+    }
+  };
+
+  // Best-effort flush for page unload / unmount: sendBeacon (falls back to a
+  // keepalive fetch) so an in-flight tab close doesn't drop the last edit.
+  beaconSaveRef.current = () => {
+    const d = autosaveDataRef.current;
+    if (d.canvasSource !== "library" || !d.currentLibraryId || !d.campaign) return;
+    if (!dirtyRef.current && !autosaveTimerRef.current) return;   // nothing pending
+    const body = JSON.stringify({
+      id: d.currentLibraryId,
+      brief_input: d.briefInput,
+      conceit: d.chosenConceit,
+      campaign: d.campaign,
+      section_structure: d.sectionStructure,
+    });
+    try {
+      const blob = new Blob([body], { type: "application/json" });
+      if (navigator.sendBeacon("/api/finalize", blob)) return;
+    } catch { /* fall through to keepalive fetch */ }
+    fetch("/api/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  };
+
+  // Debounced autosave loop — watches everything that feeds a finalize payload.
+  // The first pass after a library canvas loads (or a Save Final flips the
+  // source to "library") only records the baseline id; it never saves unchanged
+  // content. Later changes to the same id schedule a save 1.5s after the last.
+  // loadingPhase gates it so nothing fires during generation.
+  useEffect(() => {
+    const active = canvasSource === "library" && !!currentLibraryId && !!campaign && loadingPhase === null;
+    if (!active) { autosaveIdRef.current = null; return; }
+    if (autosaveIdRef.current !== currentLibraryId) {
+      autosaveIdRef.current = currentLibraryId;   // freshly loaded/finalized — baseline, don't save
+      return;
+    }
+    dirtyRef.current = true;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      flushSaveRef.current();
+    }, 1500);
+    return () => {
+      if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null; }
+    };
+  }, [campaign, sectionStructure, currentBriefInput, chosenConceit, canvasSource, currentLibraryId, loadingPhase]);
+
+  // Flush on tab close / navigation away / unmount.
+  useEffect(() => {
+    const onExit = () => beaconSaveRef.current();
+    window.addEventListener("pagehide", onExit);
+    window.addEventListener("beforeunload", onExit);
+    return () => {
+      window.removeEventListener("pagehide", onExit);
+      window.removeEventListener("beforeunload", onExit);
+      beaconSaveRef.current();   // component unmount (route change away from the builder)
+    };
+  }, []);
+
   const handleLoadSaved = async (id: string) => {
+    flushAutosaveRef.current();   // persist any pending library edit before switching
     const res = await fetch(`/api/campaigns?id=${id}`);
     if (res.ok) {
       const data = await res.json();
       if (data.campaign) {
         const c = data.campaign as SavedCampaign;
         setCampaign(c.campaign);
+        setRepetitionFlags({});
         setExpandedBrief(c.expanded_brief ?? null);
         setChosenConceit(c.chosen_conceit ?? null);
         setSectionStructure(c.section_structure ?? []);
@@ -701,6 +1087,10 @@ export default function Home() {
         await fetch(`/api/campaigns?id=${id}`, { method: "DELETE" });
         if (currentDraftId === id) resetAll();
         toast.success("Draft deleted");
+      } else if (kind === "sms") {
+        await fetch(`/api/sms?id=${id}`, { method: "DELETE" });
+        if (smsCurrentId === id) handleSmsNew();
+        toast.success("SMS campaign deleted");
       } else {
         await fetch(`/api/library?id=${id}`, { method: "DELETE" });
         if (currentLibraryId === id) resetAll();
@@ -713,6 +1103,7 @@ export default function Home() {
   };
 
   const handleViewLibrary = async (id: string) => {
+    flushAutosaveRef.current();   // persist edits to the current library canvas before switching
     const res = await fetch(`/api/library?id=${id}`);
     const data = await res.json();
     if (!data.campaign) return;
@@ -750,6 +1141,7 @@ export default function Home() {
     }
 
     setSectionStructure(sectionStructureForView);
+    setRepetitionFlags({});
 
     setCurrentBriefInput({
       campaign_name: lib.title,
@@ -927,16 +1319,163 @@ export default function Home() {
     }
   };
 
+  // --- SMS mode handlers -------------------------------------------------
+  // The email campaigns a from-email SMS can distill from: library entries first,
+  // then saved drafts. Both resolve through /api/planner/copy at generate time.
+  const emailSources: EmailSource[] = [
+    ...libraryItems.map((l) => ({
+      id: l.id, name: l.title, date: l.date, type: l.campaign_type, offer: l.offer, promo_code: l.promo_code, kind: "library" as const,
+    })),
+    ...savedItems.map((s) => ({
+      id: s.id, name: s.campaign_name, date: (s.updated_at || "").slice(0, 10), type: s.campaign_type, offer: s.offer, promo_code: s.promo_code, kind: "draft" as const,
+    })),
+  ];
+
+  // Flatten a CopyFull document into plain text the SMS prompt can distill.
+  const smsSourceFromCopyFull = (full: {
+    campaign_name?: string; subject_lines?: string[]; preview_texts?: string[];
+    sections?: { elements?: { label: string; value: string }[]; products?: { name: string; one_liner: string; cta: string }[] }[];
+  }): string => {
+    const parts: string[] = [];
+    if (full.campaign_name) parts.push(full.campaign_name);
+    for (const s of full.subject_lines ?? []) parts.push(`Subject: ${s}`);
+    for (const p of full.preview_texts ?? []) parts.push(`Preview: ${p}`);
+    for (const sec of full.sections ?? []) {
+      for (const el of sec.elements ?? []) parts.push(`${el.label}: ${el.value}`);
+      for (const p of sec.products ?? []) parts.push(`${p.name}: ${p.one_liner} (${p.cta})`);
+    }
+    return parts.join("\n");
+  };
+
+  const handleSmsGenerateRequest = (args: SmsGenerateArgs) => setPendingSmsGen(args);
+
+  const handleSmsGenerate = async ({ brief, sourceEmailId, entry }: SmsGenerateArgs) => {
+    setSmsLoading(true);
+    setError(null);
+    try {
+      let source_email: string | undefined;
+      if (entry === "email" && sourceEmailId) {
+        try {
+          const r = await fetch(`/api/planner/copy?id=${encodeURIComponent(sourceEmailId)}&full=1`);
+          if (r.ok) source_email = smsSourceFromCopyFull(await r.json());
+        } catch { /* generate from the brief alone if the source can't be read */ }
+      }
+      const res = await fetch("/api/sms-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief, source_email }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.variants) throw new Error(data.error || "Generation failed");
+      const now = new Date().toISOString();
+      setSmsCampaign({
+        id: "",   // assigned on save
+        name: brief.name?.trim() || brief.offer.slice(0, 40) || "SMS campaign",
+        source_email_id: entry === "email" ? sourceEmailId : undefined,
+        brief: { offer: brief.offer, promo_code: brief.promo_code, deadline: brief.deadline, angle: brief.angle, audience: brief.audience },
+        variants: data.variants,
+        selected_variant: 0,
+        planner_row_id: plannerLink?.rowId,
+        status: "draft",
+        created_at: now,
+        updated_at: now,
+      });
+      setSmsSource("new");
+      setSmsCurrentId(null);
+      toast.success("3 SMS variants written");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setSmsLoading(false);
+    }
+  };
+
+  const handleSmsSave = async (status: "draft" | "final") => {
+    if (!smsCampaign) return;
+    setSmsSaving(true);
+    setError(null);
+    try {
+      const id = smsCurrentId || `${new Date().toISOString().split("T")[0]}-${makeSlug(smsCampaign.name)}-${nanoid().slice(0, 6)}`;
+      const now = new Date().toISOString();
+      const toSave: SmsCampaign = {
+        ...smsCampaign,
+        id,
+        status,
+        created_at: smsCampaign.created_at || now,
+        updated_at: now,
+        planner_row_id: plannerLink?.rowId ?? smsCampaign.planner_row_id,
+      };
+      const res = await fetch("/api/sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toSave),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Save failed (HTTP ${res.status})`); }
+      setSmsCampaign(toSave);
+      setSmsCurrentId(id);
+      setSmsSource(status === "final" ? "final" : "draft");
+      writeBackToPlanner(id, status);
+      await refreshSidebar();
+      toast.success(status === "final" ? "SMS saved as final" : "SMS draft saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSmsSaving(false);
+    }
+  };
+
+  const handleSmsSelect = (i: number) =>
+    setSmsCampaign((c) => (c ? { ...c, selected_variant: i } : c));
+
+  const handleSmsVariantChange = (i: number, text: string) =>
+    setSmsCampaign((c) => {
+      if (!c) return c;
+      const variants = [...c.variants] as SmsCampaign["variants"];
+      variants[i] = { text };
+      return { ...c, variants };
+    });
+
+  const handleLoadSms = async (id: string) => {
+    const res = await fetch(`/api/sms?id=${encodeURIComponent(id)}`);
+    if (!res.ok) { toast.error("That SMS campaign no longer exists."); return; }
+    const c = (await res.json()).campaign as SmsCampaign;
+    setChannel("sms");
+    setSmsCampaign(c);
+    setSmsCurrentId(c.id);
+    setSmsSource(c.status === "final" ? "final" : "draft");
+    setSmsSeedBrief({ name: c.name, offer: c.brief.offer, promo_code: c.brief.promo_code, deadline: c.brief.deadline, angle: c.brief.angle, audience: c.brief.audience });
+    setSmsSeedSourceId(c.source_email_id ?? null);
+    setPlannerLink(c.planner_row_id ? { rowId: c.planner_row_id, name: c.name, channel: "sms" } : null);
+  };
+
+  const handleDeleteSms = (id: string) => setPendingDelete({ id, kind: "sms" });
+
+  const handleSmsCopy = async () => {
+    if (!smsCampaign) return;
+    const text = smsCampaign.variants[smsCampaign.selected_variant]?.text ?? "";
+    try { await navigator.clipboard.writeText(text); toast.success("SMS copied"); }
+    catch { toast.error("Copy failed"); }
+  };
+
+  const handleSmsNew = () => {
+    setSmsCampaign(null);
+    setSmsCurrentId(null);
+    setSmsSource("new");
+    setSmsSeedBrief(null);
+    setSmsSeedSourceId(null);
+    setPlannerLink(null);
+  };
+
+  // Retry a failed autosave. Dirty is already set from the failure.
+  const handleAutosaveRetry = () => flushSaveRef.current();
+
   // Save button logic based on canvas source
   const renderSaveButtons = () => {
     if (!campaign) return null;
     const saving = savingStatus === "saving";
+    // Library canvases autosave — no button, just a quiet status where it sat.
     if (canvasSource === "library") {
-      return (
-        <Button variant="primary" size="sm" loading={saving} onClick={handleUpdateLibrary}>
-          Save to Library
-        </Button>
-      );
+      return <AutosaveStatus status={autosaveStatus} onRetry={handleAutosaveRetry} />;
     }
     return (
       <div className="flex gap-2">
@@ -980,12 +1519,16 @@ export default function Home() {
             <Sidebar
               libraryItems={libraryItems}
               savedItems={savedItems}
+              smsItems={smsItems}
               onLoadSaved={handleLoadSaved}
               onDeleteSaved={handleDeleteSaved}
               onViewLibrary={handleViewLibrary}
               onDeleteLibrary={handleDeleteLibrary}
+              onLoadSms={handleLoadSms}
+              onDeleteSms={handleDeleteSms}
               activeSavedId={currentDraftId}
               activeLibraryId={currentLibraryId}
+              activeSmsId={channel === "sms" ? smsCurrentId : null}
             />
           </div>
         ) : (
@@ -1007,36 +1550,70 @@ export default function Home() {
         )}
         <div className={briefOpen ? "h-full overflow-y-auto p-5" : "hidden"}>
           <div className="flex items-center justify-between mb-4">
-            <div className="font-mono text-xs text-ink-secondary uppercase tracking-wide">Campaign Brief</div>
+            <div className="font-mono text-xs text-ink-secondary uppercase tracking-wide">
+              {channel === "sms" ? "SMS Copy" : "Campaign Brief"}
+            </div>
             <button onClick={() => setBriefOpen(false)} title="Collapse brief" aria-label="Collapse brief"
               className="text-ink-muted hover:text-ink p-1 rounded-sm hover:bg-chrome transition-colors">
               <CollapseIcon />
             </button>
           </div>
-          {seedingProducts && (
-            <div className="mb-3 flex items-center gap-2 text-xs text-ink-muted">
-              <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" />
-              Suggesting products &amp; hero angle…
-            </div>
+
+          {/* Channel switch — Email keeps the app exactly as it was. */}
+          <div className="flex gap-1 p-0.5 rounded-md bg-chrome border border-line mb-4">
+            {(["email", "sms"] as const).map((ch) => (
+              <button
+                key={ch}
+                type="button"
+                onClick={() => setChannel(ch)}
+                className={`flex-1 text-xs font-medium py-1.5 rounded-sm transition-colors ${
+                  channel === ch ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink-secondary"
+                }`}
+              >
+                {ch === "email" ? "Email" : "SMS"}
+              </button>
+            ))}
+          </div>
+
+          {channel === "email" && (
+            <>
+              {seedingProducts && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-ink-muted">
+                  <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" />
+                  Suggesting products &amp; hero angle…
+                </div>
+              )}
+              {seedAiFailed && (
+                <div className="mb-3 text-xs text-warning-600 leading-relaxed">
+                  AI suggestions unavailable — add products and a hero angle to continue.
+                </div>
+              )}
+              <InputForm
+                onSubmit={handleBriefSubmitRequest}
+                loading={loadingPhase === "conceits"}
+                seed={formSeed}
+                seedLabel={formSeedLabel}
+                onClearSeed={handleClearSeed}
+              />
+            </>
           )}
-          {seedAiFailed && (
-            <div className="mb-3 text-xs text-warning-600 leading-relaxed">
-              AI suggestions unavailable — add products and a hero angle to continue.
-            </div>
+
+          {channel === "sms" && (
+            <SmsForm
+              emailSources={emailSources}
+              loading={smsLoading}
+              seedBrief={smsSeedBrief}
+              seedSourceId={smsSeedSourceId}
+              onGenerate={handleSmsGenerateRequest}
+            />
           )}
-          <InputForm
-            onSubmit={handleBriefSubmitRequest}
-            loading={loadingPhase === "conceits"}
-            seed={formSeed}
-            seedLabel={formSeedLabel}
-            onClearSeed={handleClearSeed}
-          />
         </div>
       </div>
 
       {/* Main canvas area */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 pb-8">
+          {channel === "email" && (<>
           {/* Sticky top bar + stepper */}
           <div className="sticky top-0 z-10 bg-chrome border-b border-line -mx-6 px-6">
             <div className="flex items-center justify-between gap-3 py-3">
@@ -1066,7 +1643,12 @@ export default function Home() {
                 )}
                 {renderSaveButtons()}
                 {campaign && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowNewConfirm(true)} title="Start new campaign">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => canvasSource === "library" ? resetAll() : setShowNewConfirm(true)}
+                    title="Start new campaign"
+                  >
                     New
                   </Button>
                 )}
@@ -1130,12 +1712,81 @@ export default function Home() {
                 toneDial={currentBriefInput?.tone_dial ?? 1}
                 isGenerating={loadingPhase === "generating"}
                 offer={currentBriefInput?.offer ?? ""}
+                repetitionFlags={repetitionFlags}
+                onDismissFlag={(key) => setRepetitionFlags((prev) => { const next = { ...prev }; delete next[key]; return next; })}
+                onRegenerated={(updated) => void runRepetitionCheck(updated)}
                 onChange={setCampaign}
                 onConceitEdit={() => setStage("conceits")}
                 onNewConceits={handleNewConceits}
               />
             )}
           </div>
+          </>)}
+
+          {channel === "sms" && (
+            <>
+              {/* SMS top bar */}
+              <div className="sticky top-0 z-10 bg-chrome border-b border-line -mx-6 px-6">
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {smsCampaign ? (
+                      <input
+                        value={smsCampaign.name}
+                        onChange={(e) => setSmsCampaign((c) => (c ? { ...c, name: e.target.value } : c))}
+                        className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 transition-colors"
+                        title="Click to rename SMS campaign"
+                      />
+                    ) : (
+                      <span className="font-mono text-xs text-ink-muted uppercase tracking-wide">New SMS</span>
+                    )}
+                    <Chip tone="accent" className="shrink-0">SMS</Chip>
+                    {smsSource === "final" && <Chip tone="muted" className="shrink-0">final</Chip>}
+                    {smsSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+                  </div>
+                  {smsCampaign && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button variant="ghost" size="sm" onClick={handleSmsCopy} title="Copy selected variant">Copy</Button>
+                      <Button variant="secondary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("draft")}>Save Draft</Button>
+                      <Button variant="primary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("final")}>Save Final</Button>
+                      <Button variant="ghost" size="sm" onClick={handleSmsNew} title="Start new SMS">New</Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {error && (
+                <div className="mt-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">{error}</div>
+              )}
+
+              <div className="pt-5">
+                {!smsCampaign && !smsLoading && (
+                  <EmptyState
+                    icon={
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                    }
+                    title="Write SMS copy"
+                    description="Pick an email campaign to distill, or write a short brief, then Generate SMS."
+                  />
+                )}
+                {smsLoading && !smsCampaign && (
+                  <div className="flex items-center gap-2 text-sm text-ink-muted py-10 justify-center">
+                    <span className="w-4 h-4 rounded-full border-2 border-line border-t-ink-muted animate-spin" />
+                    Writing SMS variants…
+                  </div>
+                )}
+                {smsCampaign && (
+                  <SmsCanvas
+                    campaign={smsCampaign}
+                    isGenerating={smsLoading}
+                    onSelect={handleSmsSelect}
+                    onChangeVariant={handleSmsVariantChange}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
       {/* Confirmations (shared Modal primitive) */}
@@ -1167,11 +1818,30 @@ export default function Home() {
         confirmLabel={campaign ? "Yes, regenerate" : "Yes, generate"}
       />
       <ConfirmModal
+        open={!!pendingSmsGen}
+        onClose={() => setPendingSmsGen(null)}
+        onConfirm={() => { const a = pendingSmsGen; setPendingSmsGen(null); if (a) handleSmsGenerate(a); }}
+        title={smsCampaign ? "Regenerate SMS?" : "Generate SMS?"}
+        body={smsCampaign
+          ? "This replaces the current variants. Any unsaved edits will be lost."
+          : "This writes 3 SMS variants from the brief."}
+        confirmLabel={smsCampaign ? "Yes, regenerate" : "Yes, generate"}
+      />
+      <ConfirmModal
+        open={!!pendingPlannerSmsRowId}
+        onClose={() => { setPendingPlannerSmsRowId(null); router.replace("/copy-builder"); }}
+        onConfirm={() => { const id = pendingPlannerSmsRowId; setPendingPlannerSmsRowId(null); if (id) startSmsPlannerBrief(id); }}
+        title="You have unsaved SMS copy"
+        body="Start the planner SMS brief? Your current SMS variants will be cleared unless saved."
+        confirmLabel="Start SMS brief"
+        cancelLabel="Keep working"
+      />
+      <ConfirmModal
         open={!!pendingDelete}
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
-        title={pendingDelete?.kind === "library" ? "Remove from library?" : "Delete this campaign?"}
-        body={pendingDelete?.kind === "library" ? "This removes the finalized campaign from the library." : "This permanently deletes the saved draft."}
+        title={pendingDelete?.kind === "library" ? "Remove from library?" : pendingDelete?.kind === "sms" ? "Delete this SMS campaign?" : "Delete this campaign?"}
+        body={pendingDelete?.kind === "library" ? "This removes the finalized campaign from the library." : pendingDelete?.kind === "sms" ? "This permanently deletes the saved SMS campaign." : "This permanently deletes the saved draft."}
         confirmLabel={pendingDelete?.kind === "library" ? "Remove" : "Delete"}
         danger
       />
