@@ -21,19 +21,30 @@ interface SavedMeta {
   offer: string;
 }
 
+interface SmsMetaItem {
+  id: string;
+  name: string;
+  status: string;
+  updated_at: string;
+}
+
 interface Props {
   libraryItems: LibraryMeta[];
   savedItems: SavedMeta[];
+  smsItems?: SmsMetaItem[];
   onLoadSaved: (id: string) => void;
   onDeleteSaved: (id: string) => void;
   onViewLibrary: (id: string) => void;
   onDeleteLibrary: (id: string) => void;
+  onLoadSms?: (id: string) => void;
+  onDeleteSms?: (id: string) => void;
   activeSavedId?: string | null;
   activeLibraryId?: string | null;
+  activeSmsId?: string | null;
 }
 
-export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary, activeSavedId, activeLibraryId }: Props) {
-  const [tab, setTab] = useState<"saved" | "library">("saved");
+export default function Sidebar({ libraryItems, savedItems, smsItems = [], onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary, onLoadSms, onDeleteSms, activeSavedId, activeLibraryId, activeSmsId }: Props) {
+  const [tab, setTab] = useState<"saved" | "library" | "sms">("saved");
   const [libraryFilter, setLibraryFilter] = useState("");
 
   const filteredLibrary = libraryItems.filter(
@@ -49,7 +60,7 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
       <div className="px-3 pt-4">
         <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-3">Copy Builder</div>
         <div className="flex gap-4 border-b border-line">
-          {([["saved", "Saved", savedItems.length], ["library", "Library", libraryItems.length]] as const).map(([key, label, count]) => (
+          {([["saved", "Saved", savedItems.length], ["library", "Library", libraryItems.length], ["sms", "SMS", smsItems.length]] as const).map(([key, label, count]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -133,6 +144,38 @@ export default function Sidebar({ libraryItems, savedItems, onLoadSaved, onDelet
                   onClick={(e) => { e.stopPropagation(); onDeleteLibrary(item.id); }}
                   aria-label="Remove from library"
                   title="Remove from library"
+                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {tab === "sms" && (
+          <>
+            {smsItems.length === 0 && (
+              <EmptyState className="py-10" title="No SMS campaigns yet" />
+            )}
+            {smsItems.map((item) => (
+              <div
+                key={item.id}
+                className={`group flex items-start justify-between gap-2 p-2.5 rounded-md border cursor-pointer transition-[background-color,border-color] duration-150 ${
+                  activeSmsId === item.id
+                    ? "border-accent-200 border-l-2 border-l-accent bg-accent-50"
+                    : "border-line hover:border-line-strong bg-surface hover:bg-chrome"
+                }`}
+                onClick={() => onLoadSms?.(item.id)}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">{item.name}</div>
+                  <div className="font-mono text-xs text-slate-400 mt-0.5">sms · {item.status}</div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDeleteSms?.(item.id); }}
+                  aria-label="Delete SMS campaign"
+                  title="Delete SMS campaign"
                   className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
                 >
                   ✕
