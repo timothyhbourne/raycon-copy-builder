@@ -4,13 +4,20 @@ import { PLANNER_CHANNELS, PLANNER_STATUSES } from "@/lib/planner-types";
 import type { PlannerRow } from "@/lib/planner-types";
 
 export async function GET(req: NextRequest) {
-  const id = new URL(req.url).searchParams.get("id");
-  if (id) {
-    const row = getPlannerRow(id);
-    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ row });
+  try {
+    const id = new URL(req.url).searchParams.get("id");
+    if (id) {
+      const row = getPlannerRow(id);
+      if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ row });
+    }
+    return NextResponse.json({ rows: listPlannerRows() });
+  } catch (e) {
+    // Never fall through to an empty-bodied 500 — the client calls res.json()
+    // and an empty body surfaces as "Unexpected end of JSON input".
+    const msg = e instanceof Error ? e.message : "Failed to load planner";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-  return NextResponse.json({ rows: listPlannerRows() });
 }
 
 export async function POST(req: NextRequest) {

@@ -18,10 +18,18 @@ function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+// Best-effort store initialisation. On a read-only filesystem (Vercel's
+// serverless runtime — everything outside /tmp is read-only) creating the seed
+// file throws EROFS; we swallow it so a read degrades to an empty store rather
+// than crashing the request. Same idiom as lib/metrics/store.ts.
 function ensureStore(): void {
-  const dir = path.dirname(STORE_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(STORE_PATH)) fs.writeFileSync(STORE_PATH, "[]", "utf8");
+  try {
+    const dir = path.dirname(STORE_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(STORE_PATH)) fs.writeFileSync(STORE_PATH, "[]", "utf8");
+  } catch (e) {
+    console.warn(`[planner] store init failed (read-only FS?): ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 // Read-time backfill so rows saved under older shapes keep working without a
@@ -84,7 +92,14 @@ function readAll(): PlannerRow[] {
 
 function writeAll(rows: PlannerRow[]): void {
   ensureStore();
-  fs.writeFileSync(STORE_PATH, JSON.stringify(rows, null, 2), "utf8");
+  try {
+    fs.writeFileSync(STORE_PATH, JSON.stringify(rows, null, 2), "utf8");
+  } catch (e) {
+    // Read-only FS: the caller still gets its in-memory result, but the change
+    // won't survive the request. Durable multi-user persistence needs a real
+    // backend (see the note in lib/metrics/store.ts).
+    console.warn(`[planner] write failed (not durable here): ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 export function listPlannerRows(): PlannerRow[] {
