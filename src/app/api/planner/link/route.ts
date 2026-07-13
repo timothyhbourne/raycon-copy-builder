@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { linkCopyCampaign, unlinkCopyCampaign, listPlannerRows, getPlannerRow } from "@/lib/planner";
 import { loadCampaign, setCampaignPlannerRow } from "@/lib/campaigns";
 import { getLibraryCampaignById, setLibraryPlannerRow } from "@/lib/library";
+import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
 
 // Attach / detach a Copy Builder campaign to a planner row. Kept separate from
 // the main planner POST so the copy-builder doesn't have to resend name/channel
@@ -13,15 +14,16 @@ import { getLibraryCampaignById, setLibraryPlannerRow } from "@/lib/library";
 // All writes go through the store modules — no direct fs here.
 
 // Write (or clear) the copy record's planner_row_id back-reference, trying the
-// drafts store first, then the library.
+// drafts store first, then the library, then the SMS store.
 function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): void {
   if (setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
+  if (setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
   setLibraryPlannerRow(copyCampaignId, plannerRowId);
 }
 
-// True if the id resolves to a draft or library copy.
+// True if the id resolves to a draft, library, or SMS copy.
 function copyExists(copyCampaignId: string): boolean {
-  return !!loadCampaign(copyCampaignId) || !!getLibraryCampaignById(copyCampaignId);
+  return !!loadCampaign(copyCampaignId) || !!getLibraryCampaignById(copyCampaignId) || !!loadSmsCampaign(copyCampaignId);
 }
 
 export async function POST(req: NextRequest) {

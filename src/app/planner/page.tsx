@@ -62,13 +62,14 @@ function StatusPill({ status, channel, className = "" }: { status: PlannerStatus
 const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };
 
 // Inline copy affordance for a table row's Name cell. stopPropagation so the
-// links don't also open the row editor (the row onClick opens edit). Email only;
-// SMS renders nothing.
-function CopyLink({ entry, rowId, copyId }: { entry: CopyEntry; rowId: string; copyId?: string }) {
+// links don't also open the row editor (the row onClick opens edit). Works for
+// both channels; SMS rows deep-link into the copy builder's SMS mode.
+function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; rowId: string; copyId?: string; channel: PlannerChannel }) {
   if (entry === "sms") return null;
+  const writeHref = channel === "sms" ? `/copy-builder?planner=${rowId}&channel=sms` : `/copy-builder?planner=${rowId}`;
   if (entry === "unlinked") {
     return (
-      <Link href={`/copy-builder?planner=${rowId}`} onClick={(e) => e.stopPropagation()}
+      <Link href={writeHref} onClick={(e) => e.stopPropagation()}
         className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
         Write copy
       </Link>
@@ -222,7 +223,12 @@ export default function PlannerPage() {
   // Resolve a row's Copy Builder link state. Before the id set loads, assume a
   // set copy_campaign_id is valid (avoids a flash of "unlinked").
   const copyEntry = useCallback((row: PlannerRow): CopyEntry => {
-    if (row.channel !== "email") return "sms";
+    // SMS copy lives in its own store (ids not in copyIds); trust the backref.
+    // Stale-healing stays email-only, so an SMS link is never wrongly wiped.
+    if (row.channel !== "email") {
+      if (!row.copy_campaign_id) return "unlinked";
+      return row.copy_status === "final" ? "final" : "draft";
+    }
     const linked = !!row.copy_campaign_id && (!copyIdsLoaded || copyIds.has(row.copy_campaign_id));
     if (!linked) return "unlinked";
     return row.copy_status === "final" ? "final" : "draft";
@@ -583,7 +589,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                               <div className={cell}>
                                 <div className="min-w-0 flex flex-col">
                                   <span className={`truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}`}>{r.name}</span>
-                                  <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} />
+                                  <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} channel={r.channel} />
                                 </div>
                               </div>
                               <div className={`${cell} gap-1.5 text-ink-secondary`}><ChannelGlyph channel={r.channel} /> {CHANNEL_GLYPH[r.channel].label}</div>
@@ -724,7 +730,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   }, [row, onLinkChanged]);
 
   useEffect(() => {
-    if (channel === "email" && row && copyId) fetchCopyPreview(copyId);
+    if (row && copyId) fetchCopyPreview(copyId);   // both channels resolve via /api/planner/copy
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -953,8 +959,8 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
         {renderAudiences()}
       </div>
 
-      {/* 6b. Copy — embedded preview + attach/unlink (email rows, saved row only) */}
-      {channel === "email" && row && (
+      {/* 6b. Copy — embedded preview + attach/unlink (saved row only, both channels) */}
+      {row && (
         <div className={section}>
           <div className="flex items-center gap-2 mb-2">
             <span className="font-mono text-[11px] text-ink-muted uppercase tracking-wider">Copy</span>
@@ -981,7 +987,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             )
           ) : (
             <div className="flex items-center gap-2">
-              <Link href={`/copy-builder?planner=${row.id}`}
+              <Link href={channel === "sms" ? `/copy-builder?planner=${row.id}&channel=sms` : `/copy-builder?planner=${row.id}`}
                 className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
               <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>Attach existing copy</Button>
             </div>
@@ -1011,7 +1017,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       confirmLabel="Unlink" />
 
     {pickerOpen && row && (
-      <AttachCopyPicker rowId={row.id} allRows={allRows}
+      <AttachCopyPicker rowId={row.id} allRows={allRows} channel={channel}
         onPick={attachCopy} onClose={() => setPickerOpen(false)} />
     )}
     </>
@@ -1021,18 +1027,31 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
 // ---------- attach-existing-copy picker ----------
 interface CopyListEntry { id: string; name: string; date: string; type: string; status: string; planner_row_id?: string }
 
-function AttachCopyPicker({ rowId, allRows, onPick, onClose }: {
-  rowId: string; allRows: PlannerRow[];
+function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
+  rowId: string; allRows: PlannerRow[]; channel: PlannerChannel;
   onPick: (copyId: string, status: "draft" | "final") => void; onClose: () => void;
 }) {
+  const isSms = channel === "sms";
   const [tab, setTab] = useState<"drafts" | "library">("drafts");
   const [q, setQ] = useState("");
   const [drafts, setDrafts] = useState<CopyListEntry[]>([]);
   const [library, setLibrary] = useState<CopyListEntry[]>([]);
+  const [sms, setSms] = useState<CopyListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [move, setMove] = useState<{ copyId: string; status: "draft" | "final"; otherRow: string } | null>(null);
 
   useEffect(() => {
+    // SMS rows attach SMS campaigns; email rows attach email drafts/library.
+    if (isSms) {
+      fetch("/api/sms").then((r) => r.json()).catch(() => ({})).then((j) => {
+        if (Array.isArray(j.campaigns)) {
+          setSms(j.campaigns.map((c: { id: string; name: string; updated_at: string; status: string; planner_row_id?: string }) => ({
+            id: c.id, name: c.name, date: (c.updated_at || "").slice(0, 10), type: "sms", status: c.status, planner_row_id: c.planner_row_id,
+          })));
+        }
+      }).finally(() => setLoading(false));
+      return;
+    }
     Promise.all([
       fetch("/api/campaigns").then((r) => r.json()).catch(() => ({})),
       fetch("/api/library").then((r) => r.json()).catch(() => ({})),
@@ -1048,13 +1067,15 @@ function AttachCopyPicker({ rowId, allRows, onPick, onClose }: {
         })));
       }
     }).finally(() => setLoading(false));
-  }, []);
+  }, [isSms]);
 
   const rowNameById = (id: string) => allRows.find((r) => r.id === id)?.name;
-  const entries = tab === "drafts" ? drafts : library;
+  const entries = isSms ? sms : tab === "drafts" ? drafts : library;
   const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
   const choose = (e: CopyListEntry) => {
-    const status: "draft" | "final" = tab === "drafts" ? "draft" : "final";
+    const status: "draft" | "final" = isSms
+      ? (e.status === "final" ? "final" : "draft")
+      : (tab === "drafts" ? "draft" : "final");
     if (e.planner_row_id && e.planner_row_id !== rowId) {
       setMove({ copyId: e.id, status, otherRow: rowNameById(e.planner_row_id) ?? "another campaign" });
     } else {
@@ -1066,12 +1087,14 @@ function AttachCopyPicker({ rowId, allRows, onPick, onClose }: {
     <>
       <Modal open onClose={onClose} title="Attach existing copy" size="lg">
         <div className="flex items-center gap-2 mb-3">
-          <div className="inline-flex rounded-md border border-line p-0.5">
-            {(["drafts", "library"] as const).map((t) => (
-              <button key={t} type="button" onClick={() => setTab(t)}
-                className={`px-3 py-1 text-xs font-medium rounded-[6px] capitalize transition-colors ${tab === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>{t}</button>
-            ))}
-          </div>
+          {!isSms && (
+            <div className="inline-flex rounded-md border border-line p-0.5">
+              {(["drafts", "library"] as const).map((t) => (
+                <button key={t} type="button" onClick={() => setTab(t)}
+                  className={`px-3 py-1 text-xs font-medium rounded-[6px] capitalize transition-colors ${tab === t ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"}`}>{t}</button>
+              ))}
+            </div>
+          )}
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name…"
             className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
         </div>
@@ -1079,7 +1102,7 @@ function AttachCopyPicker({ rowId, allRows, onPick, onClose }: {
           {loading ? (
             <div className="py-6"><SkeletonBlock className="h-5 w-full" /></div>
           ) : filtered.length === 0 ? (
-            <div className="py-8 text-center text-sm text-ink-muted">No {tab} found.</div>
+            <div className="py-8 text-center text-sm text-ink-muted">No {isSms ? "SMS campaigns" : tab} found.</div>
           ) : filtered.map((e) => {
             const linkedElsewhere = e.planner_row_id && e.planner_row_id !== rowId;
             return (

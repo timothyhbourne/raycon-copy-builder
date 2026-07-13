@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadCampaign } from "@/lib/campaigns";
 import { getLibraryCampaignById } from "@/lib/library";
+import { loadSmsCampaign } from "@/lib/sms";
+import { SMS_VARIANT_LABELS } from "@/lib/schemas";
 import type { GeneratedCampaign, GeneratedSection, SectionSpec, ProductInGrid } from "@/lib/schemas";
 
 // Normalized copy payloads for the planner. Looks up the id in the drafts store
@@ -183,6 +185,35 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       lib.structured?.campaign ? fromStructured(lib.structured.campaign, base) : fromLegacyBody(lib.body, base)
     );
+  }
+
+  // SMS campaigns live in their own store. Return an SMS-shaped payload the
+  // viewer renders as three variants; the compact form summarizes the selected one.
+  const sms = loadSmsCampaign(id);
+  if (sms) {
+    const selectedText = sms.variants[sms.selected_variant]?.text ?? sms.variants[0]?.text ?? "";
+    const base = { id, source: "sms" as const, campaign_name: sms.name, updated_at: sms.updated_at };
+    if (full) {
+      return NextResponse.json({
+        ...base,
+        kind: "sms",
+        subject_lines: [],
+        preview_texts: [],
+        sections: [],
+        variants: sms.variants,
+        selected_variant: sms.selected_variant,
+      });
+    }
+    return NextResponse.json({
+      ...base,
+      kind: "sms",
+      subject_lines: selectedText ? [selectedText] : [],
+      preview_texts: [],
+      sections: sms.variants.map((v, i) => ({
+        type: "sms",
+        fields: { [SMS_VARIANT_LABELS[i] ?? `Variant ${i + 1}`]: v.text },
+      })),
+    });
   }
 
   return NextResponse.json({ error: "not_found" }, { status: 404 });

@@ -4,6 +4,8 @@ import Link from "next/link";
 import Modal from "./ui/Modal";
 import Chip from "./ui/Chip";
 import SkeletonBlock from "./ui/Skeleton";
+import { smsLength } from "@/lib/sms-format";
+import { SMS_VARIANT_LABELS } from "@/lib/schemas";
 
 // Full-copy document viewer: a clean, read-only, Google-Docs-like view of a
 // linked campaign's complete copy, layered over the planner. Fetches fresh on
@@ -21,13 +23,17 @@ interface FullSection {
 }
 interface CopyFull {
   id: string;
-  source: "draft" | "library";
+  source: "draft" | "library" | "sms";
   campaign_name: string;
   updated_at: string;
   conceit_name?: string;
   subject_lines: string[];
   preview_texts: string[];
   sections: FullSection[];
+  // SMS-only: the three variants and which one ships.
+  kind?: "sms";
+  variants?: { text: string }[];
+  selected_variant?: number;
 }
 
 const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wider";
@@ -117,6 +123,28 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
           <div className="text-center py-10">
             <div className="text-sm text-ink-secondary mb-4">{error}</div>
             <button onClick={onClose} className="text-sm text-accent hover:underline">Close</button>
+          </div>
+        ) : data?.kind === "sms" && data.variants ? (
+          <div className="space-y-3">
+            {data.variants.map((v, i) => {
+              const { chars, encoding, segments } = smsLength(v.text);
+              const selected = data.selected_variant === i;
+              return (
+                <div
+                  key={i}
+                  className={`rounded-md border p-4 ${selected ? "border-accent-200 border-l-2 border-l-accent bg-accent-50" : "border-line"}`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={microLabel}>{SMS_VARIANT_LABELS[i] ?? `Variant ${i + 1}`}</span>
+                    {selected && <Chip tone="accent">selected</Chip>}
+                  </div>
+                  <div className="text-[15px] text-ink leading-relaxed whitespace-pre-line">{v.text}</div>
+                  <div className="mt-2 pt-2 border-t border-line font-mono text-[11px] text-ink-muted">
+                    {chars} · {encoding} · {segments} segment{segments === 1 ? "" : "s"}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : data ? (
           <>
