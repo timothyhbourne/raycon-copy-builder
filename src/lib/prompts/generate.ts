@@ -2,6 +2,7 @@ import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "../sc
 import { SECTION_CATALOGUE } from "../schemas";
 import { getProductName } from "../products";
 import { RAYCON_VOICE } from "./voice";
+import { playbookBlock } from "./playbooks";
 
 export const generateRoleInstruction = `Your job in this step is to write the full email campaign copy.
 
@@ -136,6 +137,9 @@ ${verbatimBlock}
 Chosen conceit:
 Name: ${chosenConceit.name}
 Description: ${chosenConceit.description}
+
+${playbookBlock(expandedBrief.campaign_type)}
+This send type has a defined job and shape — let it govern pacing and structure. It never overrides the voice rules or the user's literal instructions.
 
 Section structure to produce (in order):
 ${sectionList}

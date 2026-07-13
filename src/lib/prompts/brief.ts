@@ -1,5 +1,6 @@
 import type { BriefInput } from "../schemas";
 import { getProductName } from "../products";
+import { playbookBlock } from "./playbooks";
 
 export const briefRoleInstruction = `Your job in this step is to take a raw campaign brief and expand it into a structured brief that downstream prompts will use. Do not write any campaign copy yet.
 
@@ -28,6 +29,9 @@ Audience: ${input.audience}
 Hero angle (user wrote): ${input.hero_angle}
 Featured products: ${input.products_featured.map((id) => `${getProductName(id)} (${id})`).join(", ") || "none specified"}
 Campaign-specific rules: ${input.campaign_specific_rules || "none"}
+
+${playbookBlock(input.campaign_type)}
+This send type has a defined job and shape — let it steer the structural_notes and pacing. It never overrides the voice rules or the user's literal instructions.
 
 Section structure the user wants:
 ${sections}

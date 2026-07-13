@@ -1,11 +1,36 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { nanoid } from "nanoid";
 import type { BriefInput, CampaignType, AudienceType, SectionSpec } from "@/lib/schemas";
 import { DEFAULT_SECTION_STRUCTURE } from "@/lib/schemas";
 import { PRODUCT_CATEGORIES, VALID_PRODUCT_IDS } from "@/lib/products";
+import { PLAYBOOKS, type PlaybookSection } from "@/lib/prompts/playbooks";
 import SectionBuilder from "./SectionBuilder";
 import Button from "./ui/Button";
 import Chip from "./ui/Chip";
+
+// Structural signature (ignores nanoid ids) — used to tell an untouched default
+// structure from a user-customized one.
+function structSig(sections: { type: string; focus?: string; grid_cols?: number; grid_rows?: number }[]): string {
+  return sections.map((s) => `${s.type}:${s.focus ?? ""}:${s.grid_cols ?? ""}:${s.grid_rows ?? ""}`).join("|");
+}
+function instantiateStructure(tpl: PlaybookSection[]): SectionSpec[] {
+  return tpl.map((t) => ({
+    id: nanoid(),
+    type: t.type,
+    ...(t.focus ? { focus: t.focus } : {}),
+    ...(t.grid_cols ? { grid_cols: t.grid_cols } : {}),
+    ...(t.grid_rows ? { grid_rows: t.grid_rows } : {}),
+  }));
+}
+// Signatures the user hasn't customized: the base default + every playbook default.
+const UNTOUCHED_SIGS = new Set<string>([
+  structSig(DEFAULT_SECTION_STRUCTURE),
+  ...Object.values(PLAYBOOKS).map((p) => structSig(p.default_structure)),
+]);
+function isUntouchedStructure(sections: SectionSpec[]): boolean {
+  return UNTOUCHED_SIGS.has(structSig(sections));
+}
 
 const LABEL = "block font-mono text-xs text-ink-secondary uppercase tracking-wide mb-1";
 const INPUT = "w-full border border-line rounded-sm px-3 py-2 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
@@ -119,6 +144,20 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  // Changing the type swaps in that playbook's default structure ONLY if the
+  // current structure is still an untouched default — never clobber a customized
+  // structure (the hint button below lets the user opt in instead).
+  const handleTypeChange = (type: CampaignType) => {
+    setForm((prev) => isUntouchedStructure(prev.section_structure)
+      ? { ...prev, campaign_type: type, section_structure: instantiateStructure(PLAYBOOKS[type].default_structure) }
+      : { ...prev, campaign_type: type });
+  };
+  const applyPlaybookStructure = () => set("section_structure", instantiateStructure(PLAYBOOKS[form.campaign_type].default_structure));
+  // Offer the playbook structure when the user has customized away from any
+  // default and it no longer matches the current type's playbook.
+  const showStructureHint = !isUntouchedStructure(form.section_structure)
+    && structSig(form.section_structure) !== structSig(PLAYBOOKS[form.campaign_type].default_structure);
+
   const toggleProduct = (slug: string) => {
     const cur = form.products_featured;
     set("products_featured", cur.includes(slug) ? cur.filter((p) => p !== slug) : [...cur, slug]);
@@ -162,7 +201,7 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
       <div>
         <label className={LABEL}>Campaign Type</label>
         <ChevronSelect>
-          <select value={form.campaign_type} onChange={(e) => set("campaign_type", e.target.value)}
+          <select value={form.campaign_type} onChange={(e) => handleTypeChange(e.target.value as CampaignType)}
             className={`${INPUT} appearance-none pr-8`}>
             {["promo", "launch", "restock", "story", "seasonal", "winback", "newsletter"].map((t) => (
               <option key={t} value={t}>{t}</option>
@@ -274,7 +313,14 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
       </div>
 
       <div>
-        <label className={LABEL}>Section Structure</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="font-mono text-xs text-ink-secondary uppercase tracking-wide">Section Structure</label>
+          {showStructureHint && (
+            <Button type="button" variant="ghost" size="sm" onClick={applyPlaybookStructure}>
+              Use the {form.campaign_type} structure
+            </Button>
+          )}
+        </div>
         <SectionBuilder
           sections={form.section_structure}
           onChange={(s: SectionSpec[]) => set("section_structure", s)}
