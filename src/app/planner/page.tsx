@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
-import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
+import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import Chip, { type ChipTone } from "@/components/ui/Chip";
@@ -28,32 +28,34 @@ interface CopyPreview {
 }
 
 // ---------- formatting ----------
-// Channel + status colors map onto the shared Chip tones (accent = indigo).
-const CHANNEL: Record<PlannerChannel, { tone: ChipTone; dot: string; label: string }> = {
-  email: { tone: "accent", dot: "bg-accent", label: "Email" },
-  sms: { tone: "success", dot: "bg-success-600", label: "SMS" },
+// Channel signal = an emoji glyph shown before the campaign name (the user asked
+// for emoji). Carries the channel on its own; there are no channel color dots.
+const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: string }> = {
+  email: { emoji: "✉️", label: "Email" },
+  sms: { emoji: "📱", label: "SMS" },
 };
-// Status-driven pill styling (Step 2). Explicit palette classes so the exact
-// colors from the spec render regardless of the token layer. `check` prefixes a
-// ✓ glyph; `strike` strikes the name.
+function ChannelGlyph({ channel, className = "" }: { channel: PlannerChannel; className?: string }) {
+  const g = CHANNEL_GLYPH[channel];
+  return <span role="img" aria-label={g.label} className={`text-[11px] leading-none ${className}`}>{g.emoji}</span>;
+}
+// Status-driven pill styling. Explicit palette classes so the exact colors render
+// regardless of the token layer. `check` prefixes a ✓ glyph; `strike` strikes the
+// name. The scheduled label is channel-dependent — see statusLabel().
 const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
   writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
   planned: { pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  scheduled_in_klaviyo: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
+  scheduled: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
   cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
 };
-// Channel signal = a small colored dot. SMS is amber (not emerald) so it can't be
-// confused with the scheduled-in-Klaviyo green.
-const CHANNEL_DOT: Record<PlannerChannel, string> = { email: "bg-indigo-500", sms: "bg-amber-500" };
 
-// Small status pill, shape-matched to the Chip primitive. Used in the calendar
-// entries, the table status column, and (filled) the editor segmented control.
-function StatusPill({ status, className = "" }: { status: PlannerStatus; className?: string }) {
+// Small status pill, shape-matched to the Chip primitive. Scheduled names the
+// platform for the row's channel, so pass the channel.
+function StatusPill({ status, channel, className = "" }: { status: PlannerStatus; channel: PlannerChannel; className?: string }) {
   const st = STATUS_STYLE[status];
   return (
     <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide leading-none ${st.pill} ${className}`}>
       {st.check && <span aria-hidden>✓</span>}
-      <span className={st.strike ? "line-through" : ""}>{PLANNER_STATUS_LABELS[status]}</span>
+      <span className={st.strike ? "line-through" : ""}>{statusLabel(status, channel)}</span>
     </span>
   );
 }
@@ -393,8 +395,8 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
             <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
           </div>
           <div className="flex items-center gap-3 text-[10px] font-mono text-ink-muted">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /> Email</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> SMS</span>
+            <span className="flex items-center gap-1"><span aria-hidden>✉️</span> Email</span>
+            <span className="flex items-center gap-1"><span aria-hidden>📱</span> SMS</span>
           </div>
         </div>
         <div key={`${y}-${m}`} className="rc-animate-fade">
@@ -434,11 +436,11 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                               return (
                                 <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps} style={style}
                                   onClick={(e) => { e.stopPropagation(); onEntry(r); }}
-                                  title={`${r.name} · ${PLANNER_STATUS_LABELS[r.status]}`}
+                                  title={`${r.name} · ${statusLabel(r.status, r.channel)}`}
                                   className={`flex items-center gap-1 rounded-sm px-1.5 py-1 border transition-[box-shadow] duration-150 ease-out-soft ${st.pill} ${
                                     snap.isDragging ? "shadow-pop" : "hover:shadow-card"
                                   }`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CHANNEL_DOT[r.channel]}`} />
+                                  <ChannelGlyph channel={r.channel} className="shrink-0" />
                                   {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                                   <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
                                   {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
@@ -580,8 +582,8 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} />
                                 </div>
                               </div>
-                              <div className={cell}><Chip tone={CHANNEL[r.channel].tone} dot>{CHANNEL[r.channel].label}</Chip></div>
-                              <div className={cell}><StatusPill status={r.status} /></div>
+                              <div className={`${cell} gap-1.5 text-ink-secondary`}><ChannelGlyph channel={r.channel} /> {CHANNEL_GLYPH[r.channel].label}</div>
+                              <div className={cell}><StatusPill status={r.status} channel={r.channel} /></div>
                               <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
                               <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerLabel(r)}</span></div>
                               <div className={`${cell} text-[11px] text-ink-muted`}>
@@ -870,7 +872,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                   active ? `${st.pill} font-semibold` : "border-line text-ink-muted hover:bg-chrome"
                 }`}>
                 {st.check && active && <span aria-hidden>✓</span>}
-                {PLANNER_STATUS_LABELS[s]}
+                {statusLabel(s, channel)}
               </button>
             );
           })}

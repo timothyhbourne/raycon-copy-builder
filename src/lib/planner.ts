@@ -44,15 +44,15 @@ function backfillAudience(raw: any): AudienceRef[] {
 
 // Migrate a legacy status literal to the current model. New values pass through;
 // anything unrecognised falls back to the first stage.
-//   idea → writing_brief, draft → planned,
-//   scheduled/sent → scheduled_in_klaviyo, cancelled → cancelled
+//   idea → writing_brief, draft → planned, sent → scheduled,
+//   scheduled_in_klaviyo (prior model) → scheduled, cancelled → cancelled
 function backfillStatus(s: unknown): PlannerRow["status"] {
   switch (s) {
-    case "writing_brief": case "planned": case "scheduled_in_klaviyo": case "cancelled":
+    case "writing_brief": case "planned": case "scheduled": case "cancelled":
       return s;
     case "idea": return "writing_brief";
     case "draft": return "planned";
-    case "scheduled": case "sent": return "scheduled_in_klaviyo";
+    case "sent": case "scheduled_in_klaviyo": return "scheduled";
     default: return "writing_brief";
   }
 }

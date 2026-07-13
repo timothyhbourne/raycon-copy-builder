@@ -7,21 +7,30 @@
 
 export type PlannerChannel = "email" | "sms";
 // Scheduling-state model. "Sent" is DERIVED (see isEffectivelySent), not stored —
-// a row is effectively sent once it is scheduled in Klaviyo and its planned send
-// time has passed. Legacy statuses migrate on read (see lib/planner.ts).
-export type PlannerStatus = "writing_brief" | "planned" | "scheduled_in_klaviyo" | "cancelled";
+// a row is effectively sent once it is scheduled and its planned send time has
+// passed. Legacy statuses migrate on read (see lib/planner.ts). The "scheduled"
+// label is channel-dependent (Klaviyo for email, Postscript for sms) — use
+// statusLabel(status, channel) for display.
+export type PlannerStatus = "writing_brief" | "planned" | "scheduled" | "cancelled";
 export type OfferType = "evergreen" | "promo";
 
-export const PLANNER_STATUSES: PlannerStatus[] = ["writing_brief", "planned", "scheduled_in_klaviyo", "cancelled"];
+export const PLANNER_STATUSES: PlannerStatus[] = ["writing_brief", "planned", "scheduled", "cancelled"];
 export const PLANNER_CHANNELS: PlannerChannel[] = ["email", "sms"];
 
-// Human-facing labels for each status.
+// Channel-agnostic fallback labels. Prefer statusLabel(status, channel) so the
+// scheduled state names the right platform.
 export const PLANNER_STATUS_LABELS: Record<PlannerStatus, string> = {
   writing_brief: "Writing brief",
   planned: "Planned",
-  scheduled_in_klaviyo: "Scheduled in Klaviyo",
+  scheduled: "Scheduled",
   cancelled: "Cancelled",
 };
+
+// Display label; the "scheduled" state names the platform for the row's channel.
+export function statusLabel(status: PlannerStatus, channel: PlannerChannel): string {
+  if (status === "scheduled") return channel === "sms" ? "Scheduled in Postscript" : "Scheduled in Klaviyo";
+  return PLANNER_STATUS_LABELS[status];
+}
 
 // Raycon's standing offer. Evergreen campaigns use this and carry no promo code.
 export const EVERGREEN_OFFER = "20% off";
@@ -86,7 +95,7 @@ export interface SyncedMetrics {
 // scheduled in Klaviyo and its planned send time is in the past. Use this instead
 // of a status === "sent" check anywhere sent-ness matters (table filter, etc.).
 export function isEffectivelySent(row: PlannerRow): boolean {
-  return row.status === "scheduled_in_klaviyo" && new Date(row.planned_send_at).getTime() < Date.now();
+  return row.status === "scheduled" && new Date(row.planned_send_at).getTime() < Date.now();
 }
 
 // Per-row sync outcome so the UI can explain exactly why a row did/didn't sync.
