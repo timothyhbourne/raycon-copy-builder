@@ -36,7 +36,7 @@ function isPast(iso: string | null): boolean {
 
 export async function POST() {
   try {
-    const rows = listPlannerRows();
+    const rows = await listPlannerRows();
     const warnings: string[] = [];
     const results: SyncResult[] = [];
     let syncedCount = 0;
@@ -99,7 +99,7 @@ export async function POST() {
           revenue_per_recipient: recipients > 0 ? s.conversion_value / recipients : null,
           metrics_synced_at: now,
         };
-        writeSyncedMetrics(row.id, metrics);
+        await writeSyncedMetrics(row.id, metrics);
         syncedCount++;
         results.push({ id: row.id, name: row.name, matched: true, reason: "matched" });
       }
@@ -129,7 +129,7 @@ export async function POST() {
         revenue_per_recipient: m.revenue_per_recipient,
         metrics_synced_at: now,
       };
-      writeSyncedMetrics(row.id, metrics);
+      await writeSyncedMetrics(row.id, metrics);
       syncedCount++;
       results.push({ id: row.id, name: row.name, matched: true, reason: "matched" });
     }
@@ -144,7 +144,7 @@ export async function POST() {
       postscript_connected: postscriptConnected,
       results,
       warnings,
-      rows: listPlannerRows(),
+      rows: await listPlannerRows(),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Sync failed";

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     };
 
     // POST with unlink:true is an alias for DELETE (some clients can't send a body on DELETE).
-    if (body.unlink) return doUnlink(body.row_id);
+    if (body.unlink) return await doUnlink(body.row_id);
 
     if (!body.row_id || !body.copy_campaign_id) {
       return NextResponse.json({ error: "row_id and copy_campaign_id are required" }, { status: 400 });
@@ -46,11 +46,11 @@ export async function POST(req: NextRequest) {
     }
     const { row_id, copy_campaign_id, copy_status } = body;
 
-    const rows = listPlannerRows();
+    const rows = await listPlannerRows();
 
     // Single-owner: unlink any OTHER row currently pointing at this copy.
     for (const r of rows) {
-      if (r.id !== row_id && r.copy_campaign_id === copy_campaign_id) unlinkCopyCampaign(r.id);
+      if (r.id !== row_id && r.copy_campaign_id === copy_campaign_id) await unlinkCopyCampaign(r.id);
     }
     // If the target row previously pointed at a DIFFERENT copy, clear that copy's
     // stale back-reference so it doesn't claim ownership of a row it no longer has.
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Stamp the row (planner side), then write the copy-side back-reference.
-    const row = linkCopyCampaign(row_id, copy_campaign_id, copy_status);
+    const row = await linkCopyCampaign(row_id, copy_campaign_id, copy_status);
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (copyExists(copy_campaign_id)) setCopyBackref(copy_campaign_id, row_id);
 
@@ -72,10 +72,10 @@ export async function POST(req: NextRequest) {
 }
 
 // Unlink: clear the row's copy fields AND the copy record's planner_row_id.
-function doUnlink(rowId: string | undefined) {
+async function doUnlink(rowId: string | undefined) {
   if (!rowId) return NextResponse.json({ error: "row_id required" }, { status: 400 });
-  const prev = getPlannerRow(rowId);
-  const row = unlinkCopyCampaign(rowId);
+  const prev = await getPlannerRow(rowId);
+  const row = await unlinkCopyCampaign(rowId);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (prev?.copy_campaign_id) setCopyBackref(prev.copy_campaign_id, null);
   return NextResponse.json({ row });
@@ -83,5 +83,5 @@ function doUnlink(rowId: string | undefined) {
 
 export async function DELETE(req: NextRequest) {
   const rowId = new URL(req.url).searchParams.get("row_id") ?? undefined;
-  return doUnlink(rowId);
+  return await doUnlink(rowId);
 }

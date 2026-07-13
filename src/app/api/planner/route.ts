@@ -7,11 +7,11 @@ export async function GET(req: NextRequest) {
   try {
     const id = new URL(req.url).searchParams.get("id");
     if (id) {
-      const row = getPlannerRow(id);
+      const row = await getPlannerRow(id);
       if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
       return NextResponse.json({ row });
     }
-    return NextResponse.json({ rows: listPlannerRows() });
+    return NextResponse.json({ rows: await listPlannerRows() });
   } catch (e) {
     // Never fall through to an empty-bodied 500 — the client calls res.json()
     // and an empty body surfaces as "Unexpected end of JSON input".
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     if (body.status && !PLANNER_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: `status must be one of ${PLANNER_STATUSES.join(", ")}` }, { status: 400 });
     }
-    const row = upsertPlannerRow({ ...body, name: body.name, channel: body.channel });
+    const row = await upsertPlannerRow({ ...body, name: body.name, channel: body.channel });
     return NextResponse.json({ row });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Save failed";
@@ -43,6 +43,6 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const ok = deletePlannerRow(id);
+  const ok = await deletePlannerRow(id);
   return NextResponse.json({ ok });
 }

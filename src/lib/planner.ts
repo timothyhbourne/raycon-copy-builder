@@ -10,7 +10,7 @@ import type { PlannerRow, SyncedMetrics, AudienceRef } from "./planner-types";
 
 const DATA_ROOT = path.join(process.cwd(), "data");
 const STORE_KEY = "campaign-planner.json";
-const store = getAdapter(DATA_ROOT);
+const store = getAdapter(DATA_ROOT, "planner");
 
 // ids come from network input and are interpolated nowhere unsafe, but we still
 // validate to keep the store keys clean and predictable.
@@ -65,8 +65,8 @@ function backfillRow(r: any): PlannerRow {
   } as PlannerRow;
 }
 
-function readAll(): PlannerRow[] {
-  const raw = store.read(STORE_KEY);
+async function readAll(): Promise<PlannerRow[]> {
+  const raw = await store.read(STORE_KEY);
   if (raw == null) return []; // absent store → empty planner
   try {
     const parsed = JSON.parse(raw);
@@ -76,27 +76,27 @@ function readAll(): PlannerRow[] {
   }
 }
 
-function writeAll(rows: PlannerRow[]): void {
-  // The adapter absorbs read-only-FS failures (logs, no-op), so a save on
-  // serverless returns the in-memory result without crashing — it just isn't
-  // durable until the KV backend lands.
-  store.write(STORE_KEY, JSON.stringify(rows, null, 2));
+async function writeAll(rows: PlannerRow[]): Promise<void> {
+  // On the file backend the adapter absorbs read-only-FS failures (logs, no-op),
+  // so a save on a file-only deploy doesn't crash — it just isn't durable. The
+  // Redis backend makes it durable across serverless invocations.
+  await store.write(STORE_KEY, JSON.stringify(rows, null, 2));
 }
 
-export function listPlannerRows(): PlannerRow[] {
-  return readAll().sort((a, b) => (a.planned_send_at || "").localeCompare(b.planned_send_at || ""));
+export async function listPlannerRows(): Promise<PlannerRow[]> {
+  return (await readAll()).sort((a, b) => (a.planned_send_at || "").localeCompare(b.planned_send_at || ""));
 }
 
-export function getPlannerRow(id: string): PlannerRow | null {
+export async function getPlannerRow(id: string): Promise<PlannerRow | null> {
   if (!isSafeId(id)) return null;
-  return readAll().find((r) => r.id === id) ?? null;
+  return (await readAll()).find((r) => r.id === id) ?? null;
 }
 
 // Upsert by id. Callers may omit id for a new row — we mint a safe one from the
 // name. created_at/updated_at are managed here; synced metric fields are
 // preserved from the existing row unless explicitly provided.
-export function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"] }): PlannerRow {
-  const rows = readAll();
+export async function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"] }): Promise<PlannerRow> {
+  const rows = await readAll();
   const now = new Date().toISOString();
 
   let id = input.id;
@@ -131,28 +131,28 @@ export function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; ch
   };
 
   const next = existing ? rows.map((r) => (r.id === id ? merged : r)) : [...rows, merged];
-  writeAll(next);
+  await writeAll(next);
   return merged;
 }
 
-export function deletePlannerRow(id: string): boolean {
+export async function deletePlannerRow(id: string): Promise<boolean> {
   if (!isSafeId(id)) return false;
-  const rows = readAll();
+  const rows = await readAll();
   const next = rows.filter((r) => r.id !== id);
   if (next.length === rows.length) return false;
-  writeAll(next);
+  await writeAll(next);
   return true;
 }
 
 // Write back synced metrics onto a row (used by the sync route). Leaves plan
 // fields untouched.
-export function writeSyncedMetrics(id: string, metrics: SyncedMetrics): PlannerRow | null {
+export async function writeSyncedMetrics(id: string, metrics: SyncedMetrics): Promise<PlannerRow | null> {
   if (!isSafeId(id)) return null;
-  const rows = readAll();
+  const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === id);
   if (idx === -1) return null;
   rows[idx] = { ...rows[idx], ...metrics, updated_at: new Date().toISOString() };
-  writeAll(rows);
+  await writeAll(rows);
   return rows[idx];
 }
 
@@ -160,13 +160,13 @@ export function writeSyncedMetrics(id: string, metrics: SyncedMetrics): PlannerR
 // Merges only the copy-link fields + a gentle status nudge; leaves every plan
 // field AND every synced-metric field untouched (same discipline as
 // writeSyncedMetrics — a link write must never wipe metrics).
-export function linkCopyCampaign(
+export async function linkCopyCampaign(
   rowId: string,
   copyCampaignId: string,
   copyStatus: "draft" | "final",
-): PlannerRow | null {
+): Promise<PlannerRow | null> {
   if (!isSafeId(rowId)) return null;
-  const rows = readAll();
+  const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return null;
   const now = new Date().toISOString();
@@ -180,15 +180,15 @@ export function linkCopyCampaign(
     status: rows[idx].status === "writing_brief" ? "planned" : rows[idx].status,
     updated_at: now,
   };
-  writeAll(rows);
+  await writeAll(rows);
   return rows[idx];
 }
 
 // Clear a stale/broken copy link (used to heal when the saved campaign was
 // deleted). Only touches the three copy-link fields.
-export function unlinkCopyCampaign(rowId: string): PlannerRow | null {
+export async function unlinkCopyCampaign(rowId: string): Promise<PlannerRow | null> {
   if (!isSafeId(rowId)) return null;
-  const rows = readAll();
+  const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return null;
   rows[idx] = {
@@ -198,7 +198,7 @@ export function unlinkCopyCampaign(rowId: string): PlannerRow | null {
     copy_linked_at: null,
     updated_at: new Date().toISOString(),
   };
-  writeAll(rows);
+  await writeAll(rows);
   return rows[idx];
 }
 
