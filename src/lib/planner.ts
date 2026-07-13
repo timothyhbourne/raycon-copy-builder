@@ -1,35 +1,21 @@
-import fs from "fs";
 import path from "path";
+import { getAdapter } from "./storage";
 import type { PlannerRow, SyncedMetrics, AudienceRef } from "./planner-types";
 
-// File-backed store for the Campaign Planner. Single JSON array on disk,
-// mirroring the repo's existing file-store pattern (lib/campaigns.ts).
-//
-// LIMITATION: this is single-process and file-based — fine for one editor in
-// dev / a single server instance. If the planner becomes multi-editor in
-// production (concurrent writes, multiple workers), move it to SQLite/Postgres;
-// the CRUD surface here is intentionally small so that swap is localized.
+// Store for the Campaign Planner: a single JSON array behind the shared storage
+// adapter (lib/storage.ts). The adapter is file-backed today and swaps to a KV
+// backend (Stage 1) with no change here — the CRUD surface below is deliberately
+// small so that swap stays localized. On a read-only filesystem the file adapter
+// degrades gracefully (read → empty, write → no-op + warn) rather than crashing.
 
-const STORE_PATH = path.join(process.cwd(), "data/campaign-planner.json");
+const DATA_ROOT = path.join(process.cwd(), "data");
+const STORE_KEY = "campaign-planner.json";
+const store = getAdapter(DATA_ROOT);
 
 // ids come from network input and are interpolated nowhere unsafe, but we still
 // validate to keep the store keys clean and predictable.
 function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
-}
-
-// Best-effort store initialisation. On a read-only filesystem (Vercel's
-// serverless runtime — everything outside /tmp is read-only) creating the seed
-// file throws EROFS; we swallow it so a read degrades to an empty store rather
-// than crashing the request. Same idiom as lib/metrics/store.ts.
-function ensureStore(): void {
-  try {
-    const dir = path.dirname(STORE_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(STORE_PATH)) fs.writeFileSync(STORE_PATH, "[]", "utf8");
-  } catch (e) {
-    console.warn(`[planner] store init failed (read-only FS?): ${e instanceof Error ? e.message : e}`);
-  }
 }
 
 // Read-time backfill so rows saved under older shapes keep working without a
@@ -80,9 +66,9 @@ function backfillRow(r: any): PlannerRow {
 }
 
 function readAll(): PlannerRow[] {
-  ensureStore();
+  const raw = store.read(STORE_KEY);
+  if (raw == null) return []; // absent store → empty planner
   try {
-    const raw = fs.readFileSync(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.map(backfillRow) : [];
   } catch {
@@ -91,15 +77,10 @@ function readAll(): PlannerRow[] {
 }
 
 function writeAll(rows: PlannerRow[]): void {
-  ensureStore();
-  try {
-    fs.writeFileSync(STORE_PATH, JSON.stringify(rows, null, 2), "utf8");
-  } catch (e) {
-    // Read-only FS: the caller still gets its in-memory result, but the change
-    // won't survive the request. Durable multi-user persistence needs a real
-    // backend (see the note in lib/metrics/store.ts).
-    console.warn(`[planner] write failed (not durable here): ${e instanceof Error ? e.message : e}`);
-  }
+  // The adapter absorbs read-only-FS failures (logs, no-op), so a save on
+  // serverless returns the in-memory result without crashing — it just isn't
+  // durable until the KV backend lands.
+  store.write(STORE_KEY, JSON.stringify(rows, null, 2));
 }
 
 export function listPlannerRows(): PlannerRow[] {
