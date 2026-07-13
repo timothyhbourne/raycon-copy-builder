@@ -110,9 +110,13 @@ export default function PlannerPage() {
     setError(null);
     try {
       const res = await fetch("/api/planner");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load planner");
-      setRows(json.rows as PlannerRow[]);
+      // Parse defensively: an empty/HTML body (e.g. a bare 500) must not surface
+      // as the opaque "Unexpected end of JSON input".
+      const text = await res.text();
+      let json: { rows?: PlannerRow[]; error?: string } = {};
+      try { json = text ? JSON.parse(text) : {}; } catch { /* non-JSON error body */ }
+      if (!res.ok) throw new Error(json.error || `Failed to load planner (HTTP ${res.status})`);
+      setRows((json.rows ?? []) as PlannerRow[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed");
     } finally {
