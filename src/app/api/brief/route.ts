@@ -4,6 +4,33 @@ import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { briefRoleInstruction, briefUserPrompt } from "@/lib/prompts/brief";
 import type { BriefInput } from "@/lib/schemas";
 
+// Structured-output schema for the expanded brief. Constraining the model to
+// this schema (rather than free-form "return JSON") makes the response
+// guaranteed-valid JSON — Haiku otherwise occasionally emits an unescaped quote
+// mid-string, which broke JSON.parse ("Expected ',' or '}' after property
+// value"). All six fields are plain strings; the route adds the remaining
+// fields (campaign_type, audience, …) after parsing.
+const BRIEF_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "headline_thesis",
+    "audience_mindset",
+    "key_message",
+    "tonal_direction",
+    "structural_notes",
+    "rewritten_hero_angle",
+  ],
+  properties: {
+    headline_thesis: { type: "string" },
+    audience_mindset: { type: "string" },
+    key_message: { type: "string" },
+    tonal_direction: { type: "string" },
+    structural_notes: { type: "string" },
+    rewritten_hero_angle: { type: "string" },
+  },
+} as const;
+
 export async function POST(req: NextRequest) {
   try {
     const input: BriefInput = await req.json();
@@ -15,6 +42,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 4096,
       system: systemBlocks,
       messages: [{ role: "user", content: userPrompt }],
+      output_config: { format: { type: "json_schema", schema: BRIEF_SCHEMA } },
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
