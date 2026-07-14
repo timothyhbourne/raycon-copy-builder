@@ -15,12 +15,12 @@ export async function POST(req: NextRequest) {
       draft_id?: string;
     } = await req.json();
 
-    saveToLibrary(body.id, body.brief_input, body.conceit, body.campaign, body.section_structure ?? []);
+    await saveToLibrary(body.id, body.brief_input, body.conceit, body.campaign, body.section_structure ?? []);
 
     // Keep the construction index in step with the library (covers manual saves
     // AND the autosave path, which also posts here). Re-read the just-written
     // entry so extraction sees the persisted structured snapshot + date.
-    const saved = getLibraryCampaignById(body.id);
+    const saved = await getLibraryCampaignById(body.id);
     if (saved) updateCampaign(saved);
 
     // Delete the draft from /generated/ if it exists

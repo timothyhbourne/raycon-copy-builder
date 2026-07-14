@@ -1,54 +1,50 @@
-import fs from "fs";
 import path from "path";
-import matter from "gray-matter";
+import { getAdapter } from "./storage";
 import type { LibraryCampaign, GeneratedCampaign, BriefInput, Conceit, SectionSpec } from "./schemas";
 
-const LIBRARY_DIR = path.join(process.cwd(), "data", "library");
+// Store for the Copy Builder Library: a single JSON array behind the shared
+// storage adapter (lib/storage.ts), mirroring lib/planner.ts. File-backed
+// locally when no KV is configured; Upstash Redis when it is (durable across
+// Vercel's ephemeral/read-only serverless FS — the reason for this migration).
+// The CRUD surface is async because the KV backend is a network call.
+//
+// The legacy on-disk format was one markdown file per campaign in data/library/;
+// those files are the seed source for `npm run seed:library`, which parses them
+// into this JSON array. Once seeded, runtime reads/writes only this blob.
+const DATA_ROOT = path.join(process.cwd(), "data");
+const STORE_KEY = "library.json";
+const store = getAdapter(DATA_ROOT, "library");
 
-// Guards file operations against path traversal: ids come from network input
-// and are interpolated into filenames, so reject anything but slug characters.
+// Guards store keys: ids come from network input, so reject anything but slug
+// characters to keep them clean and predictable.
 function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
-export function getLibraryCampaigns(): LibraryCampaign[] {
-  if (!fs.existsSync(LIBRARY_DIR)) return [];
-  const files = fs.readdirSync(LIBRARY_DIR).filter((f) => f.endsWith(".md"));
-  const campaigns: LibraryCampaign[] = [];
-  for (const file of files) {
-    try {
-      const raw = fs.readFileSync(path.join(LIBRARY_DIR, file), "utf8");
-      const { data, content } = matter(raw);
-      let structured: LibraryCampaign["structured"];
-      if (typeof data.structured === "string" && data.structured.trim()) {
-        try { structured = JSON.parse(data.structured); } catch { /* ignore malformed */ }
-      }
-      campaigns.push({
-        id: data.id ?? file.replace(".md", ""),
-        title: data.title ?? "",
-        date: data.date instanceof Date ? data.date.toISOString().split("T")[0] : (data.date ? String(data.date) : ""),
-        campaign_type: data.campaign_type ?? "promo",
-        offer: data.offer ?? "",
-        promo_code: data.promo_code,
-        hero_angle: data.hero_angle ?? "",
-        audience: data.audience ?? "all",
-        products_featured: data.products_featured ?? [],
-        conceit: data.conceit ?? "",
-        source: data.source ?? "doc",
-        body: content.trim(),
-        planner_row_id: data.planner_row_id ?? undefined,
-        structured,
-      });
-    } catch {
-      // skip malformed files
-    }
+async function readAll(): Promise<LibraryCampaign[]> {
+  const raw = await store.read(STORE_KEY);
+  if (raw == null) return []; // absent store → empty library
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
-  return campaigns.sort((a, b) => b.date.localeCompare(a.date));
 }
 
-export function getLibraryCampaignById(id: string): LibraryCampaign | null {
-  const campaigns = getLibraryCampaigns();
-  return campaigns.find((c) => c.id === id) ?? null;
+async function writeAll(entries: LibraryCampaign[]): Promise<void> {
+  // On the file backend the adapter absorbs read-only-FS failures (logs, no-op);
+  // the Redis backend makes the write durable across serverless invocations.
+  await store.write(STORE_KEY, JSON.stringify(entries, null, 2));
+}
+
+export async function getLibraryCampaigns(): Promise<LibraryCampaign[]> {
+  return (await readAll()).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export async function getLibraryCampaignById(id: string): Promise<LibraryCampaign | null> {
+  if (!isSafeId(id)) return null;
+  return (await readAll()).find((c) => c.id === id) ?? null;
 }
 
 function campaignToLibraryBody(campaign: GeneratedCampaign): string {
@@ -86,58 +82,54 @@ function campaignToLibraryBody(campaign: GeneratedCampaign): string {
 }
 
 // Update just the planner_row_id back-reference on a library entry, preserving
-// the body + structured snapshot. (saveToLibrary would need the full briefInput,
-// which a manual attach doesn't have.) Returns false when the id doesn't resolve.
-export function setLibraryPlannerRow(id: string, plannerRowId: string | null): boolean {
+// the body + structured snapshot. Returns false when the id doesn't resolve.
+export async function setLibraryPlannerRow(id: string, plannerRowId: string | null): Promise<boolean> {
   if (!isSafeId(id)) return false;
-  const filePath = path.join(LIBRARY_DIR, `${id}.md`);
-  if (!fs.existsSync(filePath)) return false;
-  try {
-    const { data, content } = matter(fs.readFileSync(filePath, "utf8"));
-    data.planner_row_id = plannerRowId ?? null;
-    fs.writeFileSync(filePath, matter.stringify(content, data), "utf8");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function deleteFromLibrary(id: string): boolean {
-  if (!isSafeId(id)) return false;
-  const filePath = path.join(LIBRARY_DIR, `${id}.md`);
-  if (!fs.existsSync(filePath)) return false;
-  fs.unlinkSync(filePath);
+  const entries = await readAll();
+  const idx = entries.findIndex((c) => c.id === id);
+  if (idx === -1) return false;
+  entries[idx] = { ...entries[idx], planner_row_id: plannerRowId ?? undefined };
+  await writeAll(entries);
   return true;
 }
 
-export function saveToLibrary(
+export async function deleteFromLibrary(id: string): Promise<boolean> {
+  if (!isSafeId(id)) return false;
+  const entries = await readAll();
+  const next = entries.filter((c) => c.id !== id);
+  if (next.length === entries.length) return false;
+  await writeAll(next);
+  return true;
+}
+
+export async function saveToLibrary(
   id: string,
   briefInput: BriefInput,
   conceit: Conceit | null,
   campaign: GeneratedCampaign,
   sectionStructure: SectionSpec[] = []
-): void {
+): Promise<void> {
   if (!isSafeId(id)) throw new Error("Invalid campaign id");
-  if (!fs.existsSync(LIBRARY_DIR)) fs.mkdirSync(LIBRARY_DIR, { recursive: true });
-  const fm = {
+  const entries = await readAll();
+  const entry: LibraryCampaign = {
     id,
     title: briefInput.campaign_name,
     date: new Date().toISOString().split("T")[0],
     campaign_type: briefInput.campaign_type,
     offer: briefInput.offer,
-    promo_code: briefInput.promo_code || null,
+    promo_code: briefInput.promo_code || undefined,
     hero_angle: briefInput.hero_angle,
     audience: briefInput.audience,
     products_featured: briefInput.products_featured,
     conceit: conceit?.name ?? "[FILL ME IN]",
     source: "generated",
-    // Back-reference so a re-opened finalized copy still knows its planner row
-    // (js-yaml throws on undefined, so coerce to null like promo_code above).
-    planner_row_id: briefInput.planner_row_id ?? null,
-    // Lossless snapshot for faithful canvas reload (model reference still uses `body`).
-    structured: JSON.stringify({ campaign, section_structure: sectionStructure }),
+    body: campaignToLibraryBody(campaign),
+    // Back-reference so a re-opened finalized copy still knows its planner row.
+    planner_row_id: briefInput.planner_row_id ?? undefined,
+    // Lossless snapshot for faithful canvas reload (model reference uses `body`).
+    structured: { campaign, section_structure: sectionStructure },
   };
-  const body = campaignToLibraryBody(campaign);
-  const content = matter.stringify("\n" + body, fm);
-  fs.writeFileSync(path.join(LIBRARY_DIR, `${id}.md`), content, "utf8");
+  const idx = entries.findIndex((c) => c.id === id);
+  const next = idx === -1 ? [...entries, entry] : entries.map((c) => (c.id === id ? entry : c));
+  await writeAll(next);
 }

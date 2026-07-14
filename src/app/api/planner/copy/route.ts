@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const lib = getLibraryCampaignById(id);
+  const lib = await getLibraryCampaignById(id);
   if (lib) {
     const base: CopyBase = { id, source: "library", campaign_name: lib.title, updated_at: lib.date };
     if (full) {

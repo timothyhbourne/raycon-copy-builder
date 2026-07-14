@@ -8,8 +8,8 @@ import path from "path";
 
 const INDEX_PATH = path.join(process.cwd(), "data", "constructions-index.json");
 
-function main() {
-  const campaigns = getLibraryCampaigns();
+async function main() {
+  const campaigns = await getLibraryCampaigns();
   const index: ConstructionsIndex = { version: 1, campaigns: {} };
   let extracted = 0;
   let skipped = 0;
@@ -33,4 +33,7 @@ function main() {
   console.log(`Written to ${path.relative(process.cwd(), INDEX_PATH)}`);
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

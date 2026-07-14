@@ -36,7 +36,9 @@ export interface LibraryCampaign {
   audience: AudienceType;
   products_featured: string[];
   conceit: string;
-  source: "doc" | "design";
+  // Provenance tag: "doc" / "design" (ingested), "generated" (from the app),
+  // "sent-email-benchmark" (imported past sends). Free-form — never narrowed.
+  source: string;
   body: string;
   /** Back-reference to the Planner row this campaign was written for (if any). */
   planner_row_id?: string;

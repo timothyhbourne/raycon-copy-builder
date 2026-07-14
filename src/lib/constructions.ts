@@ -56,9 +56,17 @@ export function readIndex(): ConstructionsIndex {
 }
 
 function writeIndex(index: ConstructionsIndex): void {
-  const dir = path.dirname(INDEX_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
+  // Degrade gracefully on a read-only filesystem (Vercel serverless: everything
+  // outside /tmp is read-only) — log and no-op instead of throwing, so a save
+  // that updates the index doesn't 500. The index is a rebuildable cache; losing
+  // an update there only softens repetition-avoidance, it never loses copy.
+  try {
+    const dir = path.dirname(INDEX_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
+  } catch (e) {
+    console.warn(`[constructions] index write failed (read-only FS?): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

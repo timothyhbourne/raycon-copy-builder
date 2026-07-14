@@ -15,15 +15,15 @@ import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
 
 // Write (or clear) the copy record's planner_row_id back-reference, trying the
 // drafts store first, then the library, then the SMS store.
-function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): void {
+async function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): Promise<void> {
   if (setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
   if (setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
-  setLibraryPlannerRow(copyCampaignId, plannerRowId);
+  await setLibraryPlannerRow(copyCampaignId, plannerRowId);
 }
 
 // True if the id resolves to a draft, library, or SMS copy.
-function copyExists(copyCampaignId: string): boolean {
-  return !!loadCampaign(copyCampaignId) || !!getLibraryCampaignById(copyCampaignId) || !!loadSmsCampaign(copyCampaignId);
+async function copyExists(copyCampaignId: string): Promise<boolean> {
+  return !!loadCampaign(copyCampaignId) || !!(await getLibraryCampaignById(copyCampaignId)) || !!loadSmsCampaign(copyCampaignId);
 }
 
 export async function POST(req: NextRequest) {
@@ -56,13 +56,13 @@ export async function POST(req: NextRequest) {
     // stale back-reference so it doesn't claim ownership of a row it no longer has.
     const target = rows.find((r) => r.id === row_id);
     if (target?.copy_campaign_id && target.copy_campaign_id !== copy_campaign_id) {
-      setCopyBackref(target.copy_campaign_id, null);
+      await setCopyBackref(target.copy_campaign_id, null);
     }
 
     // Stamp the row (planner side), then write the copy-side back-reference.
     const row = await linkCopyCampaign(row_id, copy_campaign_id, copy_status);
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (copyExists(copy_campaign_id)) setCopyBackref(copy_campaign_id, row_id);
+    if (await copyExists(copy_campaign_id)) await setCopyBackref(copy_campaign_id, row_id);
 
     return NextResponse.json({ row });
   } catch (e) {
@@ -77,7 +77,7 @@ async function doUnlink(rowId: string | undefined) {
   const prev = await getPlannerRow(rowId);
   const row = await unlinkCopyCampaign(rowId);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (prev?.copy_campaign_id) setCopyBackref(prev.copy_campaign_id, null);
+  if (prev?.copy_campaign_id) await setCopyBackref(prev.copy_campaign_id, null);
   return NextResponse.json({ row });
 }
 
