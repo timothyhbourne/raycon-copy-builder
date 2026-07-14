@@ -138,6 +138,16 @@ export interface SmsVariant {
   text: string;
 }
 
+/** The SMS brief fields — shared by the form, the prompt, and the store. */
+export interface SmsBrief {
+  name?: string;
+  offer: string;
+  promo_code?: string;
+  deadline?: string;
+  angle?: string;
+  audience?: string;
+}
+
 /**
  * An SMS campaign — a distinct copy record from SavedCampaign (email). SMS copy
  * is three construction-distinct variants (Direct / Friendly / Angle); one ships.

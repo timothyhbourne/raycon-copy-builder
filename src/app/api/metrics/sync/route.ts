@@ -39,15 +39,29 @@ function authorized(req: NextRequest): boolean {
   return false;
 }
 
-async function backfillDaysFrom(req: NextRequest): Promise<number | undefined> {
-  const q = new URL(req.url).searchParams.get("backfill_days");
-  if (q != null && q !== "") { const n = Number(q); if (Number.isFinite(n)) return n; }
-  try {
-    const body = await req.json();
-    const n = Number(body?.backfill_days);
-    if (Number.isFinite(n)) return n;
-  } catch { /* no/invalid JSON body — use default */ }
-  return undefined;
+interface SyncParams { backfillDays?: number; rangeStart?: string; rangeEnd?: string }
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function paramsFrom(req: NextRequest): Promise<SyncParams> {
+  const out: SyncParams = {};
+  const sp = new URL(req.url).searchParams;
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* no/invalid JSON body */ }
+
+  const backfill = sp.get("backfill_days") ?? body?.backfill_days;
+  const n = Number(backfill);
+  if (backfill != null && backfill !== "" && Number.isFinite(n)) out.backfillDays = n;
+
+  // Range mode: sync exactly these days (how historical/custom dashboard ranges
+  // get filled — the default backfill is anchored at today and can't reach them).
+  const start = (sp.get("start") ?? body?.start) as string | undefined;
+  const end = (sp.get("end") ?? body?.end) as string | undefined;
+  if (start && end && YMD_RE.test(start) && YMD_RE.test(end)) {
+    out.rangeStart = start;
+    out.rangeEnd = end;
+  }
+  return out;
 }
 
 async function handle(req: NextRequest) {
@@ -55,8 +69,8 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const backfillDays = await backfillDaysFrom(req);
-    const summary = await syncMetrics(backfillDays != null ? { backfillDays } : {});
+    const params = await paramsFrom(req);
+    const summary = await syncMetrics(params);
     return NextResponse.json({ ok: true, ...summary });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Sync failed";

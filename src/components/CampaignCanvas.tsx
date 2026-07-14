@@ -8,6 +8,7 @@ import MetaBlock from "./MetaBlock";
 import RegenerateModal from "./RegenerateModal";
 import DesignModal from "./DesignModal";
 import Skeleton from "./ui/Skeleton";
+import type { RepetitionFlag } from "@/lib/repetition-client";
 
 interface Props {
   campaign: GeneratedCampaign;
@@ -18,6 +19,11 @@ interface Props {
   toneDial: number;
   isGenerating?: boolean;
   offer?: string;
+  /** Similarity flags keyed by element key (see repetition-client). */
+  repetitionFlags?: Record<string, RepetitionFlag>;
+  onDismissFlag?: (key: string) => void;
+  /** Fired after a manual regenerate settles, so the parent can re-check. */
+  onRegenerated?: (updated: GeneratedCampaign) => void;
   onChange: (c: GeneratedCampaign) => void;
   onConceitEdit: () => void;
   onNewConceits: () => void;
@@ -32,6 +38,9 @@ export default function CampaignCanvas({
   toneDial,
   isGenerating = false,
   offer,
+  repetitionFlags,
+  onDismissFlag,
+  onRegenerated,
   onChange,
   onConceitEdit,
   onNewConceits,
@@ -100,7 +109,11 @@ export default function CampaignCanvas({
         }),
       });
       const data = await res.json();
-      if (data.section) updateSection(sectionId, data.section);
+      if (data.section) {
+        const updated = { ...campaign, sections: campaign.sections.map((sec) => (sec.id === sectionId ? data.section : sec)) };
+        onChange(updated);
+        onRegenerated?.(updated);
+      }
     } finally {
       setRegeneratingSection(null);
     }
@@ -125,13 +138,15 @@ export default function CampaignCanvas({
       });
       const data = await res.json();
       if (data.subject_lines || data.preview_texts) {
-        onChange({
+        const updated = {
           ...campaign,
           meta: {
             subject_lines: data.subject_lines || campaign.meta.subject_lines,
             preview_texts: data.preview_texts || campaign.meta.preview_texts,
           },
-        });
+        };
+        onChange(updated);
+        onRegenerated?.(updated);
       }
     } finally {
       setRegeneratingMeta(false);
@@ -190,6 +205,8 @@ export default function CampaignCanvas({
         onChange={(meta) => onChange({ ...campaign, meta })}
         onRegenerate={handleRegenerateMeta}
         regenerating={regeneratingMeta}
+        flags={repetitionFlags}
+        onDismissFlag={onDismissFlag}
       />
 
       {/* Section blocks */}
@@ -211,6 +228,8 @@ export default function CampaignCanvas({
               index={i}
               total={campaign.sections.length}
               gridCols={gridCols}
+              flags={repetitionFlags}
+              onDismissFlag={onDismissFlag}
               onChange={(s) => updateSection(section.id, s)}
               onRegenerate={() => setRegenModal({ sectionId: section.id, type: section.type })}
               onDelete={() => deleteSection(section.id)}

@@ -104,12 +104,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     load(s, e);
   };
 
-  // "Sync now" — explicit freshness pull. Triggers the background sync route,
-  // then re-reads the store. Outcome goes to a toast.
+  // "Sync now" — explicit freshness pull for THE RANGE ON SCREEN. Passing
+  // start/end makes the sync range-scoped, so custom/historical ranges (e.g.
+  // last January) actually fill; a bare sync only reaches recent days.
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const res = await fetch("/api/metrics/sync", { method: "POST" });
+      const res = await fetch("/api/metrics/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start, end }),
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Sync failed");
       const synced = json.days_synced ?? 0;

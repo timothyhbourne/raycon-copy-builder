@@ -1,11 +1,15 @@
 "use client";
 import type { CampaignMeta } from "@/lib/schemas";
+import RepetitionChip from "./RepetitionChip";
+import { metaKey, type RepetitionFlag } from "@/lib/repetition-client";
 
 interface Props {
   meta: CampaignMeta;
   onChange: (meta: CampaignMeta) => void;
   onRegenerate: () => void;
   regenerating: boolean;
+  flags?: Record<string, RepetitionFlag>;
+  onDismissFlag?: (key: string) => void;
 }
 
 // The generator writes the three variants in a fixed slot order, each with its
@@ -13,7 +17,7 @@ interface Props {
 // line exists. See subject-line craft rules in prompts/generate.ts.
 const LANE_LABELS = ["Advertorial", "Experimental", "Conversational"];
 
-export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }: Props) {
+export default function MetaBlock({ meta, onChange, onRegenerate, regenerating, flags, onDismissFlag }: Props) {
   const updateLine = (field: "subject_lines" | "preview_texts", index: number, value: string) => {
     const updated = [...meta[field]];
     updated[index] = value;
@@ -37,10 +41,15 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }
         <div>
           <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2" style={{ fontSize: "11px" }}>Subject Lines</div>
           <div className="space-y-2">
-            {meta.subject_lines.map((line, i) => (
+            {meta.subject_lines.map((line, i) => {
+              const flag = flags?.[metaKey("subject", i)];
+              return (
               <div key={i}>
                 {LANE_LABELS[i] && (
-                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6">{LANE_LABELS[i]}</div>
+                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6 flex items-center gap-2">
+                    {LANE_LABELS[i]}
+                    {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(metaKey("subject", i))} />}
+                  </div>
                 )}
                 <div className="flex items-baseline gap-2">
                   <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
@@ -54,17 +63,23 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         <div>
           <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2" style={{ fontSize: "11px" }}>Preview Text</div>
           <div className="space-y-2">
-            {meta.preview_texts.map((text, i) => (
+            {meta.preview_texts.map((text, i) => {
+              const flag = flags?.[metaKey("preview", i)];
+              return (
               <div key={i}>
                 {LANE_LABELS[i] && (
-                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6">{LANE_LABELS[i]}</div>
+                  <div className="font-mono text-[10px] uppercase tracking-wide text-indigo-400 mb-0.5 ml-6 flex items-center gap-2">
+                    {LANE_LABELS[i]}
+                    {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(metaKey("preview", i))} />}
+                  </div>
                 )}
                 <div className="flex items-baseline gap-2">
                   <span className="font-mono text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
@@ -78,7 +93,8 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating }
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

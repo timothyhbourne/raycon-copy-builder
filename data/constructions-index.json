@@ -1,0 +1,678 @@
+{
+  "version": 1,
+  "campaigns": {
+    "2026-07-13-evergreen-h10-highlight": {
+      "date": "2026-07-13",
+      "campaign_type": "promo",
+      "title": "Evergreen - H10 Highlight",
+      "conceit": "Built Different",
+      "subject_lines": [
+        "Essential Headphones: ANC comfort that actually lasts.",
+        "Your ears called. They want a do-over.",
+        "If your last pair hurt after an hour, read this."
+      ],
+      "preview_texts": [
+        "Hybrid ANC, cushioned earcups, 50 hours of battery. 20% off now.",
+        "The Essential Headphones fix the over-ear problem. 20% off today.",
+        "Lightweight, cushioned, hybrid ANC built for all-day wear. 20% off."
+      ],
+      "headlines": [
+        "Built Different",
+        "If your last pair hurt, this one won't.",
+        "Zero Clamp Zone"
+      ],
+      "taglines": [
+        "All-day comfort, 20% off.",
+        "20% off the Essential Headphones — get yours today."
+      ],
+      "body_openers": [
+        "Heavy ANC headphones make you choose: block the noise or keep your ears happy."
+      ],
+      "one_liners": {}
+    },
+    "2026-07-13-fs-o25-30": {
+      "date": "2026-07-13",
+      "campaign_type": "promo",
+      "title": "FS - O25 30%",
+      "conceit": "Sound Without Sacrifice",
+      "subject_lines": [
+        "Fitness Open Earbuds: 30% off this flash sale.",
+        "Open ears, open road — 30% off right now.",
+        "Thought you'd want to know about this one."
+      ],
+      "preview_texts": [
+        "Secure fit, open ears, 40 hours of battery. Use code FITOP30 at checkout.",
+        "The Fitness Open Earbuds are 30% off for a few days only. Code FITOP30.",
+        "The Fitness Open Earbuds are on sale right now — here's why it's worth a look."
+      ],
+      "headlines": [
+        "Made to Move",
+        "The hook that won't let go.",
+        "Here's what you're getting."
+      ],
+      "taglines": [
+        "Full sound, full awareness, 30% off. Use code FITOP30.",
+        "Use code FITOP30 and lock in 30% off before the sale ends."
+      ],
+      "body_openers": [
+        "The Fitness Open Earbuds are built for people who need both."
+      ],
+      "one_liners": {}
+    },
+    "2026-07-10-e45-30-off-flash-sale-last-call": {
+      "date": "2026-07-10",
+      "campaign_type": "promo",
+      "title": "E45 30% OFF Flash Sale - Last Call",
+      "conceit": "Lock It In",
+      "subject_lines": [
+        "Fitness Earbuds: 30% off ends today.",
+        "Last call to lock in your Fitness Earbuds.",
+        "You've got until end of day on this one."
+      ],
+      "preview_texts": [
+        "Use code BEYONDFITNESS30 at checkout before the window closes.",
+        "30% off the Fitness Earbuds. Code BEYONDFITNESS30. Deal closes today.",
+        "The sale's still on — but not for long. Here's your final window."
+      ],
+      "headlines": [
+        "Lock It In",
+        "Today's the last window.",
+        "Three reasons to stop waiting."
+      ],
+      "taglines": [
+        "30% off the Fitness Earbuds ends today. Use code BEYONDFITNESS30.",
+        "Deal ends today — use code BEYONDFITNESS30 and lock it in."
+      ],
+      "body_openers": [
+        "You've had a chance to think about it."
+      ],
+      "one_liners": {}
+    },
+    "2026-07-10-o25-30-off-flash-sale-launch": {
+      "date": "2026-07-10",
+      "campaign_type": "promo",
+      "title": "O25 30% OFF Flash Sale - Launch",
+      "conceit": "The Fit That Stays",
+      "subject_lines": [
+        "Fitness Open Earbuds: 30% off this weekend.",
+        "Open ears, closed deal — 30% off the Fitness Open Earbuds.",
+        "Thought you'd want to know about this one."
+      ],
+      "preview_texts": [
+        "Secure fit, open ears, 40 hours of battery. Use code OPENFLASH30.",
+        "30% off for a few days only. Code OPENFLASH30 at checkout.",
+        "The Fitness Open Earbuds are 30% off right now — here's why that's worth your time."
+      ],
+      "headlines": [
+        "Fit That Won't Quit",
+        "Open ears. Secure fit.",
+        "The earbuds that actually stay."
+      ],
+      "taglines": [
+        "Fitness Open Earbuds are 30% off this week with code OPENFLASH30.",
+        "Use code OPENFLASH30 and lock in 30% off before the window closes."
+      ],
+      "body_openers": [
+        "The multi-angular hook goes on and stays on."
+      ],
+      "one_liners": {}
+    },
+    "2026-07-06-summer-sale-evergreen-e45-highlight": {
+      "date": "2026-07-06",
+      "campaign_type": "promo",
+      "title": "Summer Sale Evergreen - E45 Highlight",
+      "conceit": "Motion Never Stops",
+      "subject_lines": [
+        "Fitness Earbuds, 20% off right now.",
+        "Your commute called. Your earbuds answered.",
+        "These aren't just for the gym, just so you know."
+      ],
+      "preview_texts": [
+        "No-budge fit and 56 hours of battery for wherever your day takes you.",
+        "IPX7 waterproof, 56-hour battery, 20% off — built for any active life.",
+        "Turns out 'fitness' earbuds work everywhere. 20% off to prove it."
+      ],
+      "headlines": [
+        "Motion Never Stops",
+        "Your whole day. One pair.",
+        "Three reasons to stop second-guessing"
+      ],
+      "taglines": [
+        "The Fitness Earbuds, 20% off right now."
+      ],
+      "body_openers": [
+        "Runs, commutes, rainy Saturdays, early flights — the Fitness Earbuds were built for all of it."
+      ],
+      "one_liners": {
+        "E45": [
+          "Stabilizing gel fin that holds through any motion, IPX7 waterproofing for sweat, rain, and every surprise in between, and 56 hours of total battery for days that don't slow down."
+        ]
+      }
+    },
+    "2026-07-02-o25-25-off-30-off-summer-bundle": {
+      "date": "2026-07-02",
+      "campaign_type": "promo",
+      "title": "O25 25% OFF + 30% OFF Summer Bundle",
+      "conceit": "Your Summer, Unfiltered",
+      "subject_lines": [
+        "Fitness Open Earbuds, 25% off this summer.",
+        "Your ears are open. Summer's waiting.",
+        "The bundle closes tomorrow — just so you know."
+      ],
+      "preview_texts": [
+        "Plus a 30% off summer bundle that expires on the 6th. Don't sleep on it.",
+        "25% off the Fitness Open Earbuds, and a bundle deal that wraps up tomorrow.",
+        "Fitness Open Earbuds at 25% off, and a summer bundle ending in 24 hours."
+      ],
+      "headlines": [
+        "Open All Summer",
+        "The summer bundle closes tomorrow.",
+        "Your summer, sorted."
+      ],
+      "taglines": [
+        "Fitness Open Earbuds, 25% off right now."
+      ],
+      "body_openers": [
+        "The Fitness Open Earbuds are 25% off today — and that's the standalone story."
+      ],
+      "one_liners": {
+        "O25": [
+          "Hooks over the ear with a multi-angular fit that won't slip, keeps you tuned into your surroundings while your playlist keeps running, IPX5 waterproof for whatever the weather decides, and 40 hours of total battery for days that keep going."
+        ],
+        "O15": [
+          "Featherlight open-ear hook that sits outside the canal, Bluetooth 6.0 multipoint across 2 devices, wireless charging case, and 36 hours of total battery — the most effortless entry into open audio, and part of the bundle at 30% off through tomorrow."
+        ],
+        "B42": [
+          "Transmits audio as vibrations through the bone beside your ear, leaving the canal completely open — IP68 waterproof, adjustable speaker arms, and 13 hours of battery for all-day wear that never gets heavy or seals you in."
+        ]
+      }
+    },
+    "2026-06-28-sale-last-call-times-almost-up": {
+      "date": "2026-06-28",
+      "campaign_type": "promo",
+      "title": "Sale Last Call — Time's Almost Up",
+      "conceit": "Cheerful last call on the 20% off sitewide sale, ending Tuesday.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "Time's Almost Up!"
+      ],
+      "taglines": [
+        "20% off sitewide ends soon."
+      ],
+      "body_openers": [
+        "Time's running out to score winning deals on all our earbuds, headphones and Open Audio!"
+      ],
+      "one_liners": {}
+    },
+    "2026-06-22-prime-day-email-day-3-reminder-am-us-only": {
+      "date": "2026-06-22",
+      "campaign_type": "promo",
+      "title": "Prime Day Email Day 4 - Last Call (AM - US, UK, CA)",
+      "conceit": "Moving Fast",
+      "subject_lines": [
+        "Prime Day ends tonight. 30% off with code PRIME.",
+        "Raycon's been flying off shelves all week — still 30% off.",
+        "Thought you should know before tonight."
+      ],
+      "preview_texts": [
+        "The ones everyone's been grabbing are still here — use code PRIME before midnight.",
+        "Still 30% off, still in stock. Code PRIME closes out tonight.",
+        "Prime Day's still live and the fan favorites are moving fast."
+      ],
+      "headlines": [
+        "Moving Fast",
+        "The window closes tonight"
+      ],
+      "taglines": [
+        "30% off everything Raycon makes through tonight. Code PRIME.",
+        "Prime Day closes tonight — code PRIME takes 30% off until then."
+      ],
+      "body_openers": [
+        "It's been a busy week — easy to miss."
+      ],
+      "one_liners": {
+        "E25": [
+          "ANC when you need silence, Awareness Mode when you don't, physical button controls you can hit without looking, and 32 hours of battery that outlast the commute and whatever comes after — now 30% off with code PRIME."
+        ],
+        "H41": [
+          "Sweat-proof cushions that swap out when they need it, ANC and Awareness Mode, 45 hours of battery, and a fit built for sessions that ask more than a standard pair can give — 30% off tonight with code PRIME."
+        ],
+        "H10": [
+          "Hybrid ANC that shuts the outside world down, 5 microphones so calls land clean on both ends, and 50 hours of battery in a cushioned over-ear fit made for long days — 30% off with code PRIME through tonight."
+        ]
+      }
+    },
+    "2026-06-19-prime-day-email-day-2-reminder-am-us-uk-ca": {
+      "date": "2026-06-19",
+      "campaign_type": "promo",
+      "title": "Prime Day Email Day 3 - Reminder (AM - US ONLY)",
+      "conceit": "A Different Experience",
+      "subject_lines": [
+        "Headphones. 30% off. Code PRIME.",
+        "Prime Day: the headphones drop.",
+        "Over-ear audio, 30% off today."
+      ],
+      "preview_texts": [
+        "The whole headphones lineup is 30% off. Use code PRIME at checkout.",
+        "H20, H10, Bone Conduction. All 30% off with code PRIME.",
+        "Bigger sound, full immersion, Prime Day pricing. Code PRIME."
+      ],
+      "headlines": [
+        "Wear the Sound",
+        "A different kind of listening",
+        "The whole lineup shows up."
+      ],
+      "taglines": [
+        "30% off the headphones lineup. Use code PRIME."
+      ],
+      "body_openers": [
+        "Over-ear headphones do something earbuds can't: they wrap the sound around you instead of firing it at you."
+      ],
+      "one_liners": {
+        "H10": [
+          "Hybrid ANC that shuts the world out, 5 microphones so calls land clean, and 50 hours of battery in a cushioned over-ear fit built for long days."
+        ],
+        "B42": [
+          "Sits beside the ear and leaves the canal wide open — bone conduction audio with IP68 waterproofing and 13 hours of battery for anyone who needs the world in earshot."
+        ],
+        "H20": [
+          "50 hours of battery, noise cancellation, and earcup comfort that makes a 6-hour session feel like nothing — the pair you reach for every single day."
+        ]
+      }
+    },
+    "2026-06-19-prime-day-email-day-3-reminder-am-us-only": {
+      "date": "2026-06-19",
+      "campaign_type": "promo",
+      "title": "Prime Day Email Day 3 - Reminder (AM - US ONLY)",
+      "conceit": "Tonight's the Night",
+      "subject_lines": [
+        "Prime Day ends tonight. 30% off with code PRIME.",
+        "Tonight at midnight, this price stops.",
+        "The sale closes tonight — wanted to make sure you saw this."
+      ],
+      "preview_texts": [
+        "Last call on 30% off the Everyday Earbuds, Fitness Headphones, and Essential Headphones.",
+        "Everything people have been grabbing all sale is still 30% off until midnight.",
+        "Code PRIME still works. After tonight it won't."
+      ],
+      "headlines": [
+        "Tonight's the Night",
+        "The window closes tonight"
+      ],
+      "taglines": [
+        "Prime Day ends tonight. 30% off with code PRIME.",
+        "The sale closes tonight — code PRIME takes 30% off until then."
+      ],
+      "body_openers": [
+        "Prime Day is wrapping up and the 30% off goes with it."
+      ],
+      "one_liners": {
+        "E25": [
+          "ANC when you need silence, Awareness Mode when you don't, physical button controls you can hit without looking, and 32 hours of battery that outlast the commute, the gym, and whatever comes after."
+        ],
+        "H41": [
+          "Sweat-proof cushions that actually swap out when they need it, ANC and Awareness Mode, 45 hours of battery, and a fit built for the kind of session that asks more than a standard pair can give."
+        ],
+        "H10": [
+          "Hybrid ANC that shuts the outside world down, 5 microphones so calls land clean on both ends, and 50 hours of battery in a cushioned over-ear fit made for back-to-back hours."
+        ]
+      }
+    },
+    "2026-06-19-prime-day": {
+      "date": "2026-06-19",
+      "campaign_type": "promo",
+      "title": "Prime Day",
+      "conceit": "Whatever Summer Is",
+      "subject_lines": [
+        "30% off Raycon. Code PRIME. However summer hits.",
+        "Your summer isn't one thing. Neither is your earbud.",
+        "Three earbuds for three very different Tuesdays in June."
+      ],
+      "preview_texts": [
+        "Fitness Earbuds, Essential Open Earbuds, Everyday Earbuds — all 30% off today with code PRIME.",
+        "30% off the pair built for however your summer is actually going. Code PRIME.",
+        "Whatever today looks like, there's a Raycon for it — and it's 30% off with code PRIME."
+      ],
+      "headlines": [
+        "Whatever Summer Is",
+        "Code PRIME. Three earbuds. Done."
+      ],
+      "taglines": [
+        "30% off all of it with code PRIME.",
+        "Summer keeps no schedule, and neither does this offer — code PRIME, today."
+      ],
+      "body_openers": [],
+      "one_liners": {
+        "E45": [
+          "IPX7 waterproof and a stabilizing gel fin that holds through the festival set, the midday downpour, the yard that wasn't going to mow itself — 56 hours of total battery so you don't have to think about charging until Monday."
+        ],
+        "O15": [
+          "Hooks over the ear, sits outside the canal, and keeps the backyard, the pool deck, and the kid who just launched off the diving board all fully audible — 36 hours of total battery and IPX4 water resistance for the kind of day that wanders."
+        ],
+        "E25": [
+          "ANC when the porch gets loud, Awareness Mode when it doesn't, physical button controls you can operate without looking, and 32 hours of battery for days that start as one thing and end as something else entirely."
+        ]
+      }
+    },
+    "2026-06-17-father-s-day-last-call": {
+      "date": "2026-06-17",
+      "campaign_type": "promo",
+      "title": "Father's Day - Last Call",
+      "conceit": "Last Window",
+      "subject_lines": [
+        "Father's Day is Sunday. 20% off ends with it.",
+        "Last chance: 20% off Dad's gift.",
+        "48 hours left on Dad's Father's Day price."
+      ],
+      "preview_texts": [
+        "Three products. All 20% off. All worth shipping fast.",
+        "The window closes Sunday — grab his gift before it's gone.",
+        "20% off Father's Day ends this weekend. Don't miss the cutoff."
+      ],
+      "headlines": [
+        "Time's Almost Up",
+        "48 hours. One price."
+      ],
+      "taglines": [
+        "20% off Father's Day gifts ends Sunday.",
+        "This price disappears Sunday — get Dad's gift locked in now."
+      ],
+      "body_openers": [
+        "Sunday the 20% off is gone."
+      ],
+      "one_liners": {
+        "E45": [
+          "Built for the dad who trains hard: stabilizing gel fin stays through any workout, IPX7 waterproofing, and 56 hours of total battery so he never hits pause mid-session."
+        ],
+        "O15": [
+          "Great call for a dad who wants his surroundings and his soundtrack: featherlight open-ear hook, 36 hours of total battery, and IPX4 water resistance for whatever the day throws at him."
+        ],
+        "E25": [
+          "Five colors, all-day comfort, zero fuss: ergonomic fit that holds, physical button controls he'll actually use, and 32 hours of battery that outlast any playlist he's got."
+        ]
+      }
+    },
+    "2026-06-15-father-s-day-less-than-7-days": {
+      "date": "2026-06-15",
+      "campaign_type": "promo",
+      "title": "Father's Day - Less than 7 days",
+      "conceit": "Built For His Life",
+      "subject_lines": [
+        "Dad's gift. 20% off sitewide.",
+        "Father's Day is days away. Shop now.",
+        "He deserves better than a gift card."
+      ],
+      "preview_texts": [
+        "20% off everything through Father's Day. Pick the one built for him.",
+        "The sale is live. Pick the product that fits how he actually lives.",
+        "Gym dad, commuter dad, everyday dad—we've got him covered at 20% off."
+      ],
+      "headlines": [
+        "Built For His Life"
+      ],
+      "taglines": [
+        "20% off sitewide through Father's Day.",
+        "The sale is live now and Father's Day is close."
+      ],
+      "body_openers": [],
+      "one_liners": {
+        "E45": [
+          "For the dad who trains hard and needs sound that keeps up: stabilizing gel fin that stays through any workout, IPX7 waterproofing, and 56 hours of total battery."
+        ],
+        "B42": [
+          "For the dad who runs, commutes, or needs to stay aware while he listens: open-ear bone conduction with IP68 waterproofing and 13 hours of battery."
+        ],
+        "E25": [
+          "For the dad who needs a reliable pair for calls, commutes, and everything in between: IP66 dust and waterproof build, 32 hours of battery, and a fit that holds all day."
+        ]
+      }
+    },
+    "2026-06-15-father-s-day-social-proof": {
+      "date": "2026-06-15",
+      "campaign_type": "promo",
+      "title": "Father's Day - Social Proof",
+      "conceit": "Proven Gift",
+      "subject_lines": [
+        "Real dads. Real reviews. 20% off.",
+        "He's been using them every day.",
+        "Give Dad something he'll actually use"
+      ],
+      "preview_texts": [
+        "Four Father's Day gift-givers spoke. Here's what happened next.",
+        "Real reviews from real dads. Plus 20% off the earbuds they love.",
+        "Kellye, Victor, Amanda, and Krista all got it right. Now it's your turn."
+      ],
+      "headlines": [
+        "Proven Gift",
+        "What happened after Father's Day",
+        "Two earbuds. Both proven."
+      ],
+      "taglines": [
+        "Real dads. Real reviews. 20% off this Father's Day.",
+        "He's going to use them every day. Now 20% off."
+      ],
+      "body_openers": [],
+      "one_liners": {
+        "E25": [
+          "Ergonomic fit, physical button controls, and 32 hours of battery life."
+        ],
+        "E45": [
+          "Stabilizing gel fin for a no-budge fit, IPX7 waterproofing, and 56 hours of total battery."
+        ]
+      }
+    },
+    "2026-06-10-amazon-prime-day-launch-pm": {
+      "date": "2026-06-10",
+      "campaign_type": "promo",
+      "title": "Amazon Prime Day Launch PM",
+      "conceit": "One More Thing",
+      "subject_lines": [
+        "Still 30% off. Ends tonight.",
+        "Prime Day deal is still live.",
+        "Before you close the laptop."
+      ],
+      "preview_texts": [
+        "30% off Raycon audio is still on. A few hours left.",
+        "The Prime Day deal is still running. Grab yours before midnight.",
+        "Still 30% off. Still tonight. Just checking you saw this."
+      ],
+      "headlines": [
+        "Still Here. Still 30%.",
+        "Still time tonight",
+        "Still yours tonight",
+        "Worth knowing first"
+      ],
+      "taglines": [
+        "No rush. Prime Day pricing is good all week."
+      ],
+      "body_openers": [
+        "If the morning email got buried, here it is: Prime Day is still running and everything below is 30% off."
+      ],
+      "one_liners": {
+        "H10": [
+          "Hybrid ANC, 5 microphones for calls, and 50 hours of battery in a cushioned over-ear fit."
+        ],
+        "E25": [
+          "Ergonomic fit, physical button controls, and 32 hours of battery life."
+        ],
+        "E45": [
+          "Stabilizing gel fin, IPX7 waterproofing, and 56 hours of total battery for workouts that ask everything."
+        ],
+        "O15": [
+          "Featherlight open-ear hook, Bluetooth 6.0 multipoint, and 36 hours of total battery with a wireless charging case."
+        ]
+      }
+    },
+    "2026-06-10-amazon-prime-day-launch": {
+      "date": "2026-06-10",
+      "campaign_type": "promo",
+      "title": "Amazon Prime Day Launch",
+      "conceit": "Prime Day Pricing",
+      "subject_lines": [
+        "Prime Day is live. 30% off everything.",
+        "30% off sitewide. Today only.",
+        "Your Prime Day deal is here."
+      ],
+      "preview_texts": [
+        "Every earbud, every headphone. 30% off with code PRIME.",
+        "Six products. One price. Use code PRIME at checkout.",
+        "Raycon's full lineup is 30% off for Prime Day."
+      ],
+      "headlines": [
+        "It's Prime Time.",
+        "Six products. Real discount.",
+        "Pick your sound.",
+        "Why Raycon delivers."
+      ],
+      "taglines": [
+        "30% off everything Raycon makes. Code: PRIME."
+      ],
+      "body_openers": [
+        "Prime Day is live and the full Raycon lineup is 30% off."
+      ],
+      "one_liners": {
+        "E25": [
+          "Our most popular earbud. Ergonomic fit, physical button controls, and 32 hours of battery life."
+        ],
+        "O15": [
+          "Featherlight open-ear design with 36 hours of total battery and wireless charging case."
+        ],
+        "O25": [
+          "Multi-angular hook, IPX5 waterproofing, and 40 hours of battery for workouts that ask everything."
+        ],
+        "E45": [
+          "Stabilizing gel fin for a no-budge fit, IPX7 waterproofing, and 56 hours of total battery."
+        ],
+        "H10": [
+          "Hybrid ANC, 5 microphones for calls, and 50 hours of battery in a cushioned over-ear fit."
+        ],
+        "H20": [
+          "50 hours of battery, noise cancellation, and the comfort to go all day without thinking about it."
+        ]
+      }
+    },
+    "2026-05-08-mothers-day-great-gear-better-prices": {
+      "date": "2026-05-08",
+      "campaign_type": "seasonal",
+      "title": "Mother's Day Reminder — Great Gear, Better Prices",
+      "conceit": "Friendly Mother's Day reminder: the sale is still on and there's still time to gift.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "Great Gear, Better Prices"
+      ],
+      "taglines": [
+        "15-50% off sitewide for Mother's Day"
+      ],
+      "body_openers": [
+        "Friendly reminder that Mother's Day is on May 10th this year."
+      ],
+      "one_liners": {}
+    },
+    "2026-05-06-sleep-earbuds-tonights-your-night": {
+      "date": "2026-05-06",
+      "campaign_type": "promo",
+      "title": "Sleep Earbuds — Tonight's Your Night",
+      "conceit": "Calm nighttime spotlight on the Sleep Earbuds, with the Mother's Day sale as the reason to buy now.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "Tonight's your night",
+        "The Sleep Earbuds."
+      ],
+      "taglines": [],
+      "body_openers": [
+        "Tap into Sleep Mode and let five built-in ambient sounds handle the rest."
+      ],
+      "one_liners": {}
+    },
+    "2026-05-04-open-audio-open-for-everyone": {
+      "date": "2026-05-04",
+      "campaign_type": "seasonal",
+      "title": "Open Audio — Open For Everyone",
+      "conceit": "Find the Open Audio that fits your life: three products by job, during the Mother's Day sale.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "Open For Everyone"
+      ],
+      "taglines": [
+        "Find the Open Audio that's right for you. PLUS save an extra 5% off sitewide deals with code: MOTHER."
+      ],
+      "body_openers": [],
+      "one_liners": {}
+    },
+    "2026-04-11-fitness-earbuds-lets-get-moving": {
+      "date": "2026-04-11",
+      "campaign_type": "promo",
+      "title": "Fitness Earbuds Weekend Flash Sale — Let's Get Moving",
+      "conceit": "Weekend flash sale: 30% off the Fitness Earbuds, deal ends Sunday.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "LET'S GET MOVING"
+      ],
+      "taglines": [
+        "30% off Fitness Earbuds this weekend!"
+      ],
+      "body_openers": [
+        "Need new earbuds that can keep up with you?"
+      ],
+      "one_liners": {}
+    },
+    "2026-03-15-everyday-earbuds-classic-never-gets-old": {
+      "date": "2026-03-15",
+      "campaign_type": "story",
+      "title": "Everyday Earbuds Classic — Never Gets Old",
+      "conceit": "Evergreen product story: the most popular earbuds earn their reputation, told plainly.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "NEVER GETS OLD",
+        "THE EVERYDAY EARBUDS CLASSIC STILL GOT IT"
+      ],
+      "taglines": [],
+      "body_openers": [
+        "There's a couple reasons these are our most popular earbuds ever."
+      ],
+      "one_liners": {}
+    },
+    "2026-02-12-go-for-gold-sale-sound-that-flows": {
+      "date": "2026-02-12",
+      "campaign_type": "seasonal",
+      "title": "Go For Gold Sale — Sound That Flows",
+      "conceit": "Olympics-timed cheer: everyone wins this month with 20% off everything.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "Sound That Flows"
+      ],
+      "taglines": [
+        "Champion-level sound built for bold moves and nonstop momentum."
+      ],
+      "body_openers": [
+        "The podium's still open."
+      ],
+      "one_liners": {}
+    },
+    "2026-01-02-new-year-sale-time-to-lock-in": {
+      "date": "2026-01-02",
+      "campaign_type": "seasonal",
+      "title": "New Year Sale — Time To Lock In",
+      "conceit": "New Year focus: new headphones to block out distractions and lock into your goals, 20% off sitewide.",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [
+        "TIME TO LOCK IN"
+      ],
+      "taglines": [
+        "Block out distractions and focus on your goals with new headphones."
+      ],
+      "body_openers": [
+        "Say no to distractions this year at school, at work or the gym with our headphones and save 20% off today."
+      ],
+      "one_liners": {}
+    }
+  }
+}

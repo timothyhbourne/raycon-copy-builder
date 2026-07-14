@@ -31,7 +31,8 @@ export function regenerateSectionUserPrompt(
   sectionToRegenerate: SectionSpec & { current_content: GeneratedSection },
   fullCampaign: GeneratedCampaign,
   steering: string,
-  examples: LibraryCampaign[]
+  examples: LibraryCampaign[],
+  avoidBlock = ""
 ): string {
   const formatSection = (s: GeneratedSection) =>
     Object.entries(s.elements).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n");
@@ -94,7 +95,7 @@ Type: ${sectionToRegenerate.type}
 ${currentElements}${productMapNote}${subheaderNote}${uspsNote}
 
 ${steeringBlock}
-
+${avoidBlock ? `\n${avoidBlock}\n` : ""}
 Reference campaigns (for voice):
 ${exampleSummary}
 

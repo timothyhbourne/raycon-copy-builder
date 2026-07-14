@@ -1,7 +1,5 @@
 import type { ExpandedBrief, Conceit } from "../schemas";
 import { RAYCON_VOICE } from "./voice";
-import { formatRecentlySent } from "./generate";
-import type { RecentConstruction } from "../library";
 
 export const regenerateMetaRoleInstruction = `Your job is to produce three new subject line variants and three new preview text variants for an email campaign.
 
@@ -18,16 +16,15 @@ export function regenerateMetaUserPrompt(
   expandedBrief: ExpandedBrief,
   chosenConceit: Conceit,
   currentCampaignSummary: string,
-  recent: RecentConstruction[] = []
+  avoidBlock = ""
 ): string {
-  const recentlySent = formatRecentlySent(recent);
   return `Expanded brief:
 ${JSON.stringify(expandedBrief, null, 2)}
 
 Chosen conceit:
 Name: ${chosenConceit.name}
 Description: ${chosenConceit.description}
-${recentlySent ? `\n${recentlySent}\n` : ""}
+${avoidBlock ? `\n${avoidBlock}\n` : ""}
 Summary of the campaign body that just got generated:
 ${currentCampaignSummary}
 

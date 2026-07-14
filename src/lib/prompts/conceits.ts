@@ -26,16 +26,22 @@ Rules:
   - "product_truth_led": one concrete product fact or benefit is the hook.
   Return the assigned architecture on each conceit.`;
 
-export function conceitsUserPrompt(expandedBrief: ExpandedBrief, examples: LibraryCampaign[]): string {
-  const exampleBlocks = examples.slice(0, 5).map(
-    (e) => `- ${e.title} (${e.campaign_type}): "${e.conceit}"`
+export function conceitsUserPrompt(
+  expandedBrief: ExpandedBrief,
+  examples: LibraryCampaign[],
+  pastConceits: { name: string; date: string; campaign_type: string }[] = [],
+  avoidBlock = ""
+): string {
+  const conceitLines = (pastConceits.length
+    ? pastConceits.map((c) => `- ${c.date} (${c.campaign_type}): "${c.name}"`)
+    : examples.slice(0, 5).map((e) => `- ${e.title} (${e.campaign_type}): "${e.conceit}"`)
   ).join("\n");
 
   return `Expanded brief:
 ${JSON.stringify(expandedBrief, null, 2)}
-
+${avoidBlock ? `\n${avoidBlock}\n` : ""}
 Recent / similar past campaign conceits — this is territory ALREADY COVERED. Do not reuse their angle, framing, or wording; deliberately go somewhere they did not:
-${exampleBlocks}
+${conceitLines}
 
 Propose three distinct conceits, each from a different angle family (see the palette) AND a different architecture — one offer_led, one story_led, one product_truth_led. Each: a short memorable name (2–5 words, personality allowed), a 1–2 sentence description that names the actual insight and how it shapes the copy. Make them specific to THIS brief and clearly different from the past campaigns above.
 

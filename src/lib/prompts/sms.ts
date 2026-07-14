@@ -1,18 +1,12 @@
 import { RAYCON_VOICE } from "./voice";
 import { TARGET_CHARS } from "../sms-format";
+import type { SmsBrief } from "../schemas";
 
 // SMS copy generation. Composes the shared Raycon voice with an SMS craft block
 // (hard character/encoding rules) and the three construction-distinct variants.
 // Non-streaming: three short variants don't need a stream.
 
-export interface SmsBrief {
-  name?: string;
-  offer: string;
-  promo_code?: string;
-  deadline?: string;
-  angle?: string;
-  audience?: string;
-}
+export type { SmsBrief };
 
 const SMS_CRAFT = `SMS CRAFT RULES (these are absolute — an SMS is not a short email):
 - One message = ONE idea: the offer or hook, the code, the deadline, and a link. Nothing else. Never cram in a second product or a second reason.

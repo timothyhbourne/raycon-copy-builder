@@ -2,13 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAnthropic, FAST_MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { conceitsRoleInstruction, conceitsUserPrompt } from "@/lib/prompts/conceits";
+import { buildAvoidBlock, recentConceits } from "@/lib/constructions";
 import type { ExpandedBrief, LibraryCampaign } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
   try {
     const { expanded_brief, retrieved_examples }: { expanded_brief: ExpandedBrief; retrieved_examples: LibraryCampaign[] } = await req.json();
     const systemBlocks = buildSystemBlocks(getBrandContext(), conceitsRoleInstruction);
-    const userPrompt = conceitsUserPrompt(expanded_brief, retrieved_examples);
+    // Recency slice only (no product/type scoping) plus past conceit names —
+    // conceits should stop repeating as much as headlines do.
+    const userPrompt = conceitsUserPrompt(
+      expanded_brief,
+      retrieved_examples,
+      recentConceits(),
+      buildAvoidBlock({})
+    );
 
     const response = await getAnthropic().messages.create({
       model: FAST_MODEL,

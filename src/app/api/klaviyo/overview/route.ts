@@ -24,23 +24,20 @@ interface CampaignMeta {
 }
 interface Totals { recipients: number; opens: number; clicks: number; revenue: number }
 
-// Guard so concurrent reads with missing days don't stampede the background sync.
+// Guard so concurrent reads with missing days don't stampede the background
+// sync. syncMetrics also dedupes identical requests internally; this flag just
+// avoids queueing a burst of range syncs from the UI's 10s coverage polling.
 let bgSyncInFlight = false;
-function triggerBackgroundSync(backfillDays: number): void {
+function triggerBackgroundSync(rangeStart: string, rangeEnd: string): void {
   if (bgSyncInFlight) return;
   bgSyncInFlight = true;
   // Fire-and-forget: fill the gap for a later read; never blocks this response.
-  syncMetrics({ backfillDays })
+  // RANGE-scoped: the requested days themselves are synced, so historical
+  // ranges (e.g. last January) fill correctly — a today-anchored backfill can
+  // never reach them.
+  syncMetrics({ rangeStart, rangeEnd })
     .catch((e) => console.error("[klaviyo/overview] background sync failed", e))
     .finally(() => { bgSyncInFlight = false; });
-}
-
-// Whole days from `ymd` (UTC) to now — used to size a backfill that reaches a
-// given day.
-function daysAgo(ymd: string): number {
-  const then = new Date(`${ymd}T00:00:00Z`).getTime();
-  const now = Date.now();
-  return Math.max(0, Math.ceil((now - then) / 86_400_000));
 }
 
 const toMetaFromDim = (c: CampaignDim): CampaignMeta => ({
@@ -62,15 +59,14 @@ export async function GET(req: NextRequest) {
     const t0 = Date.now();
     const warnings: string[] = [];
 
-    // Force refresh: synchronously sync the range's unfrozen days, then read.
-    // syncMetrics always re-fetches the trailing window and backfills missing
-    // days within the horizon, so a backfill that reaches `start` covers the
-    // requested range's unfrozen days. Slow but explicit — this is the button.
+    // Force refresh: synchronously sync EXACTLY the requested range, then read.
+    // Slow but explicit — this is the button.
     if (nocache) {
       const s = Date.now();
       try {
-        const summary = await syncMetrics({ backfillDays: Math.max(daysAgo(startYMD), 1) });
+        const summary = await syncMetrics({ rangeStart: startYMD, rangeEnd: endYMD });
         if (summary.days_failed > 0) warnings.push(`Force refresh: ${summary.days_failed} day(s) could not sync (Klaviyo rate limit) — try again shortly.`);
+        for (const w of summary.warnings) warnings.push(`Force refresh: ${w}`);
       } catch (e) {
         warnings.push(`Force refresh sync failed: ${e instanceof Error ? e.message : e}`);
       }
@@ -157,8 +153,8 @@ export async function GET(req: NextRequest) {
     const requestedDays = eachDay(startYMD, endYMD).length;
     if (missing.length) {
       warnings.push(`${missing.length} of ${requestedDays} day(s) in this range aren't synced yet — totals may be incomplete. Syncing in background…`);
-      // Fire-and-forget fill for the gap (oldest missing day sets the horizon).
-      if (!nocache) triggerBackgroundSync(Math.max(daysAgo(missing[0]), 1));
+      // Fire-and-forget fill for exactly the missing gap.
+      if (!nocache) triggerBackgroundSync(missing[0], missing[missing.length - 1]);
     }
 
     timings.total = Date.now() - t0;

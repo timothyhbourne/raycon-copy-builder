@@ -549,6 +549,10 @@ export function flowSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{
   return fetchAllSeriesPages("/flow-series-reports/", body);
 }
 
+// NOTE: /api/campaign-series-reports/ returned 404 on this account/revision
+// (verified 2026-07-09) even though /api/flow-series-reports/ works. The metrics
+// sync therefore buckets campaigns by send date from a single values report
+// instead. Kept for a future revision where the endpoint may exist.
 export function campaignSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{ campaign_id?: string; send_channel?: string }>> {
   const body = {
     data: {

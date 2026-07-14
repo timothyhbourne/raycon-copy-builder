@@ -374,7 +374,9 @@ export function recentConceits(limit = 12, excludeId?: string): { name: string; 
 // Step 3a — similarity (pure, lexical)
 // ---------------------------------------------------------------------------
 function normalize(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  // Punctuation → space (not removed) so "all-day" tokenizes as "all" + "day"
+  // and matches "all day" in token-set containment.
+  return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function trigrams(s: string): Set<string> {

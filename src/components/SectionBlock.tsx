@@ -2,6 +2,8 @@
 import { useState } from "react";
 import type { GeneratedSection, ProductInGrid } from "@/lib/schemas";
 import EditableField from "./EditableField";
+import RepetitionChip from "./RepetitionChip";
+import { elementKey, gridProductKey, type RepetitionFlag } from "@/lib/repetition-client";
 
 interface Props {
   section: GeneratedSection;
@@ -9,6 +11,9 @@ interface Props {
   total: number;
   /** Number of columns for product_grid sections */
   gridCols?: number;
+  /** Similarity flags keyed by element key (see repetition-client). */
+  flags?: Record<string, RepetitionFlag>;
+  onDismissFlag?: (key: string) => void;
   onChange: (s: GeneratedSection) => void;
   onRegenerate: () => void;
   onDelete: () => void;
@@ -24,6 +29,8 @@ export default function SectionBlock({
   index,
   total,
   gridCols,
+  flags,
+  onDismissFlag,
   onChange,
   onRegenerate,
   onDelete,
@@ -35,6 +42,8 @@ export default function SectionBlock({
   const [hovered, setHovered] = useState(false);
   const [draggingProduct, setDraggingProduct] = useState<number | null>(null);
   const [dragOverProduct, setDragOverProduct] = useState<number | null>(null);
+
+  const flagFor = (key: string): RepetitionFlag | undefined => flags?.[key];
 
   const updateElement = (key: string, value: string | ProductInGrid[]) => {
     onChange({ ...section, elements: { ...section.elements, [key]: value } });
@@ -155,6 +164,12 @@ export default function SectionBlock({
               </div>
               <div>
                 <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">one-liner</span>
+                {(() => {
+                  const flag = flagFor(gridProductKey(section.id, i));
+                  return flag ? (
+                    <span className="ml-2"><RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(gridProductKey(section.id, i))} /></span>
+                  ) : null;
+                })()}
                 <EditableField
                   value={p.one_liner}
                   onChange={(v) => {
@@ -234,6 +249,7 @@ export default function SectionBlock({
         <div className="space-y-4">
           {elements.map(([key, value]) => {
             const isSubheaderWithVariants = key === "Subheader" && (section.subheader_variants?.length ?? 0) > 1;
+            const flag = flagFor(elementKey(section.id, key));
             return (
               <div key={key}>
                 <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-2" style={{ fontSize: "11px" }}>
@@ -241,6 +257,7 @@ export default function SectionBlock({
                   {isSubheaderWithVariants && (
                     <span className="text-indigo-400 normal-case tracking-normal">· {section.subheader_variants!.length} options, pick one</span>
                   )}
+                  {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(elementKey(section.id, key))} />}
                 </div>
                 {isSubheaderWithVariants
                   ? renderSubheaderVariants()

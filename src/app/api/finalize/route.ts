@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveToLibrary } from "@/lib/library";
+import { saveToLibrary, getLibraryCampaignById } from "@/lib/library";
+import { updateCampaign } from "@/lib/constructions";
 import { deleteCampaign } from "@/lib/campaigns";
 import type { BriefInput, Conceit, GeneratedCampaign, SectionSpec } from "@/lib/schemas";
 
@@ -15,6 +16,12 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     saveToLibrary(body.id, body.brief_input, body.conceit, body.campaign, body.section_structure ?? []);
+
+    // Keep the construction index in step with the library (covers manual saves
+    // AND the autosave path, which also posts here). Re-read the just-written
+    // entry so extraction sees the persisted structured snapshot + date.
+    const saved = getLibraryCampaignById(body.id);
+    if (saved) updateCampaign(saved);
 
     // Delete the draft from /generated/ if it exists
     if (body.draft_id) {
