@@ -11,8 +11,13 @@ function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+// Best-effort: on a read-only filesystem (Vercel serverless — everything outside
+// /tmp is read-only) mkdir throws. Swallow it so reads degrade to "empty" rather
+// than 500ing the route; writes are separately guarded and simply don't persist.
 function ensureDir() {
-  if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
+  } catch { /* read-only FS: nothing to list, nothing to persist */ }
 }
 
 function campaignToMarkdown(c: SavedCampaign): string {
@@ -71,7 +76,12 @@ function markdownToCampaign(raw: string): SavedCampaign | null {
 
 export function listCampaigns(): Omit<SavedCampaign, "campaign" | "expanded_brief" | "section_structure">[] {
   ensureDir();
-  const files = fs.readdirSync(GENERATED_DIR).filter((f) => f.endsWith(".md"));
+  let files: string[];
+  try {
+    files = fs.readdirSync(GENERATED_DIR).filter((f) => f.endsWith(".md"));
+  } catch {
+    return []; // dir absent / read-only FS → no drafts
+  }
   const result = [];
   for (const file of files) {
     const raw = fs.readFileSync(path.join(GENERATED_DIR, file), "utf8");
@@ -87,8 +97,13 @@ export function listCampaigns(): Omit<SavedCampaign, "campaign" | "expanded_brie
 export function saveCampaign(c: SavedCampaign): void {
   if (!isSafeId(c.id)) throw new Error("Invalid campaign id");
   ensureDir();
-  const filename = `${c.id}.md`;
-  fs.writeFileSync(path.join(GENERATED_DIR, filename), campaignToMarkdown(c), "utf8");
+  try {
+    fs.writeFileSync(path.join(GENERATED_DIR, `${c.id}.md`), campaignToMarkdown(c), "utf8");
+  } catch (e) {
+    // Read-only FS (Vercel): a draft save can't persist — log, don't crash the
+    // request. Drafts are transient WIP; the durable copy is the Library (Redis).
+    console.warn(`[campaigns] draft write failed (read-only FS?): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function loadCampaign(id: string): SavedCampaign | null {

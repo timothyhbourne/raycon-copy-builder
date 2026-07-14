@@ -13,8 +13,13 @@ function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+// Best-effort: on a read-only filesystem (Vercel serverless) mkdir throws.
+// Swallow it so reads degrade to "empty" rather than 500ing; writes are
+// separately guarded and simply don't persist there.
 function ensureDir() {
-  if (!fs.existsSync(SMS_DIR)) fs.mkdirSync(SMS_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(SMS_DIR)) fs.mkdirSync(SMS_DIR, { recursive: true });
+  } catch { /* read-only FS: nothing to list, nothing to persist */ }
 }
 
 // Meta view for the sidebar list — omits the variant bodies.
@@ -34,7 +39,12 @@ function parse(raw: string): SmsCampaign | null {
 
 export function listSmsCampaigns(): SmsMeta[] {
   ensureDir();
-  const files = fs.readdirSync(SMS_DIR).filter((f) => f.endsWith(".json"));
+  let files: string[];
+  try {
+    files = fs.readdirSync(SMS_DIR).filter((f) => f.endsWith(".json"));
+  } catch {
+    return []; // dir absent / read-only FS → no SMS campaigns
+  }
   const result: SmsMeta[] = [];
   for (const file of files) {
     const c = parse(fs.readFileSync(path.join(SMS_DIR, file), "utf8"));
@@ -49,7 +59,11 @@ export function listSmsCampaigns(): SmsMeta[] {
 export function saveSmsCampaign(c: SmsCampaign): void {
   if (!isSafeId(c.id)) throw new Error("Invalid SMS campaign id");
   ensureDir();
-  fs.writeFileSync(path.join(SMS_DIR, `${c.id}.json`), JSON.stringify(c, null, 2), "utf8");
+  try {
+    fs.writeFileSync(path.join(SMS_DIR, `${c.id}.json`), JSON.stringify(c, null, 2), "utf8");
+  } catch (e) {
+    console.warn(`[sms] write failed (read-only FS?): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function loadSmsCampaign(id: string): SmsCampaign | null {

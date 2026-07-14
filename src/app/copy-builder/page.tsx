@@ -268,8 +268,10 @@ export default function Home() {
     const [libRes, savedRes, smsRes] = await Promise.all([
       fetch("/api/library"), fetch("/api/campaigns"), fetch("/api/sms"),
     ]);
-    const lib = await libRes.json();
-    const saved = await savedRes.json();
+    // Each parse is independent: a single failing store (e.g. a 500) must not
+    // abort the others, or one broken sidebar section blanks all three.
+    const lib = await libRes.json().catch(() => ({}));
+    const saved = await savedRes.json().catch(() => ({}));
     const sms = await smsRes.json().catch(() => ({}));
     if (lib.campaigns) setLibraryItems(lib.campaigns);
     if (saved.campaigns) setSavedItems(saved.campaigns);
