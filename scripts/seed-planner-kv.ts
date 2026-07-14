@@ -5,6 +5,7 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: path.join(__dirname, "../.env.local") });
 
 import { Redis } from "@upstash/redis";
+import { redisCreds } from "@/lib/storage";
 
 // One-time (idempotent) migration: push the local file-based planner store into
 // Upstash Redis so the deployed app starts with the team's existing rows instead
@@ -29,9 +30,10 @@ function rowCount(raw: string): number | string {
 }
 
 async function main() {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    console.error("Missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN.");
-    console.error("Provision Upstash Redis in Vercel, then run `vercel env pull .env.local` and retry.");
+  const creds = redisCreds();
+  if (!creds) {
+    console.error("Missing Redis creds (UPSTASH_REDIS_REST_URL/_TOKEN or KV_REST_API_URL/_TOKEN).");
+    console.error("Add them to .env.local from the Vercel Redis store, then retry.");
     process.exit(1);
   }
 
@@ -42,7 +44,7 @@ async function main() {
     process.exit(1);
   }
 
-  const redis = Redis.fromEnv({ automaticDeserialization: false });
+  const redis = new Redis({ ...creds, automaticDeserialization: false });
   const existing = await redis.get<string>(REDIS_KEY);
   const force = process.argv.includes("--force");
   if (existing && !force) {

@@ -59,8 +59,19 @@ export function fileAdapter(root: string): StorageAdapter {
 // Keys are namespaced (`<namespace>:<key>`) so several stores can share one
 // database without collision. Values are opaque strings — automaticDeserialization
 // is off so the store above owns the JSON shape, exactly like the file adapter.
+// Vercel names the Redis REST creds differently per integration: the Upstash
+// Marketplace uses UPSTASH_REDIS_REST_URL/_TOKEN, the older Vercel KV uses
+// KV_REST_API_URL/_TOKEN. Accept either so a naming mismatch can't silently
+// drop us back to the (empty, non-durable) file store in production.
+export function redisCreds(): { url: string; token: string } | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  return url && token ? { url, token } : null;
+}
+
 function redisAdapter(namespace: string): StorageAdapter {
-  const redis = Redis.fromEnv({ automaticDeserialization: false });
+  // Non-null: only reached when kvConfigured (redisCreds() !== null).
+  const redis = new Redis({ ...redisCreds()!, automaticDeserialization: false });
   const k = (key: string) => `${namespace}:${key}`;
   return {
     async read(key) {
@@ -81,11 +92,8 @@ function redisAdapter(namespace: string): StorageAdapter {
   };
 }
 
-// Upstash injects these two env vars (via the Vercel Marketplace integration or
-// `vercel env pull`). Both present → use Redis; otherwise fall back to files.
-const kvConfigured = Boolean(
-  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
-);
+// Creds present (under either naming) → use Redis; otherwise fall back to files.
+const kvConfigured = redisCreds() !== null;
 
 // Backend selector. `fileRoot` is the on-disk directory for the file adapter;
 // `namespace` scopes this store's keys in Redis. Redis instantiation is lazy
