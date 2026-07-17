@@ -58,7 +58,7 @@ export default function Sidebar({ libraryItems, savedItems, smsItems = [], onLoa
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 pt-4">
-        <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-3">Copy Builder</div>
+        <div className="t-label mb-3">Copy Builder</div>
         <div className="flex gap-4 border-b border-line">
           {([["saved", "Saved", savedItems.length], ["library", "Library", libraryItems.length], ["sms", "SMS", smsItems.length]] as const).map(([key, label, count]) => (
             <button
@@ -102,7 +102,7 @@ export default function Sidebar({ libraryItems, savedItems, smsItems = [], onLoa
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900 truncate">{item.campaign_name}</div>
-                  <div className="font-mono text-xs text-slate-400 mt-0.5">{item.campaign_type} · {item.status}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{item.campaign_type} · {item.status}</div>
                   <div className="text-xs text-slate-400 mt-0.5 truncate">{item.offer}</div>
                 </div>
                 <button
@@ -135,7 +135,7 @@ export default function Sidebar({ libraryItems, savedItems, smsItems = [], onLoa
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900 truncate">{item.title}</div>
-                  <div className="font-mono text-xs text-slate-400 mt-0.5">{item.date} · {item.campaign_type}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{item.date} · {item.campaign_type}</div>
                   {item.conceit && item.conceit !== "[FILL ME IN]" && (
                     <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">{item.conceit}</div>
                   )}
@@ -170,7 +170,7 @@ export default function Sidebar({ libraryItems, savedItems, smsItems = [], onLoa
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900 truncate">{item.name}</div>
-                  <div className="font-mono text-xs text-slate-400 mt-0.5">sms · {item.status}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">sms · {item.status}</div>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteSms?.(item.id); }}

@@ -15,15 +15,15 @@ export default function CampaignsPage() {
       <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden mb-4">
         <div className="px-6 py-4 border-b border-line flex items-center justify-between">
           <div>
-            <div className="font-mono text-xs text-ink-muted uppercase tracking-wide">Campaigns</div>
+            <div className="t-label">Campaigns</div>
             <div className="text-sm text-ink-secondary mt-0.5">Sent campaigns with activity over the selected range</div>
           </div>
-          <div className="text-xs text-ink-muted font-mono">{campaigns.length} sent</div>
+          <div className="text-xs text-ink-muted">{campaigns.length} sent</div>
         </div>
         <div className="overflow-auto max-h-[calc(100vh-24rem)]">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-chrome">
-              <tr className="text-left text-ink-muted font-mono text-[10px] uppercase tracking-wide border-b border-line">
+              <tr className="text-left t-label border-b border-line">
                 <th className="px-4 py-2.5 font-medium">Campaign</th>
                 <th className="px-4 py-2.5 font-medium">Send date</th>
                 <th className="px-4 py-2.5 font-medium text-right">Recipients</th>
@@ -39,7 +39,7 @@ export default function CampaignsPage() {
                   <tr key={c.campaign_id} className="hover:bg-chrome transition-colors">
                     <td className="px-4 py-2.5">
                       <div className="text-ink">{c.name}</div>
-                      {c.status && <div className="text-[10px] text-ink-muted font-mono uppercase">{c.status}</div>}
+                      {c.status && <div className="text-[10px] text-ink-muted uppercase">{c.status}</div>}
                     </td>
                     <td className="px-4 py-2.5 text-ink-secondary whitespace-nowrap">{formatDate(c.send_time)}</td>
                     <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(c.recipients)}</td>
@@ -88,10 +88,10 @@ function StatusColumn({
     <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
       <div className="px-4 py-3 border-b border-line flex items-center justify-between">
         <div>
-          <div className="font-mono text-xs text-ink-muted uppercase tracking-wide">{title}</div>
+          <div className="t-label">{title}</div>
           <div className="text-[11px] text-ink-muted mt-0.5">{hint}</div>
         </div>
-        <div className="text-xs text-ink-muted font-mono">{items.length}</div>
+        <div className="text-xs text-ink-muted">{items.length}</div>
       </div>
       <div className="divide-y divide-line max-h-80 overflow-y-auto">
         {items.length > 0 ? (
@@ -99,12 +99,12 @@ function StatusColumn({
             <div key={c.campaign_id} className="px-4 py-2.5">
               <div className="text-sm text-ink leading-snug">{c.name}</div>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="text-[10px] text-ink-muted font-mono uppercase">{c.status}</span>
+                <span className="text-[10px] text-ink-muted uppercase">{c.status}</span>
                 {c.audience_count > 0 && (
                   <span className="text-[10px] text-ink-muted">· {c.audience_count} list{c.audience_count === 1 ? "" : "s"}</span>
                 )}
                 {showTime && c.send_time && (
-                  <span className="text-[10px] text-ink-secondary font-mono">· {formatDateTime(c.send_time)}</span>
+                  <span className="text-[10px] text-ink-secondary">· {formatDateTime(c.send_time)}</span>
                 )}
               </div>
             </div>

@@ -36,7 +36,7 @@ interface CopyFull {
   selected_variant?: number;
 }
 
-const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wider";
+const microLabel = "t-label";
 
 function relativeTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -139,7 +139,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
                     {selected && <Chip tone="accent">selected</Chip>}
                   </div>
                   <div className="text-[15px] text-ink leading-relaxed whitespace-pre-line">{v.text}</div>
-                  <div className="mt-2 pt-2 border-t border-line font-mono text-[11px] text-ink-muted">
+                  <div className="mt-2 pt-2 border-t border-line font-mono text-[11px] text-ink-muted tabular-nums">
                     {chars} · {encoding} · {segments} segment{segments === 1 ? "" : "s"}
                   </div>
                 </div>
@@ -152,7 +152,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
             {data.subject_lines.length > 0 && (
               <div className="mb-6">
                 <div className={microLabel}>Subject Lines</div>
-                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:font-mono marker:text-xs">
+                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:text-xs">
                   {data.subject_lines.map((s, i) => <li key={i} className="text-[15px] text-ink leading-relaxed">{s}</li>)}
                 </ol>
               </div>
@@ -160,7 +160,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
             {data.preview_texts.length > 0 && (
               <div className="mb-8">
                 <div className={microLabel}>Preview Texts</div>
-                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:font-mono marker:text-xs">
+                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:text-xs">
                   {data.preview_texts.map((p, i) => <li key={i} className="text-[15px] text-ink-secondary leading-relaxed">{p}</li>)}
                 </ol>
               </div>

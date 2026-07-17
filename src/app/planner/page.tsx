@@ -10,8 +10,11 @@ import Chip, { type ChipTone } from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
 import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
+import PlatformBadge from "@/components/ui/PlatformBadge";
+import DateRangePicker from "@/components/ui/DateRangePicker";
 import CopyDocModal from "@/components/CopyDocModal";
 import { toast } from "@/components/ui/Toast";
+import { holidayName } from "@/lib/holidays";
 
 // Copy Builder link state for a row, resolved against the set of saved copy ids.
 type CopyEntry = "sms" | "unlinked" | "draft" | "final";
@@ -53,7 +56,7 @@ const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strik
 function StatusPill({ status, channel, className = "" }: { status: PlannerStatus; channel: PlannerChannel; className?: string }) {
   const st = STATUS_STYLE[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide leading-none ${st.pill} ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide leading-none ${st.pill} ${className}`}>
       {st.check && <span aria-hidden>✓</span>}
       <span className={st.strike ? "line-through" : ""}>{statusLabel(status, channel)}</span>
     </span>
@@ -70,7 +73,7 @@ function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; rowId: 
   if (entry === "unlinked") {
     return (
       <Link href={writeHref} onClick={(e) => e.stopPropagation()}
-        className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
+        className="mt-0.5 w-fit text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
         Write copy
       </Link>
     );
@@ -79,7 +82,7 @@ function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; rowId: 
     <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
       <Chip tone={COPY_TONE[entry]}>Copy: {entry}</Chip>
       <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
-        className="text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
+        className="text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
         Open copy
       </Link>
     </span>
@@ -94,9 +97,14 @@ const fmtDateTime = (iso: string | null) => { if (!iso) return "—"; const d = 
 function isoToLocalInput(iso: string): string { const d = new Date(iso); if (isNaN(d.getTime())) return ""; return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
 function localInputToIso(v: string): string { const d = new Date(v); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); }
 function ymdOf(iso: string): string { return (iso || "").slice(0, 10); }
-function offerLabel(r: PlannerRow): string {
-  if (r.offer_type === "evergreen") return `Evergreen · ${EVERGREEN_OFFER}`;
-  return `${r.promo_code ? r.promo_code + " · " : ""}${r.offer || "—"}`;
+// Table renders offer value and discount code as two separate columns.
+// Offer value = the human offer description; evergreen rows show the standing
+// offer. Discount code = the promo code, or null for evergreen (rendered as —).
+function offerValue(r: PlannerRow): string {
+  return r.offer_type === "evergreen" ? EVERGREEN_OFFER : (r.offer || "—");
+}
+function discountCode(r: PlannerRow): string | null {
+  return r.promo_code || null;
 }
 // Re-date an ISO to a new YMD, preserving time-of-day.
 function reDate(iso: string, newYmd: string): string {
@@ -127,9 +135,8 @@ function CopyGlyph() {
     </svg>
   );
 }
-const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wide";
+const microLabel = "t-label";
 const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
-const dateCls = "text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
 
 interface CampaignItem { id: string; name: string; status: string; send_time: string | null }
 
@@ -290,8 +297,8 @@ export default function PlannerPage() {
     <div>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
         <div>
-          <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-1">Campaign Planner</div>
-          <h1 className="text-2xl font-semibold text-ink">Plan &amp; learnings</h1>
+          <div className="t-label mb-1">Campaign Planner</div>
+          <h1 className="t-display text-ink">Plan &amp; learnings</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
@@ -404,13 +411,13 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
             <button onClick={goNext} aria-label="Next month" title="Next month" className={navBtn}>→</button>
             <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
           </div>
-          <div className="flex items-center gap-3 text-[10px] font-mono text-ink-muted">
+          <div className="flex items-center gap-3 t-label">
             <span className="flex items-center gap-1"><span aria-hidden>✉️</span> Email</span>
             <span className="flex items-center gap-1"><span aria-hidden>📱</span> SMS</span>
           </div>
         </div>
         <div key={`${y}-${m}`} className="rc-animate-fade">
-          <div className="grid grid-cols-7 text-[10px] font-mono uppercase tracking-wide text-ink-muted border-b border-line">
+          <div className="grid grid-cols-7 t-label border-b border-line">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="px-2 py-1.5 text-center">{d}</div>)}
           </div>
           <div className="grid grid-cols-7">
@@ -420,6 +427,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
               const key = dayKey(d);
               const entries = byDay.get(key) ?? [];
               const isToday = key === todayYmd;
+              const holiday = holidayName(key);
               return (
                 <Droppable droppableId={`cal:${key}`} key={key}>
                   {(provided, snapshot) => (
@@ -428,9 +436,19 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                       className={`relative min-h-[96px] border-b border-r border-line p-1.5 cursor-pointer transition-colors ${
                         snapshot.isDraggingOver ? "bg-accent-50" : weekend ? "bg-chrome/60 hover:bg-chrome" : "hover:bg-chrome"
                       } ${isToday ? "ring-1 ring-inset ring-accent" : ""}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[11px] font-mono ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
-                        {isToday && <span className="font-mono text-[9px] uppercase tracking-wide text-accent">Today</span>}
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className={`text-[11px] font-mono tabular-nums ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
+                        {isToday ? (
+                          <span className="text-[9px] font-medium uppercase tracking-wide text-accent">Today</span>
+                        ) : holiday ? (
+                          // Quiet holiday hint — a muted dot + truncated name, full
+                          // name on hover. Informational only; it sits above the
+                          // cell's click-to-create and drop target, never blocking them.
+                          <span title={holiday} className="pointer-events-none flex items-center gap-1 min-w-0 text-ink-muted/80">
+                            <span aria-hidden className="w-1 h-1 rounded-full bg-current shrink-0" />
+                            <span className="truncate text-[9px] leading-none tracking-wide">{holiday}</span>
+                          </span>
+                        ) : null}
                       </div>
                       <div className="space-y-1">
                         {entries.map((r, idx) => (
@@ -451,6 +469,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                                     snap.isDragging ? "shadow-pop" : "hover:shadow-card"
                                   }`}>
                                   <ChannelGlyph channel={r.channel} className="shrink-0" />
+                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
                                   {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                                   <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
                                   {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
@@ -482,7 +501,39 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 }
 
 // ---------- table ----------
-const GRID = "minmax(160px,1.4fr) 74px 92px 108px 150px minmax(150px,1fr) 92px 68px 68px 96px 84px minmax(160px,1fr)";
+// One template drives the header, every body row, and the summary. Layout:
+// plan columns (Campaign · Status · Planned · Offer value · Discount code) |
+// a hairline divider | the quieter performance cluster (Recipients · Open ·
+// Click · Rev/recip) | Revenue as the bold right-hand anchor. Sized to fit the
+// planner's ~1088px content column without a horizontal scrollbar — no hard
+// minWidth. Status is wide enough to stack the scheduling-source platform badge
+// under the status pill.
+const GRID = "minmax(200px,1.6fr) 128px 104px minmax(120px,1fr) 96px 84px 60px 60px 80px 104px";
+
+// Audience summary for a row's expanded detail line (+included / −excluded).
+function audienceSummary(r: PlannerRow): string {
+  const inc = r.audience_included.map((a) => a.name).join(", ");
+  const exc = r.audience_excluded.map((a) => a.name).join(", ");
+  if (!inc && !exc) return "—";
+  return [inc && `+ ${inc}`, exc && `− ${exc}`].filter(Boolean).join("  ");
+}
+
+// Row expand/collapse control. A distinct affordance (stopPropagation) so it
+// never triggers the row's onClick → editor.
+function ExpandToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" aria-label={open ? "Hide details" : "Show details"} aria-expanded={open}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      className="shrink-0 -ml-1 mr-0.5 w-5 h-5 inline-flex items-center justify-center rounded-sm text-ink-muted hover:bg-chrome hover:text-ink-secondary transition-colors">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden
+        className={`transition-transform duration-150 ease-out-soft ${open ? "rotate-90" : ""}`}>
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
+  );
+}
+
 function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
   rows: PlannerRow[]; onEdit: (r: PlannerRow) => void; onReschedule: (id: string, ymd: string) => void;
   fChannel: "all" | PlannerChannel; setFChannel: (v: "all" | PlannerChannel) => void;
@@ -491,6 +542,13 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
   sortBy: "date" | "revenue"; setSortBy: (v: "date" | "revenue") => void;
   copyEntry: (r: PlannerRow) => CopyEntry;
 }) {
+  // Audience + notes live behind per-row progressive disclosure.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = useCallback((id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  }), []);
   // Summary respects current filters.
   const summary = useMemo(() => {
     const recip = rows.reduce((a, r) => a + (r.recipients ?? 0), 0);
@@ -519,121 +577,157 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
     if (dest && dest !== src) onReschedule(res.draggableId, dest);
   };
 
-  const cell = "px-3 py-2.5 text-sm flex items-center min-w-0";
+  // Comfortable row rhythm; hairline separators do the dividing, not boxes.
+  const cell = "px-3 py-3 text-sm flex items-center min-w-0";
+  const numCell = `${cell} justify-end font-mono tabular-nums`;
+  // Header cell for a right-aligned metric column.
+  const numHead = "px-3 py-2 text-right";
+  // A flat, ever-incrementing row counter drives the subtle zebra so alternate
+  // rows read gently even across day groups.
+  let rowIndex = 0;
+
   return (
-    <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
-      <div className="flex items-end gap-3 px-4 py-3 border-b border-line flex-wrap">
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Channel</span>
-          <div className="relative">
-            <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className={selectCls}>
-              <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select><Chevron />
+    <div>
+      {/* Filter bar + column header pinned together to the top of the page
+          scroll (the planner layout's overflow-y-auto region). One solid
+          background so rows never bleed through while scrolling. */}
+      <div className="sticky top-0 z-20 bg-surface">
+        <div className="flex items-end gap-3 px-1 py-3 border-b border-line flex-wrap">
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Channel</span>
+            <div className="relative">
+              <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className={selectCls}>
+                <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select><Chevron />
+            </div>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Status</span>
+            <div className="relative">
+              <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus | "sent")} className={selectCls}>
+                <option value="all">All statuses</option>
+                {PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}
+                <option value="sent">Sent</option>
+              </select><Chevron />
+            </div>
+          </label>
+          <div className="flex flex-col gap-1">
+            <span className={microLabel}>Date range</span>
+            <DateRangePicker start={fStart} end={fEnd}
+              onChange={(s, e) => { setFStart(s); setFEnd(e); }} />
           </div>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Status</span>
-          <div className="relative">
-            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus | "sent")} className={selectCls}>
-              <option value="all">All statuses</option>
-              {PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}
-              <option value="sent">Sent</option>
-            </select><Chevron />
-          </div>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>From</span>
-          <input type="date" value={fStart} onChange={(e) => setFStart(e.target.value)} className={dateCls} />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>To</span>
-          <input type="date" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className={dateCls} />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Sort</span>
-          <div className="relative">
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className={selectCls}>
-              <option value="date">Planned send</option><option value="revenue">Revenue</option>
-            </select><Chevron />
-          </div>
-        </label>
-        <div className="ml-auto self-end text-xs text-ink-muted font-mono pb-1.5">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Sort</span>
+            <div className="relative">
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className={selectCls}>
+                <option value="date">Planned send</option><option value="revenue">Revenue</option>
+              </select><Chevron />
+            </div>
+          </label>
+          <div className="ml-auto self-end text-xs text-ink-muted pb-1.5">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
+        </div>
+
+        {/* column header — aligned to GRID */}
+        <div className="grid bg-chrome border-b border-line t-label" style={{ gridTemplateColumns: GRID }}>
+          <div className="px-3 py-2">Campaign</div>
+          <div className="px-3 py-2">Status</div>
+          <div className="px-3 py-2">Planned</div>
+          <div className="px-3 py-2">Offer value</div>
+          <div className="px-3 py-2">Discount code</div>
+          <div className={`${numHead} border-l border-line`}>Recipients</div>
+          <div className={numHead}>Open</div>
+          <div className={numHead}>Click</div>
+          <div className={numHead}>Rev/recip</div>
+          <div className={numHead}>Revenue</div>
+        </div>
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-20rem)]">
-        <div style={{ minWidth: 1360 }}>
-          {/* header — sticky within this scroll region */}
-          <div className="sticky top-0 z-20 grid bg-chrome border-b border-line text-ink-muted font-mono text-[10px] uppercase tracking-wide" style={{ gridTemplateColumns: GRID }}>
-            <div className="px-3 py-2">Name</div><div className="px-3 py-2">Channel</div><div className="px-3 py-2">Status</div>
-            <div className="px-3 py-2">Planned</div><div className="px-3 py-2">Offer</div><div className="px-3 py-2">Audience</div>
-            <div className="px-3 py-2 border-l border-line">Recipients</div><div className="px-3 py-2">Open</div>
-            <div className="px-3 py-2">Click</div><div className="px-3 py-2">Revenue</div>
-            <div className="px-3 py-2">Rev/recip</div><div className="px-3 py-2">Notes / learnings</div>
-          </div>
-
-          <DragDropContext onDragEnd={onDragEnd}>
-            {groups.map((g) => (
-              <div key={g.day || "flat"}>
-                {sortBy === "date" && (
-                  <div className="px-3 py-1.5 bg-canvas border-b border-line text-[11px] font-mono text-ink-secondary">{g.day ? fmtDate(g.day + "T00:00:00") : ""}</div>
-                )}
-                <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
-                  {(provided, snap) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/50" : ""}>
-                      {g.rows.map((r, idx) => (
-                        <Draggable draggableId={r.id} index={idx} key={r.id} isDragDisabled={sortBy !== "date"}>
+      <DragDropContext onDragEnd={onDragEnd}>
+        {groups.map((g, gi) => (
+          <div key={g.day || "flat"}>
+            {sortBy === "date" && (
+              <div className={`px-3 ${gi === 0 ? "pt-3" : "pt-6"} pb-1.5 border-b border-line t-label`}>
+                {g.day ? fmtDate(g.day + "T00:00:00") : ""}
+              </div>
+            )}
+            <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
+              {(provided, snap) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/50" : ""}>
+                  {g.rows.map((r, idx) => {
+                    const zebra = rowIndex++ % 2 === 1;
+                    const isOpen = expanded.has(r.id);
+                    return (
+                      <div key={r.id}>
+                        <Draggable draggableId={r.id} index={idx} isDragDisabled={sortBy !== "date"}>
                           {(dp, snap2) => (
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
-                              className={`grid border-b border-line hover:bg-chrome cursor-pointer bg-surface transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`} style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
+                              className={`grid border-b border-line hover:bg-chrome cursor-pointer transition-colors ${zebra ? "bg-canvas" : "bg-surface"} ${snap2.isDragging ? "shadow-pop" : ""}`}
+                              style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
                               <div className={cell}>
+                                <ExpandToggle open={isOpen} onToggle={() => toggle(r.id)} />
+                                <ChannelGlyph channel={r.channel} className="shrink-0 mr-1.5" />
                                 <div className="min-w-0 flex flex-col">
                                   <span className={`truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}`}>{r.name}</span>
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} channel={r.channel} />
                                 </div>
                               </div>
-                              <div className={`${cell} gap-1.5 text-ink-secondary`}><ChannelGlyph channel={r.channel} /> {CHANNEL_GLYPH[r.channel].label}</div>
-                              <div className={cell}><StatusPill status={r.status} channel={r.channel} /></div>
-                              <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
-                              <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerLabel(r)}</span></div>
-                              <div className={`${cell} text-[11px] text-ink-muted`}>
-                                <span className="truncate">
-                                  {r.audience_included.length > 0 && `+ ${r.audience_included.map((a) => a.name).join(", ")}`}
-                                  {r.audience_excluded.length > 0 && ` − ${r.audience_excluded.map((a) => a.name).join(", ")}`}
-                                  {r.audience_included.length === 0 && r.audience_excluded.length === 0 && "—"}
-                                </span>
+                              <div className={cell}>
+                                <div className="flex flex-col items-start gap-1 min-w-0">
+                                  <StatusPill status={r.status} channel={r.channel} />
+                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} />}
+                                </div>
                               </div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary border-l border-line`}>{int(r.recipients)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{pct(r.click_rate)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink font-medium`}>{money(r.revenue)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{rpr(r.revenue_per_recipient)}</div>
-                              <div className={`${cell} text-[11px] text-ink-muted`}><span className="truncate">{r.notes || "—"}</span></div>
+                              <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
+                              <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerValue(r)}</span></div>
+                              <div className={`${cell} text-ink-muted`}>
+                                {discountCode(r)
+                                  ? <span className="font-mono text-[11px] tracking-tight truncate">{discountCode(r)}</span>
+                                  : <span className="text-ink-muted/50">—</span>}
+                              </div>
+                              <div className={`${numCell} text-ink-muted border-l border-line`}>{int(r.recipients)}</div>
+                              <div className={`${numCell} text-ink-muted`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
+                              <div className={`${numCell} text-ink-muted`}>{pct(r.click_rate)}</div>
+                              <div className={`${numCell} text-ink-muted`}>{rpr(r.revenue_per_recipient)}</div>
+                              <div className={`${numCell} text-ink font-semibold`}>{money(r.revenue)}</div>
                             </div>
                           )}
                         </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
-            ))}
-          </DragDropContext>
-
-          {/* summary */}
-          <div className="grid border-t-2 border-line bg-chrome text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
-            <div className="px-3 py-2.5 text-ink-secondary">{summary.count} total</div>
-            <div /><div /><div /><div /><div />
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-secondary border-l border-line">{int(summary.recipients)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgOpen)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgClick)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink">{money(summary.revenue)}</div>
-            <div /><div className="px-3 py-2.5 text-[10px] text-ink-muted font-mono self-center">avg open/click</div>
+                        {isOpen && (
+                          <div className="border-b border-line bg-canvas/60 pl-10 pr-4 py-3 grid gap-1.5 text-[11px] text-ink-secondary rc-animate-fade">
+                            <div className="flex gap-2">
+                              <span className="shrink-0 w-16 t-label">Audience</span>
+                              <span className="min-w-0">{audienceSummary(r)}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <span className="shrink-0 w-16 t-label">Notes</span>
+                              <span className="min-w-0">{r.notes || "—"}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
           </div>
-        </div>
+        ))}
+      </DragDropContext>
+
+      {/* summary — aligned to GRID */}
+      <div className="grid border-t-2 border-line bg-chrome text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
+        <div className="px-3 py-3 text-ink-secondary">{summary.count} total</div>
+        <div /><div /><div /><div />
+        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-secondary border-l border-line">{int(summary.recipients)}</div>
+        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgOpen)}</div>
+        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgClick)}</div>
+        <div />
+        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink">{money(summary.revenue)}</div>
       </div>
-      {sortBy === "revenue" && <div className="px-4 py-2 text-[11px] text-ink-muted border-t border-line">Switch sort to “Planned send” to drag-reschedule.</div>}
+
+      {sortBy === "revenue" && <div className="px-1 py-2 text-[11px] text-ink-muted">Switch sort to “Planned send” to drag-reschedule.</div>}
     </div>
   );
 }
@@ -678,7 +772,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
 
   // Minimal editor styling: sparse mono micro-labels, hairline section rules.
-  const label = "block font-mono text-[11px] text-ink-muted uppercase tracking-wider mb-1.5";
+  const label = "block t-label mb-1.5";
   const input = "w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
   const section = "border-t border-line pt-5 mt-5";
 
@@ -827,7 +921,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     </div>
   );
   const audBlocked = (text: string) => <div className="text-sm text-ink-muted">{text}</div>;
-  const audMicro = (text: string) => <div className="mt-1.5 font-mono text-[10px] text-ink-muted uppercase tracking-wider">{text}</div>;
+  const audMicro = (text: string) => <div className="mt-1.5 t-label">{text}</div>;
   const renderAudiences = () => {
     if (audLoading) return <SkeletonBlock className="h-6 w-2/3" />;
     if (channel === "sms") return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Audiences sync from linked Klaviyo email campaigns.");
@@ -862,7 +956,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
         <div className="inline-flex rounded-md border border-line p-0.5 shrink-0 mt-0.5">
           {PLANNER_CHANNELS.map((c) => (
             <button key={c} type="button" onClick={() => setChannel(c)}
-              className={`px-2.5 py-1 text-[11px] font-mono uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
+              className={`px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
               {c}
             </button>
           ))}
@@ -878,7 +972,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             const st = STATUS_STYLE[s];
             return (
               <button key={s} type="button" onClick={() => setStatus(s)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-mono uppercase tracking-wide transition-colors ${
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-medium uppercase tracking-wide transition-colors ${
                   active ? `${st.pill} font-semibold` : "border-line text-ink-muted hover:bg-chrome"
                 }`}>
                 {st.check && active && <span aria-hidden>✓</span>}
@@ -922,7 +1016,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             {klaviyoId ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-ink truncate">{linkedName}</span>
-                {klaviyoStatus && <span className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{klaviyoStatus}</span>}
+                {klaviyoStatus && <span className="t-label">{klaviyoStatus}</span>}
                 <a href={`https://www.klaviyo.com/campaign/${klaviyoId}`} target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline shrink-0">Open in Klaviyo ↗</a>
                 <Button variant="ghost" size="sm" onClick={unlink} className="ml-auto">Unlink</Button>
               </div>
@@ -937,7 +1031,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                       <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); pickCampaign(c); }}
                         className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
                         <div className="text-ink truncate">{c.name}</div>
-                        <div className="text-[10px] font-mono text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
+                        <div className="text-[10px] text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
                       </button>
                     ))}
                   </div>
@@ -963,7 +1057,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       {row && (
         <div className={section}>
           <div className="flex items-center gap-2 mb-2">
-            <span className="font-mono text-[11px] text-ink-muted uppercase tracking-wider">Copy</span>
+            <span className="t-label">Copy</span>
             {copyId && copyStatus && <Chip tone={copyStatus === "final" ? "success" : "warning"}>{copyStatus}</Chip>}
             {copyId && (
               <button type="button" onClick={() => setUnlinkConfirm(true)} className="ml-auto text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
@@ -1005,7 +1099,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
 
       {/* Read-only synced metrics — quiet line under everything. */}
       {row && (row.recipients != null || row.revenue != null) && (
-        <div className="border-t border-line pt-4 mt-5 font-mono text-[11px] text-ink-muted">
+        <div className="border-t border-line pt-4 mt-5 text-[11px] text-ink-muted">
           Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
           {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
         </div>
@@ -1110,7 +1204,7 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
                 className="w-full text-left px-1 py-2.5 flex items-center gap-3 hover:bg-chrome transition-colors">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-ink truncate">{e.name}</div>
-                  <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
+                  <div className="t-label">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
                 </div>
                 {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
                 <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>

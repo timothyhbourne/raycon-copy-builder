@@ -22,7 +22,7 @@ export default function ConceitPicker({ conceits, chosen, onPick, loading = fals
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="font-mono text-xs text-ink-muted uppercase tracking-wide">Choose a conceit</p>
+        <p className="t-label">Choose a conceit</p>
         {onShuffle && !loading && (
           <Button variant="secondary" size="sm" onClick={onShuffle}>Shuffle conceits</Button>
         )}
@@ -50,7 +50,7 @@ export default function ConceitPicker({ conceits, chosen, onPick, loading = fals
                 }`}
               >
                 <div className="flex items-baseline gap-2 mb-1">
-                  <span className="font-mono text-xs text-ink-muted">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="font-mono text-xs text-ink-muted tabular-nums">{String(i + 1).padStart(2, "0")}</span>
                   <span className="font-semibold text-base text-ink">{c.name}</span>
                   {c.architecture && <Chip tone="muted" className="ml-auto self-center">{ARCH_LABEL[c.architecture]}</Chip>}
                 </div>

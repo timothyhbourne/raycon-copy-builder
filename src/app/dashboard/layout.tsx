@@ -147,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Header: title + range presets / custom inputs + Sync now */}
         <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
           <div>
-            <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-1">Dashboard</div>
+            <div className="t-label mb-1">Dashboard</div>
             <h1 className="text-2xl font-semibold text-ink">Performance overview</h1>
           </div>
           <div className="flex items-end gap-3 flex-wrap">
@@ -164,12 +164,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {preset === "custom" && (
               <>
                 <div>
-                  <label className="block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1">Start</label>
+                  <label className="block t-label mb-1">Start</label>
                   <input type="date" value={start} onChange={(e) => setStart(e.target.value)}
                     className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
                 </div>
                 <div>
-                  <label className="block font-mono text-[10px] text-ink-muted uppercase tracking-wide mb-1">End</label>
+                  <label className="block t-label mb-1">End</label>
                   <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
                     className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
                 </div>
@@ -185,8 +185,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {error && (
           <div className="bg-danger-50 border border-danger-200 rounded-md p-4 mb-6">
-            <div className="font-mono text-xs text-danger-600 uppercase tracking-wide mb-1">Error</div>
-            <div className="text-sm text-danger-600 font-mono whitespace-pre-wrap break-words">{error}</div>
+            <div className="t-label text-danger-600 mb-1">Error</div>
+            <div className="text-sm text-danger-600 whitespace-pre-wrap break-words">{error}</div>
           </div>
         )}
 
@@ -203,7 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {hasData && warnings.length > 0 && (
           <div className="bg-warning-50 border border-warning-200 rounded-md p-4 mb-6">
-            <div className="font-mono text-xs text-warning-600 uppercase tracking-wide mb-1">Sync warnings</div>
+            <div className="t-label text-warning-600 mb-1">Sync warnings</div>
             <ul className="text-sm text-ink-secondary list-disc pl-5 space-y-0.5">
               {warnings.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
@@ -225,21 +225,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
               <div className="bg-surface border border-line rounded-md shadow-card p-6">
-                <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-2">Placed-order revenue (Klaviyo)</div>
+                <div className="t-label mb-2">Placed-order revenue (Klaviyo)</div>
                 <div className="text-3xl font-semibold text-ink">{formatMoney(revenue.total)}</div>
                 <div className="text-sm text-ink-secondary mt-2">
                   {formatInt(revenue.order_count)} orders · source: Klaviyo &ldquo;Placed Order&rdquo; (Shopify)
                 </div>
               </div>
               <div className="bg-surface border border-line rounded-md shadow-card p-6">
-                <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-2">Klaviyo-attributed revenue</div>
+                <div className="t-label mb-2">Klaviyo-attributed revenue</div>
                 <div className="text-3xl font-semibold text-ink">{formatMoney(revenue.attributed)}</div>
                 <div className="text-sm text-ink-secondary mt-2">
                   {formatPct(revenue.attributed, revenue.total)} of placed-order revenue
                 </div>
               </div>
             </div>
-            <div className="text-xs text-ink-muted font-mono mb-6 px-1">
+            <div className="text-xs text-ink-muted mb-6 px-1">
               Attributed = {formatMoney(revenue.attributed_from_flows)} flows + {formatMoney(revenue.attributed_from_campaigns)} campaigns
               {" = "}{formatMoney(revenue.attributed_from_flows + revenue.attributed_from_campaigns)}
               {" · "}{formatPct(revenue.attributed, revenue.total)} of total
@@ -265,7 +265,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             })}
           </div>
           {hasData && (
-            <div className={`pb-2.5 text-xs font-mono flex items-center gap-1.5 ${freshness.stale ? "text-warning-600" : "text-ink-muted"}`}
+            <div className={`pb-2.5 text-xs flex items-center gap-1.5 ${freshness.stale ? "text-warning-600" : "text-ink-muted"}`}
               title={data?.last_synced_at ? `Last synced ${new Date(data.last_synced_at).toLocaleString()}` : undefined}>
               <RefreshIcon className={`opacity-70 ${syncing ? "animate-spin" : ""}`} />
               Synced {freshness.label}

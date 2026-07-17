@@ -31,7 +31,7 @@ function Counter({ text }: { text: string }) {
   const tone = over ? "text-danger-600" : warn ? "text-warning-600" : "text-ink-muted";
   const seg = `${segments} segment${segments === 1 ? "" : "s"}`;
   return (
-    <div className={`font-mono text-[11px] ${tone}`} aria-live="polite">
+    <div className={`font-mono text-[11px] tabular-nums ${tone}`} aria-live="polite">
       {chars} · {encoding} · {seg}
       {isUnicode && offendingChar && (
         <span className="ml-1 normal-case">— contains {describeChar(offendingChar)}, which drops the budget to 70</span>
@@ -71,7 +71,7 @@ interface Props {
 export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVariant }: Props) {
   return (
     <div className="space-y-3">
-      <div className="font-mono text-xs text-ink-muted uppercase tracking-wide">
+      <div className="t-label">
         {isGenerating ? "Writing SMS variants…" : "Pick the variant that ships"}
       </div>
       {campaign.variants.map((v, i) => {
@@ -95,7 +95,7 @@ export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVa
               >
                 {selected && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
               </span>
-              <span className="font-mono text-[11px] uppercase tracking-wide text-ink-secondary">
+              <span className="t-label text-ink-secondary">
                 {SMS_VARIANT_LABELS[i] ?? `Variant ${i + 1}`}
               </span>
             </div>

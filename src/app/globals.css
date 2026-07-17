@@ -1,6 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @import "tailwindcss";
+/* Fonts are loaded (self-hosted) via next/font in src/app/layout.tsx, which
+   declares --font-dm-sans / --font-jetbrains-mono on <html>. The token layer
+   below points --font-sans / --font-mono at them so every component inherits
+   the optimized faces with no external font request. */
 
 /* ---------------------------------------------------------------------------
    Design tokens (Tailwind v4 CSS-first). Defining these in @theme generates
@@ -8,6 +10,12 @@
    exposes them as CSS vars (var(--color-accent)) for the hand-rolled primitives.
    --------------------------------------------------------------------------- */
 @theme {
+  /* Typefaces — one display sans + one mono for numerics. The actual faces come
+     from next/font (see layout.tsx); these tokens generate the font-sans /
+     font-mono utilities and are the single source of truth for type. */
+  --font-sans: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
   /* Backgrounds */
   --color-chrome: #f4f4ef;
   --color-canvas: #fafaf7;
@@ -37,6 +45,11 @@
   --color-danger-50: #fff1f2;
   --color-danger-200: #fecdd3;
   --color-danger-600: #e11d48;
+  /* Info (teal) — a hue distinct from status-green and the indigo accent, used to
+     mark the Postscript scheduling source (accent/indigo marks Klaviyo). */
+  --color-info-50: #f0fdfa;
+  --color-info-200: #99f6e4;
+  --color-info-600: #0d9488;
 
   /* Radius — only these three */
   --radius-sm: 6px;   /* inputs, chips */
@@ -56,14 +69,43 @@
 }
 
 body {
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: var(--color-chrome);
   color: var(--color-ink);
   margin: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .font-mono {
-  font-family: 'JetBrains Mono', monospace !important;
+  font-family: var(--font-mono) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Type scale — the single, consistent scale every surface should draw from.
+   DM Sans throughout; JetBrains Mono is reserved for TABULAR NUMERICS ONLY
+   (metric columns, currency, counts, calendar day numbers — anywhere digit
+   alignment matters). Decorative micro-labels use .t-label (sans), NOT mono.
+
+     .t-display  — page titles (h1)                 24px / 600
+     .t-heading  — section + card headings           16px / 600
+     .t-body     — default body text                 14px / 400
+     .t-label    — micro eyebrow / column labels     11px / 500 uppercase, tracked
+     .font-mono  — tabular numerics (+ tabular-nums)  inherit size / 400–500
+
+   .t-label replaces the old `font-mono text-[10px] uppercase tracking-wide`
+   micro-label idiom: same quiet, all-caps read, but in the sans face so it no
+   longer looks like monospaced typewriter text. --------------------------- */
+.t-display { font-size: 1.5rem; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
+.t-heading { font-size: 1rem; line-height: 1.3; font-weight: 600; }
+.t-body { font-size: 0.875rem; line-height: 1.5; font-weight: 400; }
+.t-label {
+  font-size: 0.6875rem;   /* 11px */
+  line-height: 1.2;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-muted);
 }
 
 /* Visible, consistent keyboard focus everywhere. */

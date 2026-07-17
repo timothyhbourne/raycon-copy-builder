@@ -32,7 +32,7 @@ function isUntouchedStructure(sections: SectionSpec[]): boolean {
   return UNTOUCHED_SIGS.has(structSig(sections));
 }
 
-const LABEL = "block font-mono text-xs text-ink-secondary uppercase tracking-wide mb-1";
+const LABEL = "block t-label text-ink-secondary mb-1";
 const INPUT = "w-full border border-line rounded-sm px-3 py-2 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
 
 function ChevronSelect({ children }: { children: React.ReactNode }) {
@@ -267,7 +267,7 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
                   });
                 }}
               >
-                <summary className="cursor-pointer list-none flex items-center justify-between font-mono text-xs text-ink-muted uppercase tracking-wide py-1 select-none">
+                <summary className="cursor-pointer list-none flex items-center justify-between t-label py-1 select-none">
                   <span>{cat.label}{selCount > 0 && <span className="text-accent"> · {selCount}</span>}</span>
                   <svg aria-hidden className="rc-chevron w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                 </summary>
@@ -281,7 +281,7 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
                             ? "bg-accent-50 text-accent border-accent-200"
                             : "bg-surface text-ink-secondary border-line hover:border-line-strong hover:bg-chrome"
                         }`}>
-                        <span className={`font-mono text-xs shrink-0 w-16 ${active ? "text-accent" : "text-ink-muted"}`}>{id}</span>
+                        <span className={`text-xs shrink-0 w-16 ${active ? "text-accent" : "text-ink-muted"}`}>{id}</span>
                         <span className="text-sm">{name}</span>
                       </button>
                     );
@@ -295,26 +295,26 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
 
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="font-mono text-xs text-ink-secondary uppercase tracking-wide">Tone</label>
+          <label className="t-label text-ink-secondary">Tone</label>
           <Chip tone={tone >= 4 ? "warning" : tone === 3 ? "neutral" : "muted"}>{TONE_LABELS[tone]}</Chip>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-ink-muted shrink-0">Safe</span>
+          <span className="text-[10px] text-ink-muted shrink-0">Safe</span>
           <input type="range" min={1} max={5} step={1} value={tone}
             onChange={(e) => set("tone_dial", Number(e.target.value))}
             className="flex-1 accent-accent" />
-          <span className="font-mono text-[10px] text-ink-muted shrink-0">Bold</span>
+          <span className="text-[10px] text-ink-muted shrink-0">Bold</span>
         </div>
         <div className="flex justify-between px-8 mt-1">
           {[1, 2, 3, 4, 5].map((n) => (
-            <span key={n} className={`font-mono text-[10px] ${tone === n ? "text-accent font-medium" : "text-ink-muted"}`}>{n}</span>
+            <span key={n} className={`text-[10px] ${tone === n ? "text-accent font-medium" : "text-ink-muted"}`}>{n}</span>
           ))}
         </div>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="font-mono text-xs text-ink-secondary uppercase tracking-wide">Section Structure</label>
+          <label className="t-label text-ink-secondary">Section Structure</label>
           {showStructureHint && (
             <Button type="button" variant="ghost" size="sm" onClick={applyPlaybookStructure}>
               Use the {form.campaign_type} structure

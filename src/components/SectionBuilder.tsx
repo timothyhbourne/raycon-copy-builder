@@ -87,7 +87,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
           >
             <span className="cursor-grab text-slate-400 mt-0.5 select-none">⠿</span>
             <div className="flex-1 min-w-0">
-              <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">{s.type}</div>
+              <div className="t-label text-slate-500 mb-1">{s.type}</div>
               <input
                 type="text"
                 value={s.focus || ""}
@@ -124,7 +124,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
                 return (
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-slate-400 shrink-0">Grid</span>
+                      <span className="text-xs text-slate-400 shrink-0">Grid</span>
                       <select
                         value={cols}
                         onChange={(e) => updateGridCols(s.id, Number(e.target.value))}
@@ -132,7 +132,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
                       >
                         {[1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
-                      <span className="font-mono text-xs text-slate-400">cols ×</span>
+                      <span className="text-xs text-slate-400">cols ×</span>
                       <select
                         value={rows}
                         onChange={(e) => updateGridRows(s.id, Number(e.target.value))}
@@ -140,7 +140,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
                       >
                         {[1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
-                      <span className="font-mono text-xs text-slate-400">rows = {cellCount} products</span>
+                      <span className="text-xs text-slate-400">rows = {cellCount} products</span>
                     </div>
                     {mismatch && (
                       <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
@@ -177,7 +177,7 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
                 type="button"
                 key={t}
                 onClick={() => addSection(t)}
-                className="w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-slate-50 transition-colors"
+                className="w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 {t}
               </button>

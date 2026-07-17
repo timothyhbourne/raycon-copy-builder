@@ -673,6 +673,23 @@
         "Say no to distractions this year at school, at work or the gym with our headphones and save 20% off today."
       ],
       "one_liners": {}
+    },
+    "2026-07-16-fs-o25-30-off-last-call-c3ei1q": {
+      "date": "2026-07-16",
+      "campaign_type": "sms",
+      "title": "FS O25 30% OFF - Last Call",
+      "conceit": "",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [],
+      "taglines": [],
+      "body_openers": [],
+      "one_liners": {},
+      "sms": [
+        "Raycon: 30% off Fitness Open Earbuds. Use code HOOKED30. Ends Monday. {link}",
+        "Raycon: Still thinking about the Fitness Open Earbuds? 30% off with code HOOKED30. Ends Monday. {link}",
+        "Raycon: Last call. The Fitness Open Earbuds are 30% off before Monday. Code HOOKED30. {link}"
+      ]
     }
   }
 }

@@ -31,13 +31,13 @@ function Delta({ value, kind }: { value: number | null; kind: "pct" | "pp" }) {
   const cls = up ? "text-emerald-600" : down ? "text-rose-600" : "text-slate-400";
   const arrow = up ? "▲" : down ? "▼" : "•";
   const mag = kind === "pp" ? `${(value * 100).toFixed(1)} pp` : `${Math.abs(value * 100).toFixed(1)}%`;
-  return <span className={`font-mono text-[11px] ${cls}`}>{arrow} {mag}</span>;
+  return <span className={`font-mono tabular-nums text-[11px] ${cls}`}>{arrow} {mag}</span>;
 }
 
 function Metric({ label, value, delta }: { label: string; value: string; delta?: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between py-1.5 border-b border-slate-100 last:border-0">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="t-label text-slate-400">{label}</span>
       <span className="flex items-baseline gap-2">
         <span className="tabular-nums text-slate-900">{value}</span>
         {delta}
@@ -50,7 +50,7 @@ function ChannelCard({ title, block, deltas, rprLabel }: { title: string; block:
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="font-mono text-xs uppercase tracking-wide text-slate-500">{title}</div>
+        <div className="t-label text-slate-500">{title}</div>
         <div className="text-2xl font-semibold text-slate-900 tabular-nums">{money(block.revenue)}</div>
       </div>
       <Metric label="% of store revenue" value={pct(block.pctOfStore)} delta={deltas ? <Delta value={deltas.pctOfStorePointChange} kind="pp" /> : undefined} />
@@ -111,11 +111,11 @@ export default function ReportsPage() {
     <div>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
         <div>
-          <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Weekly Report</div>
+          <div className="t-label text-slate-500 mb-1">Weekly Report</div>
           <h1 className="text-2xl font-semibold text-slate-900">Email &amp; SMS performance</h1>
           {report && (
             <div className="text-sm text-slate-500 mt-1">
-              {fmtWeek(report.week)} · <span className="font-mono text-[11px] uppercase">1-day click</span>
+              {fmtWeek(report.week)} · <span className="text-[11px] uppercase">1-day click</span>
             </div>
           )}
         </div>
@@ -154,7 +154,7 @@ export default function ReportsPage() {
         </div>
       ) : !report ? (
         <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
-          <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2">No report yet</div>
+          <div className="t-label text-slate-400 mb-2">No report yet</div>
           <p className="text-slate-600 text-sm mb-4">Run the first weekly capture to see Northbeam-attributed email &amp; SMS performance.</p>
           <button onClick={runNow} disabled={running} className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50">
             {running ? "Running…" : "Run now"}
@@ -175,8 +175,8 @@ export default function ReportsPage() {
 
           <div className="mt-4 bg-white border border-slate-200 rounded-lg px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-slate-500">
             <span>Total store revenue: <span className="text-slate-800 tabular-nums">{money(report.totalStoreRevenue)}</span></span>
-            <span>Denominator: <span className="font-mono">{report.denominatorSource}</span></span>
-            <span>RPR mode: <span className="font-mono">{report.rprMode}</span></span>
+            <span>Denominator: <span>{report.denominatorSource}</span></span>
+            <span>RPR mode: <span>{report.rprMode}</span></span>
             <span>Generated: {fmtDateTime(report.generatedAt)}</span>
             {!report.wow && <span className="text-slate-400">no prior week — WoW omitted</span>}
           </div>

@@ -140,7 +140,7 @@ export default function SectionBlock({
                 <span className="cursor-grab text-slate-300 hover:text-slate-400 select-none text-sm">⠿</span>
               </div>
               <div>
-                <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">name</span>
+                <span className="t-label">name</span>
                 <EditableField
                   value={p.name}
                   onChange={(v) => {
@@ -152,7 +152,7 @@ export default function SectionBlock({
                 />
               </div>
               <div>
-                <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">image direction</span>
+                <span className="t-label">image direction</span>
                 <EditableField
                   value={p.image_direction}
                   onChange={(v) => {
@@ -163,7 +163,7 @@ export default function SectionBlock({
                 />
               </div>
               <div>
-                <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">one-liner</span>
+                <span className="t-label">one-liner</span>
                 {(() => {
                   const flag = flagFor(gridProductKey(section.id, i));
                   return flag ? (
@@ -181,7 +181,7 @@ export default function SectionBlock({
                 />
               </div>
               <div>
-                <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">cta</span>
+                <span className="t-label">cta</span>
                 <EditableField
                   value={p.cta}
                   onChange={(v) => {
@@ -214,7 +214,7 @@ export default function SectionBlock({
       <div className="bg-white border border-slate-200 rounded-lg section-block" style={{ padding: "32px 40px" }}>
         {/* Section label + controls */}
         <div className={`flex items-center justify-between mb-4 transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}>
-          <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">{section.type}</span>
+          <span className="t-label">{section.type}</span>
           <div className="flex items-center gap-1">
             {index > 0 && (
               <button onClick={onMoveUp} className="text-xs text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded hover:bg-slate-100 transition-colors" title="Move up">↑</button>
@@ -252,7 +252,7 @@ export default function SectionBlock({
             const flag = flagFor(elementKey(section.id, key));
             return (
               <div key={key}>
-                <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-2" style={{ fontSize: "11px" }}>
+                <div className="t-label mb-1 flex items-center gap-2">
                   {key}
                   {isSubheaderWithVariants && (
                     <span className="text-indigo-400 normal-case tracking-normal">· {section.subheader_variants!.length} options, pick one</span>
@@ -274,7 +274,7 @@ export default function SectionBlock({
         onClick={onInsertAfter}
       >
         <div className="flex-1 h-px bg-slate-200 group-hover/insert:bg-slate-400 transition-colors" />
-        <span className="text-xs text-slate-400 group-hover/insert:text-slate-600 font-mono transition-colors">+ insert section</span>
+        <span className="text-xs text-slate-400 group-hover/insert:text-slate-600 transition-colors">+ insert section</span>
         <div className="flex-1 h-px bg-slate-200 group-hover/insert:bg-slate-400 transition-colors" />
       </div>
     </div>

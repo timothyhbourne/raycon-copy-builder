@@ -111,7 +111,7 @@ function Stepper({ activeKey, canGoBack, onNavigate }: {
 }
 function StepDot({ state, index }: { state: "done" | "current" | "future"; index: number }) {
   return (
-    <span className={`flex items-center justify-center w-5 h-5 rounded-full font-mono text-[10px] ${
+    <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] ${
       state === "current" ? "bg-accent text-white" : state === "done" ? "bg-ink text-white" : "bg-chrome text-ink-muted border border-line"
     }`}>
       {state === "done" ? "✓" : index + 1}
@@ -127,7 +127,7 @@ function AutosaveStatus({ status, onRetry }: {
   if (status === "idle") return null;
   if (status === "error") {
     return (
-      <div className="flex items-center gap-2 font-mono text-[11px] text-danger-600">
+      <div className="flex items-center gap-2 text-[11px] text-danger-600">
         <span>Autosave failed</span>
         <button
           type="button"
@@ -141,7 +141,7 @@ function AutosaveStatus({ status, onRetry }: {
   }
   if (status === "saving") {
     return (
-      <div className="flex items-center gap-1.5 font-mono text-[11px] text-ink-muted">
+      <div className="flex items-center gap-1.5 text-[11px] text-ink-muted">
         <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" aria-hidden />
         Saving…
       </div>
@@ -149,7 +149,7 @@ function AutosaveStatus({ status, onRetry }: {
   }
   // "saved" (with label) and "check" (label faded out) share the checkmark.
   return (
-    <div className="flex items-center gap-1 font-mono text-[11px] text-ink-muted" aria-live="polite">
+    <div className="flex items-center gap-1 text-[11px] text-ink-muted" aria-live="polite">
       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
       {status === "saved" && <span>Saved</span>}
     </div>
@@ -1547,12 +1547,12 @@ export default function Home() {
           <button onClick={() => setBriefOpen(true)} title="Expand brief" aria-label="Expand brief"
             className="h-full w-full flex flex-col items-center gap-3 pt-4 text-ink-secondary hover:text-ink hover:bg-chrome transition-colors">
             <PanelIcon />
-            <span className="[writing-mode:vertical-rl] rotate-180 font-mono text-[11px] uppercase tracking-wide">Brief</span>
+            <span className="[writing-mode:vertical-rl] rotate-180 t-label">Brief</span>
           </button>
         )}
         <div className={briefOpen ? "h-full overflow-y-auto p-5" : "hidden"}>
           <div className="flex items-center justify-between mb-4">
-            <div className="font-mono text-xs text-ink-secondary uppercase tracking-wide">
+            <div className="t-label text-ink-secondary">
               {channel === "sms" ? "SMS Copy" : "Campaign Brief"}
             </div>
             <button onClick={() => setBriefOpen(false)} title="Collapse brief" aria-label="Collapse brief"
@@ -1631,7 +1631,7 @@ export default function Home() {
                     <svg aria-hidden className="pointer-events-none absolute right-0 w-3.5 h-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                   </div>
                 ) : (
-                  <span className="font-mono text-xs text-ink-muted uppercase tracking-wide">New campaign</span>
+                  <span className="t-label">New campaign</span>
                 )}
                 {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
                 {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
@@ -1695,7 +1695,7 @@ export default function Home() {
               <div>
                 {expandedBrief && (
                   <div className="bg-surface border border-line rounded-md px-6 py-4 mb-6">
-                    <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-2">Expanded Brief</div>
+                    <div className="t-label mb-2">Expanded Brief</div>
                     <p className="text-sm text-ink leading-relaxed">{expandedBrief.headline_thesis}</p>
                     <p className="text-sm text-ink-secondary mt-2 leading-relaxed">{expandedBrief.tonal_direction}</p>
                   </div>
@@ -1739,7 +1739,7 @@ export default function Home() {
                         title="Click to rename SMS campaign"
                       />
                     ) : (
-                      <span className="font-mono text-xs text-ink-muted uppercase tracking-wide">New SMS</span>
+                      <span className="t-label">New SMS</span>
                     )}
                     <Chip tone="accent" className="shrink-0">SMS</Chip>
                     {smsSource === "final" && <Chip tone="muted" className="shrink-0">final</Chip>}

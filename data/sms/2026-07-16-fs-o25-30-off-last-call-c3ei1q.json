@@ -1,0 +1,28 @@
+{
+  "id": "2026-07-16-fs-o25-30-off-last-call-c3ei1q",
+  "name": "FS O25 30% OFF - Last Call",
+  "source_email_id": "2026-07-16-fs-o25-30-off-last-call",
+  "brief": {
+    "offer": "30%",
+    "promo_code": "HOOKED30",
+    "deadline": "Ends Monday.",
+    "angle": "",
+    "audience": "engaged audience"
+  },
+  "variants": [
+    {
+      "text": "Raycon: 30% off Fitness Open Earbuds. Use code HOOKED30. Ends Monday. {link}"
+    },
+    {
+      "text": "Raycon: Still thinking about the Fitness Open Earbuds? 30% off with code HOOKED30. Ends Monday. {link}"
+    },
+    {
+      "text": "Raycon: Last call. The Fitness Open Earbuds are 30% off before Monday. Code HOOKED30. {link}"
+    }
+  ],
+  "selected_variant": 1,
+  "status": "final",
+  "created_at": "2026-07-16T16:56:32.898Z",
+  "updated_at": "2026-07-16T16:57:09.702Z",
+  "planner_row_id": "fs-o25-30-last-call"
+}

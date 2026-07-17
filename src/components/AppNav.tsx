@@ -54,7 +54,7 @@ export default function AppNav() {
     <aside className="w-[72px] shrink-0 border-r border-line bg-surface flex flex-col">
       <div className="px-2 pt-4 pb-4 flex justify-center">
         <div
-          className="w-8 h-8 rounded-md bg-ink text-white font-mono text-sm font-medium flex items-center justify-center"
+          className="w-8 h-8 rounded-md bg-ink text-white text-sm font-semibold flex items-center justify-center"
           title="Raycon Tools"
         >
           R
@@ -70,13 +70,13 @@ export default function AppNav() {
               href={href}
               title={label}
               aria-current={active ? "page" : undefined}
-              className={`relative flex flex-col items-center gap-1 rounded-md py-2.5 transition-colors duration-150 ease-out-soft ${
+              className={`relative flex flex-col items-center gap-1 rounded-md px-1 py-2.5 transition-colors duration-150 ease-out-soft ${
                 active ? "bg-accent-50 text-accent" : "text-ink-secondary hover:bg-chrome hover:text-ink"
               }`}
             >
-              {active && <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
+              {active && <span aria-hidden className="absolute left-0.5 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
               <Icon />
-              <span className="text-[11px] font-medium leading-tight">{label}</span>
+              <span className="w-full text-center text-[10px] font-medium leading-tight tracking-tight">{label}</span>
             </Link>
           );
         })}
@@ -86,10 +86,10 @@ export default function AppNav() {
         onClick={logout}
         title="Sign out"
         aria-label="Sign out"
-        className="mt-auto mx-2 mb-3 flex flex-col items-center gap-1 rounded-md py-2.5 text-ink-muted hover:bg-chrome hover:text-ink-secondary transition-colors duration-150 ease-out-soft"
+        className="mt-auto mx-2 mb-3 flex flex-col items-center gap-1 rounded-md px-1 py-2.5 text-ink-muted hover:bg-chrome hover:text-ink-secondary transition-colors duration-150 ease-out-soft"
       >
         <SignOutIcon />
-        <span className="text-[11px] font-medium leading-tight">Sign out</span>
+        <span className="w-full text-center text-[10px] font-medium leading-tight tracking-tight">Sign out</span>
       </button>
     </aside>
   );

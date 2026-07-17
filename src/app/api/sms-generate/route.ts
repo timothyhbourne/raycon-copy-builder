@@ -5,6 +5,24 @@ import { buildSmsAvoidBlock } from "@/lib/constructions";
 import { smsLength } from "@/lib/sms-format";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 
+// Structured-output schema: constrains the model to a JSON object with exactly
+// three string variants, so the response is guaranteed-valid JSON. Without this,
+// Sonnet occasionally emitted an unescaped quote or trailing prose that broke
+// JSON.parse and surfaced as "Could not parse variants".
+const VARIANTS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["variants"],
+  properties: {
+    // Exactly 3 wanted, but the API rejects array minItems/maxItems > 1, so the
+    // count is enforced downstream in parseVariants (and asked for in the prompt).
+    variants: {
+      type: "array",
+      items: { type: "string" },
+    },
+  },
+} as const;
+
 // Pull the first balanced JSON object out of a model response and read its
 // `variants` array. Defensive: the model is told to return bare JSON, but strip
 // fences / preamble just in case.
@@ -32,6 +50,7 @@ async function callModel(system: string, messages: MessageParam[]): Promise<stri
     max_tokens: 1024,
     system,
     messages,
+    output_config: { format: { type: "json_schema", schema: VARIANTS_SCHEMA } },
   });
   return res.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")

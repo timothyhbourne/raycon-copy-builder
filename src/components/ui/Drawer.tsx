@@ -66,7 +66,7 @@ export default function Drawer({ open, onClose, title, children, footer }: Drawe
       >
         {title && (
           <div id={titleId} className="flex items-center justify-between px-5 py-4 border-b border-line shrink-0">
-            <span className="font-mono text-xs text-ink-muted uppercase tracking-wide">{title}</span>
+            <span className="t-label">{title}</span>
             <button onClick={onClose} aria-label="Close" title="Close (Esc)"
               className="text-ink-muted hover:text-ink text-sm transition-colors">✕</button>
           </div>

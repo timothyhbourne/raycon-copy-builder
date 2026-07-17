@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import type { SmsBrief } from "@/lib/schemas";
 import Button from "@/components/ui/Button";
 
-const LABEL = "block font-mono text-xs text-ink-secondary uppercase tracking-wide mb-1";
+const LABEL = "block t-label text-ink-secondary mb-1";
 const INPUT = "w-full border border-line rounded-sm px-3 py-2 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
 
 // One selectable email campaign to distill an SMS from.
@@ -121,7 +121,7 @@ export default function SmsForm({ emailSources, loading, seedBrief, seedSourceId
                 }`}
               >
                 <div className="text-sm font-medium text-slate-900 truncate">{s.name}</div>
-                <div className="font-mono text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-slate-400 mt-0.5">
                   {s.date} · {s.type} · {s.kind}
                 </div>
               </button>

@@ -182,7 +182,7 @@ export default function CampaignCanvas({
       <div className="bg-white border border-slate-200 rounded-lg px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-1">Conceit</div>
+            <div className="t-label mb-1">Conceit</div>
             {chosenConceit ? (
               <>
                 <div className="font-semibold text-slate-900">{chosenConceit.name}</div>
@@ -220,7 +220,7 @@ export default function CampaignCanvas({
           <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
             {regeneratingSection === section.id && (
               <div className="absolute inset-0 bg-white/70 rounded-lg flex items-center justify-center z-10">
-                <span className="font-mono text-xs text-slate-500 animate-pulse">Regenerating...</span>
+                <span className="text-xs text-slate-500 animate-pulse">Regenerating...</span>
               </div>
             )}
             <SectionBlock
