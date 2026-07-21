@@ -30,10 +30,22 @@
   --color-line: #e2e8f0;          /* slate-200 */
   --color-line-strong: #cbd5e1;   /* slate-300 */
 
-  /* Accent — indigo promoted to THE app accent */
+  /* Accent — indigo promoted to THE app accent. Full ramp so active/hover
+     states, gradients, and (later) a sequential heatmap ramp (accent-50 →
+     accent-700 = low → high) all draw from one source. --color-accent stays
+     the single switch: repoint it (and its tints) to swap the brand hue. */
   --color-accent: #4f46e5;        /* indigo-600 */
   --color-accent-50: #eef2ff;     /* indigo-50 */
+  --color-accent-100: #e0e7ff;    /* indigo-100 */
   --color-accent-200: #c7d2fe;    /* indigo-200 */
+  --color-accent-300: #a5b4fc;    /* indigo-300 */
+  --color-accent-400: #818cf8;    /* indigo-400 */
+  --color-accent-500: #6366f1;    /* indigo-500 */
+  --color-accent-600: #4f46e5;    /* indigo-600 (= accent) */
+  --color-accent-700: #4338ca;    /* indigo-700 */
+  /* Sequential ramp endpoints for heatmaps/data viz — light (low) → dark (high). */
+  --color-ramp-min: var(--color-accent-50);
+  --color-ramp-max: var(--color-accent-700);
 
   /* Semantic triads (50 / 200 / 600) */
   --color-success-50: #ecfdf5;

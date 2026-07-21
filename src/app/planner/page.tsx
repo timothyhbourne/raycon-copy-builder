@@ -5,6 +5,9 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-p
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
 import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
 import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { SegmentedToggle } from "@/components/ui/FilterBar";
+import { StatCard } from "@/components/ui/Stat";
 import EmptyState from "@/components/ui/EmptyState";
 import Chip, { type ChipTone } from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
@@ -51,14 +54,16 @@ const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strik
   cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
 };
 
-// Small status pill, shape-matched to the Chip primitive. Scheduled names the
-// platform for the row's channel, so pass the channel.
-function StatusPill({ status, channel, className = "" }: { status: PlannerStatus; channel: PlannerChannel; className?: string }) {
+// Small status pill, shape-matched to the Chip primitive. Table-only; it shows
+// the SHORT status label (e.g. "Scheduled") — the scheduling platform is carried
+// by the compact PlatformBadge dot beside it (same convention as the calendar),
+// so the pill stays narrow and never repeats the platform name.
+function StatusPill({ status, className = "" }: { status: PlannerStatus; className?: string }) {
   const st = STATUS_STYLE[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide leading-none ${st.pill} ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide leading-none whitespace-nowrap ${st.pill} ${className}`}>
       {st.check && <span aria-hidden>✓</span>}
-      <span className={st.strike ? "line-through" : ""}>{statusLabel(status, channel)}</span>
+      <span className={st.strike ? "line-through" : ""}>{PLANNER_STATUS_LABELS[status]}</span>
     </span>
   );
 }
@@ -250,12 +255,14 @@ export default function PlannerPage() {
       if (!res.ok) throw new Error(json.error || "Sync failed");
       setRows(json.rows as PlannerRow[]);
       const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched).length;
+      const nbUnmatched = (json.northbeam_results ?? []).filter((r: SyncResult) => !r.matched).length;
       const parts = [`Synced ${json.synced} campaign${json.synced === 1 ? "" : "s"}`];
       if (failed > 0) parts.push(`${failed} unmatched`);
+      if (json.northbeam_configured && nbUnmatched > 0) parts.push(`${nbUnmatched} no NB match`);
       if (!json.postscript_connected) parts.push("Postscript not connected");
       const msg = parts.join(" · ");
       // No dedicated warning tone in the toast manager — info carries the caveats.
-      if (json.postscript_connected && failed === 0) toast.success(msg);
+      if (json.postscript_connected && failed === 0 && nbUnmatched === 0) toast.success(msg);
       else toast.info(msg);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sync failed");
@@ -295,24 +302,27 @@ export default function PlannerPage() {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <div className="t-label mb-1">Campaign Planner</div>
-          <h1 className="t-display text-ink">Plan &amp; learnings</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
-          <Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-4"
+        eyebrow="Campaign Planner"
+        title="Plan &"
+        accent="learnings"
+        description="Schedule email & SMS campaigns, link the copy, and sync performance back onto each send."
+        meta={
+          <>
+            <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
+            <Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>
+          </>
+        }
+      />
 
-      <div className="inline-flex rounded-md border border-line bg-surface p-0.5 mb-4">
-        {(["calendar", "table"] as const).map((v) => (
-          <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 text-sm rounded-[6px] font-medium capitalize transition-colors duration-150 ease-out-soft ${
-              view === v ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"
-            }`}>{v}</button>
-        ))}
+      <div className="mb-4">
+        <SegmentedToggle
+          ariaLabel="Planner view"
+          options={[{ value: "calendar", label: "Calendar" }, { value: "table", label: "Table" }]}
+          value={view}
+          onChange={setView}
+        />
       </div>
 
       {error && (
@@ -403,7 +413,9 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
+      {/* Calendar caps its own width (the shared layout is now much wider for the
+          Table view); left-aligned so its edge matches the page header. */}
+      <div className="max-w-6xl bg-surface border border-line rounded-md shadow-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="flex items-center gap-2">
             <button onClick={goPrev} aria-label="Previous month" title="Previous month" className={navBtn}>←</button>
@@ -501,14 +513,21 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 }
 
 // ---------- table ----------
-// One template drives the header, every body row, and the summary. Layout:
-// plan columns (Campaign · Status · Planned · Offer value · Discount code) |
-// a hairline divider | the quieter performance cluster (Recipients · Open ·
-// Click · Rev/recip) | Revenue as the bold right-hand anchor. Sized to fit the
-// planner's ~1088px content column without a horizontal scrollbar — no hard
-// minWidth. Status is wide enough to stack the scheduling-source platform badge
-// under the status pill.
-const GRID = "minmax(200px,1.6fr) 128px 104px minmax(120px,1fr) 96px 84px 60px 60px 80px 104px";
+// One template drives the header and every body row. Layout: plan columns
+// (Campaign · Status · Planned · Offer) | a single hairline divider | the
+// performance cluster (Recipients · Open · Click · Rev/recip) | the emphasized
+// revenue pair (Revenue · NB rev). Sized to fit the planner's ~1088px content
+// column without a horizontal scrollbar — no hard minWidth. Totals live in the
+// KPI cards at the top, so there is no bottom summary row.
+const GRID = "minmax(200px,2fr) 132px 96px minmax(130px,1fr) 82px 60px 60px 78px 98px 98px";
+
+// One metric cell renderer so all six share weight/alignment and a uniformly
+// faint em-dash for blanks. `emphasize` marks the revenue pair (stronger ink +
+// weight); everything else is quiet. `fmt` runs only on non-null values.
+function Num({ v, fmt, emphasize = false }: { v: number | null | undefined; fmt: (n: number) => string; emphasize?: boolean }) {
+  if (v == null || Number.isNaN(v)) return <span className="text-ink-muted/50">—</span>;
+  return <span className={emphasize ? "text-ink font-medium" : "text-ink-muted"}>{fmt(v)}</span>;
+}
 
 // Audience summary for a row's expanded detail line (+included / −excluded).
 function audienceSummary(r: PlannerRow): string {
@@ -524,7 +543,7 @@ function ExpandToggle({ open, onToggle }: { open: boolean; onToggle: () => void 
   return (
     <button type="button" aria-label={open ? "Hide details" : "Show details"} aria-expanded={open}
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
-      className="shrink-0 -ml-1 mr-0.5 w-5 h-5 inline-flex items-center justify-center rounded-sm text-ink-muted hover:bg-chrome hover:text-ink-secondary transition-colors">
+      className="shrink-0 -ml-1 mr-0.5 w-5 h-5 inline-flex items-center justify-center rounded-sm text-ink-muted hover:bg-accent-50 hover:text-accent transition-colors">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
         strokeLinecap="round" strokeLinejoin="round" aria-hidden
         className={`transition-transform duration-150 ease-out-soft ${open ? "rotate-90" : ""}`}>
@@ -553,10 +572,11 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
   const summary = useMemo(() => {
     const recip = rows.reduce((a, r) => a + (r.recipients ?? 0), 0);
     const rev = rows.reduce((a, r) => a + (r.revenue ?? 0), 0);
+    const nbRev = rows.reduce((a, r) => a + (r.northbeam_revenue ?? 0), 0);
     const opens = rows.filter((r) => r.open_rate != null);
     const clicks = rows.filter((r) => r.click_rate != null);
     return {
-      count: rows.length, recipients: recip, revenue: rev,
+      count: rows.length, recipients: recip, revenue: rev, nbRevenue: nbRev,
       avgOpen: opens.length ? opens.reduce((a, r) => a + (r.open_rate ?? 0), 0) / opens.length : null,
       avgClick: clicks.length ? clicks.reduce((a, r) => a + (r.click_rate ?? 0), 0) / clicks.length : null,
     };
@@ -577,17 +597,26 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
     if (dest && dest !== src) onReschedule(res.draggableId, dest);
   };
 
-  // Comfortable row rhythm; hairline separators do the dividing, not boxes.
+  // Comfortable row rhythm; hairline separators do the dividing, not boxes or
+  // zebra fills — every row sits on white, color appears only on hover.
   const cell = "px-3 py-3 text-sm flex items-center min-w-0";
   const numCell = `${cell} justify-end font-mono tabular-nums`;
   // Header cell for a right-aligned metric column.
   const numHead = "px-3 py-2 text-right";
-  // A flat, ever-incrementing row counter drives the subtle zebra so alternate
-  // rows read gently even across day groups.
-  let rowIndex = 0;
 
   return (
     <div>
+      {/* KPI stat cards — totals for the current filter set, as singular rounded
+          boxes. They sit above the pinned filter/header block and scroll away. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <StatCard label="Campaigns" value={int(summary.count)} />
+        <StatCard label="Recipients" value={int(summary.recipients)} />
+        <StatCard label="Avg open" value={pct(summary.avgOpen)} />
+        <StatCard label="Avg click" value={pct(summary.avgClick)} />
+        <StatCard label="Revenue" value={money(summary.revenue)} />
+        <StatCard label={<>NB rev · <span className="normal-case tracking-normal">1d click</span></>} value={money(summary.nbRevenue)} />
+      </div>
+
       {/* Filter bar + column header pinned together to the top of the page
           scroll (the planner layout's overflow-y-auto region). One solid
           background so rows never bleed through while scrolling. */}
@@ -628,33 +657,37 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
         </div>
 
         {/* column header — aligned to GRID */}
-        <div className="grid bg-chrome border-b border-line t-label" style={{ gridTemplateColumns: GRID }}>
+        {/* Column header — white and quiet (a single bottom hairline), so it
+            blends into the surface instead of reading as a gray bar. */}
+        <div className="grid bg-surface border-b border-line t-label" style={{ gridTemplateColumns: GRID }}>
           <div className="px-3 py-2">Campaign</div>
           <div className="px-3 py-2">Status</div>
           <div className="px-3 py-2">Planned</div>
-          <div className="px-3 py-2">Offer value</div>
-          <div className="px-3 py-2">Discount code</div>
+          <div className="px-3 py-2">Offer</div>
           <div className={`${numHead} border-l border-line`}>Recipients</div>
           <div className={numHead}>Open</div>
           <div className={numHead}>Click</div>
           <div className={numHead}>Rev/recip</div>
           <div className={numHead}>Revenue</div>
+          <div className={numHead} title="Northbeam attributed revenue — 1-day click, last-touch, cash accounting (matched by campaign name). Distinct from the platform-reported Revenue.">NB rev</div>
         </div>
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>
         {groups.map((g, gi) => (
           <div key={g.day || "flat"}>
-            {sortBy === "date" && (
-              <div className={`px-3 ${gi === 0 ? "pt-3" : "pt-6"} pb-1.5 border-b border-line t-label`}>
-                {g.day ? fmtDate(g.day + "T00:00:00") : ""}
+            {sortBy === "date" && g.day && (
+              // Airy, quiet day label — no band, no fill; generous space above
+              // each group so days read as gentle sections that flow into the
+              // table. Left gutter so it feels like a margin note.
+              <div className={`px-1 ${gi === 0 ? "pt-3" : "pt-8"} pb-2 t-label`}>
+                {fmtDate(g.day + "T00:00:00")}
               </div>
             )}
             <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
               {(provided, snap) => (
-                <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/50" : ""}>
+                <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/40 rounded-md" : ""}>
                   {g.rows.map((r, idx) => {
-                    const zebra = rowIndex++ % 2 === 1;
                     const isOpen = expanded.has(r.id);
                     return (
                       <div key={r.id}>
@@ -662,7 +695,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                           {(dp, snap2) => (
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
-                              className={`grid border-b border-line hover:bg-chrome cursor-pointer transition-colors ${zebra ? "bg-canvas" : "bg-surface"} ${snap2.isDragging ? "shadow-pop" : ""}`}
+                              className={`grid bg-surface border-b border-line hover:bg-accent-50/50 cursor-pointer transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`}
                               style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
                               <div className={cell}>
                                 <ExpandToggle open={isOpen} onToggle={() => toggle(r.id)} />
@@ -673,28 +706,33 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                                 </div>
                               </div>
                               <div className={cell}>
-                                <div className="flex flex-col items-start gap-1 min-w-0">
-                                  <StatusPill status={r.status} channel={r.channel} />
-                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} />}
+                                <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+                                  <StatusPill status={r.status} />
+                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
                                 </div>
                               </div>
                               <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
-                              <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerValue(r)}</span></div>
-                              <div className={`${cell} text-ink-muted`}>
-                                {discountCode(r)
-                                  ? <span className="font-mono text-[11px] tracking-tight truncate">{discountCode(r)}</span>
-                                  : <span className="text-ink-muted/50">—</span>}
+                              <div className={cell}>
+                                <div className="min-w-0 flex flex-col gap-0.5">
+                                  <span className="truncate text-ink-secondary">{offerValue(r)}</span>
+                                  {discountCode(r) && (
+                                    <span className="w-fit max-w-full truncate whitespace-nowrap font-mono text-[10px] tracking-tight text-ink-muted border border-line rounded-sm px-1 py-px">
+                                      {discountCode(r)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              <div className={`${numCell} text-ink-muted border-l border-line`}>{int(r.recipients)}</div>
-                              <div className={`${numCell} text-ink-muted`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
-                              <div className={`${numCell} text-ink-muted`}>{pct(r.click_rate)}</div>
-                              <div className={`${numCell} text-ink-muted`}>{rpr(r.revenue_per_recipient)}</div>
-                              <div className={`${numCell} text-ink font-semibold`}>{money(r.revenue)}</div>
+                              <div className={`${numCell} border-l border-line`}><Num v={r.recipients} fmt={int} /></div>
+                              <div className={numCell}>{r.channel === "sms" ? <span className="text-ink-muted/50">—</span> : <Num v={r.open_rate} fmt={pct} />}</div>
+                              <div className={numCell}><Num v={r.click_rate} fmt={pct} /></div>
+                              <div className={numCell}><Num v={r.revenue_per_recipient} fmt={rpr} /></div>
+                              <div className={numCell}><Num v={r.revenue} fmt={money} emphasize /></div>
+                              <div className={numCell}><Num v={r.northbeam_revenue} fmt={money} emphasize /></div>
                             </div>
                           )}
                         </Draggable>
                         {isOpen && (
-                          <div className="border-b border-line bg-canvas/60 pl-10 pr-4 py-3 grid gap-1.5 text-[11px] text-ink-secondary rc-animate-fade">
+                          <div className="border-b border-line bg-accent-50/30 pl-10 pr-4 py-3 grid gap-1.5 text-[11px] text-ink-secondary rc-animate-fade">
                             <div className="flex gap-2">
                               <span className="shrink-0 w-16 t-label">Audience</span>
                               <span className="min-w-0">{audienceSummary(r)}</span>
@@ -715,17 +753,6 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
           </div>
         ))}
       </DragDropContext>
-
-      {/* summary — aligned to GRID */}
-      <div className="grid border-t-2 border-line bg-chrome text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
-        <div className="px-3 py-3 text-ink-secondary">{summary.count} total</div>
-        <div /><div /><div /><div />
-        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-secondary border-l border-line">{int(summary.recipients)}</div>
-        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgOpen)}</div>
-        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgClick)}</div>
-        <div />
-        <div className="px-3 py-3 text-right font-mono tabular-nums text-ink">{money(summary.revenue)}</div>
-      </div>
 
       {sortBy === "revenue" && <div className="px-1 py-2 text-[11px] text-ink-muted">Switch sort to “Planned send” to drag-reschedule.</div>}
     </div>

@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { DashboardDataProvider } from "./dashboard-context";
 import type { OverviewData } from "./types";
 import { ymd, formatMoney, formatInt, formatPct } from "./format";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
+import Card from "@/components/ui/Card";
+import PageHeader from "@/components/ui/PageHeader";
+import { KPIRow, StatCell } from "@/components/ui/Stat";
+import { SegmentedToggle } from "@/components/ui/FilterBar";
 import { toast } from "@/components/ui/Toast";
 
 type Preset = "7d" | "30d" | "90d" | "custom";
@@ -58,8 +60,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);       // "Sync now" (Klaviyo pull) in flight
   const [pollAttempts, setPollAttempts] = useState(0); // background coverage polling
-
-  const pathname = usePathname();
 
   // Read the store for a range. Instant (no Klaviyo) — accepts explicit start/end
   // so a preset click reads the new range in the same tick.
@@ -136,52 +136,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const firstLoad = loading && !hasData;
   const freshness = relSync(data?.last_synced_at);
 
-  const tabs = [
-    { href: "/dashboard/flows", label: "Flows" },
-    { href: "/dashboard/campaigns", label: "Campaigns" },
-  ];
-
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-8 py-8">
-        {/* Header: title + range presets / custom inputs + Sync now */}
-        <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
-          <div>
-            <div className="t-label mb-1">Dashboard</div>
-            <h1 className="text-2xl font-semibold text-ink">Performance overview</h1>
-          </div>
-          <div className="flex items-end gap-3 flex-wrap">
-            <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
-              {PRESETS.map((p) => (
-                <button key={p.key} onClick={() => applyPreset(p.key, p.days)}
-                  className={`px-3 py-1.5 text-sm rounded-[6px] font-medium transition-colors duration-150 ease-out-soft ${
-                    preset === p.key ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"
-                  }`}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {preset === "custom" && (
-              <>
-                <div>
-                  <label className="block t-label mb-1">Start</label>
-                  <input type="date" value={start} onChange={(e) => setStart(e.target.value)}
-                    className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
+        {/* Header: eyebrow → title → description, with range control + Sync now */}
+        <PageHeader
+          className="mb-6"
+          eyebrow="Dashboard"
+          title="Performance"
+          accent="overview"
+          description="Placed-order and Klaviyo-attributed email revenue across the selected range."
+          meta={
+            <>
+              {hasData && (
+                <div className={`self-end pb-1.5 text-xs flex items-center gap-1.5 ${freshness.stale ? "text-warning-600" : "text-ink-muted"}`}
+                  title={data?.last_synced_at ? `Last synced ${new Date(data.last_synced_at).toLocaleString()}` : undefined}>
+                  <RefreshIcon className={`opacity-70 ${syncing ? "animate-spin" : ""}`} />
+                  Synced {freshness.label}
                 </div>
-                <div>
-                  <label className="block t-label mb-1">End</label>
-                  <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
-                    className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
-                </div>
-                <Button variant="secondary" size="sm" loading={loading} onClick={() => load()}>Apply</Button>
-              </>
-            )}
-            <Button variant="secondary" size="sm" loading={syncing} onClick={syncNow}
-              title="Pull the latest metrics from Klaviyo (may take a moment)">
-              <RefreshIcon className="mr-1.5" /> Sync now
-            </Button>
-          </div>
-        </div>
+              )}
+              <SegmentedToggle
+                ariaLabel="Time period"
+                options={PRESETS.map((p) => ({ value: p.key, label: p.label }))}
+                value={preset}
+                onChange={(k) => applyPreset(k, PRESETS.find((p) => p.key === k)?.days ?? null)}
+              />
+              {preset === "custom" && (
+                <>
+                  <div>
+                    <label className="block t-label mb-1">Start</label>
+                    <input type="date" value={start} onChange={(e) => setStart(e.target.value)}
+                      className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block t-label mb-1">End</label>
+                    <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
+                      className="border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors" />
+                  </div>
+                  <Button variant="secondary" size="sm" loading={loading} onClick={() => load()}>Apply</Button>
+                </>
+              )}
+              <Button variant="secondary" size="sm" loading={syncing} onClick={syncNow}
+                title="Pull the latest metrics from Klaviyo (may take a moment)">
+                <RefreshIcon className="mr-1.5" /> Sync now
+              </Button>
+            </>
+          }
+        />
 
         {error && (
           <div className="bg-danger-50 border border-danger-200 rounded-md p-4 mb-6">
@@ -223,22 +224,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         ) : hasData && revenue ? (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-              <div className="bg-surface border border-line rounded-md shadow-card p-6">
-                <div className="t-label mb-2">Placed-order revenue (Klaviyo)</div>
-                <div className="text-3xl font-semibold text-ink">{formatMoney(revenue.total)}</div>
-                <div className="text-sm text-ink-secondary mt-2">
-                  {formatInt(revenue.order_count)} orders · source: Klaviyo &ldquo;Placed Order&rdquo; (Shopify)
-                </div>
-              </div>
-              <div className="bg-surface border border-line rounded-md shadow-card p-6">
-                <div className="t-label mb-2">Klaviyo-attributed revenue</div>
-                <div className="text-3xl font-semibold text-ink">{formatMoney(revenue.attributed)}</div>
-                <div className="text-sm text-ink-secondary mt-2">
-                  {formatPct(revenue.attributed, revenue.total)} of placed-order revenue
-                </div>
-              </div>
-            </div>
+            <Card className="mb-3" bodyClassName="p-6">
+              <KPIRow cols={2}>
+                <StatCell
+                  label="Placed-order revenue (Klaviyo)"
+                  value={formatMoney(revenue.total)}
+                  description={<>{formatInt(revenue.order_count)} orders · source: Klaviyo &ldquo;Placed Order&rdquo; (Shopify)</>}
+                />
+                <StatCell
+                  label="Klaviyo-attributed revenue"
+                  value={formatMoney(revenue.attributed)}
+                  description={<>{formatPct(revenue.attributed, revenue.total)} of placed-order revenue</>}
+                />
+              </KPIRow>
+            </Card>
             <div className="text-xs text-ink-muted mb-6 px-1">
               Attributed = {formatMoney(revenue.attributed_from_flows)} flows + {formatMoney(revenue.attributed_from_campaigns)} campaigns
               {" = "}{formatMoney(revenue.attributed_from_flows + revenue.attributed_from_campaigns)}
@@ -248,32 +247,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </>
         ) : null}
 
-        {/* Tabs (underline) + freshness line */}
-        <div className="flex items-end justify-between border-b border-line mb-6">
-          <div className="flex items-center gap-6">
-            {tabs.map((t) => {
-              const active = pathname === t.href;
-              return (
-                <Link key={t.href} href={t.href}
-                  className={`relative pb-2.5 text-sm font-medium transition-colors ${
-                    active ? "text-ink" : "text-ink-muted hover:text-ink-secondary"
-                  }`}>
-                  {t.label}
-                  {active && <span aria-hidden className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-accent" />}
-                </Link>
-              );
-            })}
-          </div>
-          {hasData && (
-            <div className={`pb-2.5 text-xs flex items-center gap-1.5 ${freshness.stale ? "text-warning-600" : "text-ink-muted"}`}
-              title={data?.last_synced_at ? `Last synced ${new Date(data.last_synced_at).toLocaleString()}` : undefined}>
-              <RefreshIcon className={`opacity-70 ${syncing ? "animate-spin" : ""}`} />
-              Synced {freshness.label}
-            </div>
-          )}
-        </div>
-
-        {/* Content: skeleton table on first load, otherwise the active tab */}
+        {/* Content: skeleton table on first load, otherwise the active route
+            (Flows / Campaigns — selected from the sidebar's MEASURE group). */}
         {firstLoad ? (
           <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
             <div className="px-6 py-4 border-b border-line">
