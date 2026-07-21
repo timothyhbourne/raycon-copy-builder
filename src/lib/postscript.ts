@@ -162,3 +162,19 @@ export async function getPostscriptCampaignMetrics(campaignId: string): Promise<
     return null;
   }
 }
+
+// Per-campaign detail (name/status/send_time). Used by the planner's Northbeam
+// pass to resolve a row's LINKED campaign name for name-based revenue matching.
+// Returns null if the campaign can't be fetched (never blows up a whole sync).
+export async function getPostscriptCampaign(campaignId: string): Promise<PostscriptCampaign | null> {
+  try {
+    const resp = await postscriptFetch(`/campaigns/${encodeURIComponent(campaignId)}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = resp as any;
+    return parseCampaign(r?.campaign ?? r?.data ?? r);
+  } catch (e) {
+    if (e instanceof Error && e.message === "POSTSCRIPT_NOT_CONFIGURED") throw e;
+    console.error("[postscript] campaign fetch failed for", campaignId, e);
+    return null;
+  }
+}

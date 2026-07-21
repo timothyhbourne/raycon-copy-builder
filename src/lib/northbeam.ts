@@ -49,12 +49,26 @@ function cfg() {
     totalSalesMetricId: readEnv("NORTHBEAM_TOTAL_SALES_METRIC_ID"),
     level: readEnv("NORTHBEAM_LEVEL") || "platform",
     breakdown: readEnv("NORTHBEAM_BREAKDOWN") || "Platform (Northbeam)",
+    // Campaign-level export (planner NB-rev column). The exact `level` value and
+    // the campaign-name breakdown key are NOT confirmed live yet — these defaults
+    // are the best guess and are overridable so the id can be locked in from the
+    // northbeam-debug route's 422s / discovered columns WITHOUT a code change.
+    campaignLevel: readEnv("NORTHBEAM_CAMPAIGN_LEVEL") || "campaign",
+    campaignBreakdown: readEnv("NORTHBEAM_CAMPAIGN_BREAKDOWN") || "Campaign",
   };
 }
 
 export function isNorthbeamConfigured(): boolean {
   const c = cfg();
   return !!(c.apiKey && c.clientId);
+}
+
+// The Northbeam platform labels per channel (email → Klaviyo, sms → Postscript).
+// Exposed so the planner sync can look up campaign revenue by the same label the
+// export reports, without reaching into cfg().
+export function northbeamPlatformLabels(): { email: string; sms: string } {
+  const c = cfg();
+  return { email: c.emailLabel, sms: c.smsLabel };
 }
 
 // --- auth: the key goes in the Basic header. Northbeam issues it already
@@ -130,6 +144,37 @@ function buildExportBody(periodStartISO: string, periodEndISO: string) {
       attribution_models: [c.attributionModelId], // required; 1-day click ⇒ last-click model
       attribution_windows: [c.attributionWindow], // "1" = 1-day
       accounting_modes: [c.accountingMode], // "cash"
+    },
+  };
+}
+
+// Campaign-level variant of buildExportBody. Same attribution_options (1-day
+// click / cash) so it reconciles with the channel-level weekly report, but the
+// level is campaign and we request TWO breakdowns — Platform (to tag each row
+// Klaviyo vs Postscript) and Campaign (the utm_campaign name we match on). The
+// preferred path is both breakdowns in ONE export; if the API rejects that,
+// the northbeam-debug route's 422 will say so and we split into two (one per
+// platform) — but confirm before assuming. The campaign breakdown carries no
+// `values` so every campaign is returned (we filter/match downstream).
+function buildCampaignExportBody(periodStartISO: string, periodEndISO: string) {
+  const c = cfg();
+  return {
+    level: c.campaignLevel, // "campaign"
+    time_granularity: "WEEKLY",
+    period_type: "FIXED",
+    period_options: {
+      period_starting_at: periodStartISO,
+      period_ending_at: periodEndISO,
+    },
+    breakdowns: [
+      { key: c.breakdown, values: [c.emailLabel, c.smsLabel] },
+      { key: c.campaignBreakdown },
+    ],
+    metrics: [{ id: c.revenueMetricId }],
+    attribution_options: {
+      attribution_models: [c.attributionModelId],
+      attribution_windows: [c.attributionWindow],
+      accounting_modes: [c.accountingMode],
     },
   };
 }
@@ -242,6 +287,36 @@ function revenueOf(row: Row): number {
   const c = cfg();
   return pickNum(row, [c.revenueMetricId, "rev", "revenue", "attributed_rev", "attributed_revenue"]) ?? 0;
 }
+// The campaign-name column, read defensively across candidate keys (same idea as
+// platformOf). The downloaded CSV usually names a breakdown column
+// "breakdown_<key>" rather than the request key — so we try the likely export
+// column names first, then the request breakdown key, then generics. Confirm the
+// real column via the northbeam-debug route and, if needed, set
+// NORTHBEAM_CAMPAIGN_BREAKDOWN so the request key matches.
+function campaignNameOf(row: Row): string {
+  const c = cfg();
+  const candidates = [
+    "breakdown_campaign", "campaign", "campaign_name", "campaignName",
+    c.campaignBreakdown, "Campaign", "utm_campaign", "name",
+  ];
+  for (const k of candidates) {
+    const v = row[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+// Canonical form for matching a Northbeam campaign name to a linked platform
+// campaign name. Conservative on purpose: both sides derive from the SAME
+// platform campaign name (Northbeam's campaign dimension = utm_campaign, which
+// defaults to the Klaviyo/Postscript campaign name), so case-fold + Unicode
+// normalize + whitespace-collapse is enough. We deliberately do NOT strip emoji
+// or pipes ("RAY | O55 …") — those are part of the real name on both sides, and
+// stripping them invites false matches. This is the ONE place to loosen the rule
+// if the debug route shows a systematic, safe-to-ignore difference.
+export function normalizeCampaignName(name: string): string {
+  return (name || "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+}
 function totalSalesOf(row: Row): number | null {
   const c = cfg();
   return pickNum(row, [c.totalSalesMetricId, "total_sales", "totalSales", "total sales"]);
@@ -306,4 +381,53 @@ export async function runRawExport(weekStartISO: string, weekEndISO: string): Pr
   const rows = await downloadRows(fileUrl);
   const platforms = Array.from(new Set(rows.map(platformOf).filter(Boolean)));
   return { requestBody: body, rows, platforms };
+}
+
+// --- campaign-level revenue (planner NB-rev column) --------------------------
+
+export interface NorthbeamCampaignRevenue {
+  platform: string;     // raw platform label as reported ("Klaviyo" | "Postscript")
+  campaignName: string; // raw campaign name as reported (utm_campaign)
+  revenue: number;      // 1-day click, cash — same attribution as the weekly report
+}
+
+// Per-campaign 1-day-click cash revenue for both platforms over an arbitrary
+// window. Mirrors getWeeklyChannelRevenue but at campaign level. With WEEKLY
+// granularity a multi-week window returns one row per campaign PER week — the
+// caller sums by (platform, name), so no de-duplication is needed here. Rows
+// with no resolvable campaign name are dropped (they can't be matched anyway).
+export async function getCampaignRevenue(periodStartISO: string, periodEndISO: string): Promise<NorthbeamCampaignRevenue[]> {
+  const body = buildCampaignExportBody(periodStartISO, periodEndISO);
+  const id = await createExport(body);
+  const fileUrl = await pollExport(id);
+  const rows = await downloadRows(fileUrl);
+  return rows
+    .map((r) => ({ platform: platformOf(r), campaignName: campaignNameOf(r), revenue: revenueOf(r) }))
+    .filter((r) => r.campaignName);
+}
+
+// Debug helper (used by /api/planner/northbeam-debug) to confirm the live
+// unknowns for the campaign export: the discovered column names, the distinct
+// campaign-name strings Northbeam reports (what we match against), and the
+// distinct platform labels. Drives the level/breakdown-key confirmation off the
+// 422s exactly like the platform path was confirmed.
+export async function runRawCampaignExport(periodStartISO: string, periodEndISO: string): Promise<{
+  requestBody: unknown; rows: Row[]; normalized: NorthbeamCampaignRevenue[];
+  columns: string[]; campaignNames: string[]; platforms: string[]; totalsByPlatform: Record<string, number>;
+}> {
+  const body = buildCampaignExportBody(periodStartISO, periodEndISO);
+  const id = await createExport(body);
+  const fileUrl = await pollExport(id);
+  const rows = await downloadRows(fileUrl);
+  const normalized = rows
+    .map((r) => ({ platform: platformOf(r), campaignName: campaignNameOf(r), revenue: revenueOf(r) }))
+    .filter((r) => r.campaignName);
+  const columns = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
+  const campaignNames = Array.from(new Set(rows.map(campaignNameOf).filter(Boolean))).sort();
+  const platforms = Array.from(new Set(rows.map(platformOf).filter(Boolean)));
+  // Per-platform revenue totals — reconcile these against the weekly report's
+  // channel totals and the CRM v2 view for the same window/accounting mode.
+  const totalsByPlatform: Record<string, number> = {};
+  for (const r of normalized) totalsByPlatform[r.platform] = (totalsByPlatform[r.platform] ?? 0) + r.revenue;
+  return { requestBody: body, rows, normalized, columns, campaignNames, platforms, totalsByPlatform };
 }

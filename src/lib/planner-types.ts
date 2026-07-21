@@ -76,12 +76,20 @@ export interface PlannerRow {
   revenue?: number | null;
   revenue_per_recipient?: number | null;
   metrics_synced_at?: string | null;
+  // Northbeam 1-day-click / last-touch / cash revenue for this campaign, matched
+  // by the linked platform campaign's name (utm_campaign). Distinct from the
+  // platform-reported `revenue` above. null = no data / no name match yet.
+  northbeam_revenue?: number | null;
+  northbeam_synced_at?: string | null;
   // --- Bookkeeping ---
   created_at: string;
   updated_at: string;
 }
 
-// The metrics half a sync writes back onto a row.
+// The metrics half a sync writes back onto a row. The Northbeam fields are
+// optional: they're written by an independent pass (see the sync route) that may
+// run separately from — or fail without taking down — the Klaviyo/Postscript
+// write, so writeSyncedMetrics accepts a Partial of this.
 export interface SyncedMetrics {
   recipients: number | null;
   open_rate: number | null;
@@ -89,6 +97,8 @@ export interface SyncedMetrics {
   revenue: number | null;
   revenue_per_recipient: number | null;
   metrics_synced_at: string;
+  northbeam_revenue?: number | null;
+  northbeam_synced_at?: string | null;
 }
 
 // "Sent" is derived, never stored: a row counts as effectively sent once it is
@@ -99,7 +109,7 @@ export function isEffectivelySent(row: PlannerRow): boolean {
 }
 
 // Per-row sync outcome so the UI can explain exactly why a row did/didn't sync.
-export type SyncReason = "matched" | "not_linked" | "not_sent_yet" | "no_activity_in_window" | "postscript_not_connected";
+export type SyncReason = "matched" | "not_linked" | "not_sent_yet" | "no_activity_in_window" | "postscript_not_connected" | "northbeam_unmatched";
 export interface SyncResult {
   id: string;
   name: string;

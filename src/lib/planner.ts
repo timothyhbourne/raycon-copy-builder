@@ -145,8 +145,11 @@ export async function deletePlannerRow(id: string): Promise<boolean> {
 }
 
 // Write back synced metrics onto a row (used by the sync route). Leaves plan
-// fields untouched.
-export async function writeSyncedMetrics(id: string, metrics: SyncedMetrics): Promise<PlannerRow | null> {
+// fields untouched. Accepts a Partial so the independent Northbeam pass can
+// write just { northbeam_revenue, northbeam_synced_at } without clobbering the
+// Klaviyo/Postscript metrics written earlier in the same sync (each call re-reads
+// the store, so a later partial write merges onto the earlier one).
+export async function writeSyncedMetrics(id: string, metrics: Partial<SyncedMetrics>): Promise<PlannerRow | null> {
   if (!isSafeId(id)) return null;
   const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === id);

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { listPlannerRows, writeSyncedMetrics } from "@/lib/planner";
 import type { PlannerRow, SyncedMetrics, SyncResult } from "@/lib/planner-types";
-import { campaignValuesReport, dayRangeISO, resolvePlacedOrderMetric } from "@/lib/klaviyo";
-import { isPostscriptConfigured, getPostscriptCampaignMetrics } from "@/lib/postscript";
+import { campaignValuesReport, dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
+import { isPostscriptConfigured, getPostscriptCampaignMetrics, getPostscriptCampaign } from "@/lib/postscript";
+import { isNorthbeamConfigured, getCampaignRevenue, normalizeCampaignName, northbeamPlatformLabels } from "@/lib/northbeam";
 
 // Per-window cache for the Klaviyo campaign values report so repeated syncs of
 // the same window are cheap. In-process only — see klaviyo/overview/route.ts.
@@ -137,12 +138,96 @@ export async function POST() {
       warnings.push("Postscript not connected — set POSTSCRIPT_API_KEY to sync SMS metrics.");
     }
 
+    // ---- Northbeam campaign revenue (1-day click / last-touch / cash) ----
+    // Additive + fully isolated: matched to each row by its LINKED platform
+    // campaign name (Northbeam's campaign dimension = utm_campaign, which
+    // defaults to the Klaviyo/Postscript campaign name — NOT row.name). Any
+    // failure here only pushes a warning; it must never take down the
+    // Klaviyo/Postscript sync above (unlike the report path, which fails whole).
+    const northbeamConfigured = isNorthbeamConfigured();
+    const northbeamResults: SyncResult[] = [];
+    if (!northbeamConfigured) {
+      if (emailRows.length > 0 || smsRows.length > 0) {
+        warnings.push("Northbeam not configured — NB revenue skipped. Set NORTHBEAM_API_KEY / NORTHBEAM_CLIENT_ID.");
+      }
+    } else {
+      try {
+        const eligibleEmail = emailRows.filter((r) => isPast(emailSendBasis(r)));
+        const eligibleSms = smsRows.filter((r) => isPast(smsSendBasis(r)));
+        const eligible = [...eligibleEmail, ...eligibleSms];
+        if (eligible.length > 0) {
+          // Same window basis the K/PS passes use: earliest real send − 1 day → today.
+          const bases = eligible
+            .map((r) => (r.channel === "email" ? emailSendBasis(r) : smsSendBasis(r)))
+            .filter((b): b is string => !!b)
+            .map(ymd)
+            .sort();
+          const startYMD = addDaysYMD(bases[0], -1);
+          const endYMD = ymd(now);
+
+          const cr = await getCampaignRevenue(`${startYMD}T00:00:00`, `${endYMD}T23:59:59`);
+          // Sum by (platform, normalized name): WEEKLY granularity returns one
+          // row per campaign per week across a multi-week window.
+          const labels = northbeamPlatformLabels();
+          const keyOf = (platform: string, name: string) => `${platform.trim().toLowerCase()}||${normalizeCampaignName(name)}`;
+          const revByKey = new Map<string, number>();
+          for (const cRow of cr) {
+            const k = keyOf(cRow.platform, cRow.campaignName);
+            revByKey.set(k, (revByKey.get(k) ?? 0) + cRow.revenue);
+          }
+
+          // Resolve each row's LINKED campaign name (never assume row.name).
+          const emailNameById = new Map<string, string>();
+          const emailIds = eligibleEmail.map((r) => r.klaviyo_campaign_id!).filter(Boolean);
+          if (emailIds.length > 0) {
+            for (const c of await fetchCampaignsByIds(emailIds)) emailNameById.set(c.id, c.name);
+          }
+          // Only resolve SMS names when Postscript is connected — otherwise the
+          // fetch throws and would abort the whole NB pass (including email).
+          // Unresolved SMS rows simply fall through to northbeam_unmatched.
+          const smsNameById = new Map<string, string>();
+          if (postscriptConnected) {
+            for (const r of eligibleSms) {
+              const c = await getPostscriptCampaign(r.postscript_campaign_id!);
+              if (c?.name) smsNameById.set(r.postscript_campaign_id!, c.name);
+            }
+          }
+
+          for (const row of eligible) {
+            const label = row.channel === "email" ? labels.email : labels.sms;
+            const linkedName = row.channel === "email"
+              ? emailNameById.get(row.klaviyo_campaign_id!)
+              : smsNameById.get(row.postscript_campaign_id!);
+            const rev = linkedName ? revByKey.get(keyOf(label, linkedName)) : undefined;
+            if (rev == null) {
+              // Explicit null (never silently 0) + a visible unmatched result.
+              await writeSyncedMetrics(row.id, { northbeam_revenue: null, northbeam_synced_at: now });
+              northbeamResults.push({ id: row.id, name: row.name, matched: false, reason: "northbeam_unmatched" });
+            } else {
+              await writeSyncedMetrics(row.id, { northbeam_revenue: rev, northbeam_synced_at: now });
+              northbeamResults.push({ id: row.id, name: row.name, matched: true, reason: "matched" });
+            }
+          }
+          const unmatched = northbeamResults.filter((r) => !r.matched);
+          if (unmatched.length > 0) {
+            warnings.push(`Northbeam: ${unmatched.length} campaign${unmatched.length === 1 ? "" : "s"} had no name match (${unmatched.map((r) => r.name).join(", ")}).`);
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Northbeam revenue sync failed";
+        console.error("[planner/sync northbeam]", msg);
+        warnings.push(`Northbeam revenue sync failed (Klaviyo/Postscript metrics still synced): ${msg}`);
+      }
+    }
+
     // NOTE: to run this on a schedule later, wire a scheduled task to POST here.
     return NextResponse.json({
       ok: true,
       synced: syncedCount,
       postscript_connected: postscriptConnected,
+      northbeam_configured: northbeamConfigured,
       results,
+      northbeam_results: northbeamResults,
       warnings,
       rows: await listPlannerRows(),
     });
