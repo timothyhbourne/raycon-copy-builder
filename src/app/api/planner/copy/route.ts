@@ -189,7 +189,7 @@ export async function GET(req: NextRequest) {
 
   // SMS campaigns live in their own store. Return an SMS-shaped payload the
   // viewer renders as three variants; the compact form summarizes the selected one.
-  const sms = loadSmsCampaign(id);
+  const sms = await loadSmsCampaign(id);
   if (sms) {
     const selectedText = sms.variants[sms.selected_variant]?.text ?? sms.variants[0]?.text ?? "";
     const base = { id, source: "sms" as const, campaign_name: sms.name, updated_at: sms.updated_at };

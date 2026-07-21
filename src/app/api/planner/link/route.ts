@@ -17,13 +17,13 @@ import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
 // drafts store first, then the library, then the SMS store.
 async function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): Promise<void> {
   if (setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
-  if (setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
+  if (await setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
   await setLibraryPlannerRow(copyCampaignId, plannerRowId);
 }
 
 // True if the id resolves to a draft, library, or SMS copy.
 async function copyExists(copyCampaignId: string): Promise<boolean> {
-  return !!loadCampaign(copyCampaignId) || !!(await getLibraryCampaignById(copyCampaignId)) || !!loadSmsCampaign(copyCampaignId);
+  return !!loadCampaign(copyCampaignId) || !!(await getLibraryCampaignById(copyCampaignId)) || !!(await loadSmsCampaign(copyCampaignId));
 }
 
 export async function POST(req: NextRequest) {

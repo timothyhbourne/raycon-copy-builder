@@ -690,6 +690,30 @@
         "Raycon: Still thinking about the Fitness Open Earbuds? 30% off with code HOOKED30. Ends Monday. {link}",
         "Raycon: Last call. The Fitness Open Earbuds are 30% off before Monday. Code HOOKED30. {link}"
       ]
+    },
+    "2026-07-21-fs-30-off-e95-h20-h10": {
+      "date": "2026-07-21",
+      "campaign_type": "promo",
+      "title": "FS - 30% OFF E95 + H20 + H10",
+      "conceit": "Three for the Price",
+      "subject_lines": [
+        "30% off Pro Earbuds, Essential Headphones, and Everyday Headphones.",
+        "Three great pairs, one great deal — through Monday.",
+        "Thought you'd want to see what's on sale right now."
+      ],
+      "preview_texts": [
+        "Use code COMBO30 at checkout. Deal ends Monday.",
+        "30% off three of our best. Code COMBO30, good through Monday.",
+        "Pro Earbuds, Essential Headphones, Everyday Headphones — all 30% off with code COMBO30."
+      ],
+      "headlines": [
+        "30% Off, All 3"
+      ],
+      "taglines": [
+        "Pick the pair that fits your life."
+      ],
+      "body_openers": [],
+      "one_liners": {}
     }
   }
 }
