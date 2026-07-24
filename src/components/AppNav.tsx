@@ -28,6 +28,9 @@ function CopyIcon() {
 function PlannerIcon() {
   return (<svg {...svgProps}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>);
 }
+function PromotionsIcon() {
+  return (<svg {...svgProps}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><circle cx="8" cy="15" r="1.4" fill="currentColor" stroke="none" /><path d="M12 15h4" /></svg>);
+}
 function FlowsIcon() {
   return (<svg {...svgProps}><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="M5 8v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M12 14v2" /></svg>);
 }
@@ -39,6 +42,9 @@ function ReportsIcon() {
 }
 function SandboxIcon() {
   return (<svg {...svgProps}><path d="M9 3h6M10 3v6.5L5 18a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-8.5V3" /><path d="M7 15h10" /></svg>);
+}
+function LifecycleIcon() {
+  return (<svg {...svgProps}><rect x="3" y="4" width="5" height="16" rx="1" /><rect x="10" y="4" width="5" height="11" rx="1" /><rect x="17" y="4" width="4" height="7" rx="1" /></svg>);
 }
 function SignOutIcon() {
   return (<svg {...svgProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>);
@@ -60,16 +66,28 @@ type NavGroup = { title: string; items: NavItem[] };
 // Reports; there is no standalone /dashboard content (it redirects to Flows).
 const GROUPS: NavGroup[] = [
   { title: "Create", items: [{ href: "/copy-builder", label: "Copy Builder", Icon: CopyIcon, badge: "AI" }] },
-  { title: "Plan", items: [{ href: "/planner", label: "Planner", Icon: PlannerIcon }] },
+  {
+    title: "Plan",
+    items: [
+      { href: "/planner", label: "Planner", Icon: PlannerIcon },
+      { href: "/promotions", label: "Promotions", Icon: PromotionsIcon },
+    ],
+  },
   {
     title: "Measure",
     items: [
       { href: "/dashboard/flows", label: "Flows", Icon: FlowsIcon },
       { href: "/dashboard/campaigns", label: "Campaigns", Icon: CampaignsIcon },
       { href: "/reports", label: "Reports", Icon: ReportsIcon },
+      { href: "/lifecycle", label: "Lifecycle", Icon: LifecycleIcon, badge: "NEW" },
     ],
   },
-  { title: "Lab", items: [{ href: "/sandbox", label: "Sandbox", Icon: SandboxIcon }] },
+  // Diagnostic surface — hidden in production (the /sandbox routes are gated to
+  // dev / ENABLE_DEBUG_ROUTES server-side; keep the nav in step). NODE_ENV is
+  // inlined at build time on the client.
+  ...(process.env.NODE_ENV !== "production"
+    ? [{ title: "Lab", items: [{ href: "/sandbox", label: "Sandbox", Icon: SandboxIcon }] }]
+    : []),
 ];
 
 export default function AppNav() {

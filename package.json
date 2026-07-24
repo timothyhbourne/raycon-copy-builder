@@ -6,13 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "sync:metrics": "tsx scripts/sync-metrics.ts",
     "seed:planner": "tsx scripts/seed-planner-kv.ts",
     "seed:library": "tsx scripts/seed-library-kv.ts",
+    "seed:lifecycle": "tsx scripts/seed-lifecycle-snapshot.ts",
     "ingest:doc": "tsx scripts/ingest-doc.ts",
     "ingest:designs": "tsx scripts/ingest-designs.ts",
     "ingest:design-spec": "tsx scripts/extract-design-spec.ts",
-    "index:constructions": "tsx scripts/index-constructions.ts"
+    "index:constructions": "tsx scripts/index-constructions.ts",
+    "ingest:orders": "tsx scripts/ingest-orders.ts",
+    "backtest:lifecycle": "tsx scripts/backtest-lifecycle.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
@@ -24,7 +30,8 @@
     "openai": "^6.42.0",
     "puppeteer": "^25.1.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -32,8 +39,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.7",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }
