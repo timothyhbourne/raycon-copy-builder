@@ -7,9 +7,10 @@ import EditableField from "./EditableField";
 import RepetitionChip from "./RepetitionChip";
 import { elementKey, gridProductKey, type RepetitionFlag } from "@/lib/repetition-client";
 
-// Section types offered in the "insert section" dropdown. product_grid is
-// omitted on purpose: it needs column/row dimensions that are only chosen in the
-// pre-generation Section Structure builder, and a blank grid has nothing to show.
+// Section types offered in the "insert section" dropdown. product_grid and
+// bundle are omitted on purpose: they need dimensions / product+template config
+// that is only chosen in the pre-generation Section Structure builder, so a
+// blank one inserted here would have nothing meaningful to show.
 const INSERTABLE_TYPES: SectionType[] = [
   "header", "body", "free_form", "usps", "product_card", "product_card_review", "reviews", "cta_bridge", "footer_cta",
 ];
@@ -256,13 +257,15 @@ export default function SectionBlock({
     );
   };
 
-  // Fields to show, in catalogue order, plus any extra keys already on the
-  // section (e.g. an opted-in Sub-Tagline). Rendering the full catalogue , even
-  // when empty , is what lets a freshly INSERTED blank section be filled in;
-  // otherwise it renders as an empty box with nothing to type into.
+  // Fields to show: the section's OWN element order first (so generated copy ,
+  // e.g. a bundle's USPs before its CTA , keeps the order it was written in),
+  // then any catalogue elements still missing. Appending the missing catalogue
+  // keys , even when empty , is what lets a freshly INSERTED blank section be
+  // filled in; otherwise it renders as an empty box with nothing to type into.
   const catalogue = SECTION_CATALOGUE[section.type] ?? [];
-  const extraKeys = Object.keys(section.elements).filter((k) => !catalogue.includes(k));
-  const elementKeys = [...catalogue, ...extraKeys];
+  const presentKeys = Object.keys(section.elements);
+  const missingCatalogue = catalogue.filter((k) => !presentKeys.includes(k));
+  const elementKeys = [...presentKeys, ...missingCatalogue];
 
   return (
     <div className="relative group section-block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>

@@ -36,8 +36,8 @@ const angle = z.enum(["offer_led", "product_led", "story_led", "occasion_led"]);
 const sendStage = z.enum(["launch", "reminder", "last_call"]);
 const urgencyTier = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 const sectionType = z.enum([
-  "header", "body", "usps", "product_card", "product_card_review",
-  "product_grid", "reviews", "cta_bridge", "footer_cta",
+  "header", "body", "free_form", "usps", "product_card", "product_card_review",
+  "product_grid", "bundle", "reviews", "cta_bridge", "footer_cta",
 ]);
 
 const productInGrid = z.looseObject({
@@ -55,6 +55,10 @@ const sectionSpec = z.looseObject({
   grid_cols: z.number().optional(),
   grid_rows: z.number().optional(),
   product_slug: z.string().optional(),
+  bundle_mode: z.enum(["custom", "existing"]).optional(),
+  bundle_template: z.enum(["unified", "checklist", "pairing", "hero_addons"]).optional(),
+  bundle_products: z.array(z.string()).optional(),
+  bundle_id: z.string().optional(),
 });
 
 // Rich generated content is validated structurally but kept permissive — the
@@ -102,7 +106,7 @@ export const plannerRowSchema = z.looseObject({
   offer: z.string(),
   promo_code: z.string().optional(),
   planned_send_at: z.string(),
-  status: z.enum(["writing_brief", "planned", "scheduled", "cancelled"]),
+  status: z.enum(["writing_brief", "ready_for_design", "scheduled", "cancelled"]),
   audience_included: z.array(audienceRef),
   audience_excluded: z.array(audienceRef),
   notes: z.string(),

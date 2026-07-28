@@ -357,6 +357,11 @@ export default function Home() {
     const normalised: BriefInput = { ...input, section_structure: expandedStructure };
     setCurrentBriefInput(normalised);
     setSectionStructure(expandedStructure);
+    // Clear any stale planner link when this brief is NOT tied to a planner row.
+    // Without this, a plannerLink left over (persisted in localStorage) from an
+    // earlier planner-seeded copy would make this fresh copy's save stamp the
+    // wrong planner row — the "every copy links to the evergreen row" bug.
+    if (!input.planner_row_id) setPlannerLink(null);
 
     // Retrieve similar past campaigns (client-side scoring) to pass into generate.
     let topExamples: LibraryCampaign[] = [];
@@ -712,8 +717,10 @@ export default function Home() {
     setSavingStatus("saving");
     setError(null);
     try {
+      // Fall back to a nanoid when the name slugs to empty, so the id is always
+      // valid (no trailing-dash "2026-07-28-") and never silently collides.
       const id = currentLibraryId ||
-        `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name)}`;
+        `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name) || nanoid().slice(0, 6)}`;
 
       const res = await fetch("/api/finalize", {
         method: "POST",

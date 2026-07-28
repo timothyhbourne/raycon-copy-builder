@@ -178,9 +178,9 @@ export async function linkCopyCampaign(
     copy_campaign_id: copyCampaignId,
     copy_status: copyStatus,
     copy_linked_at: now,
-    // Nudge the plan forward only from the initial "writing brief" stage. Never
-    // downgrade a row that's already scheduled in Klaviyo (or cancelled).
-    status: rows[idx].status === "writing_brief" ? "planned" : rows[idx].status,
+    // Status is left untouched: attaching copy no longer auto-advances the plan.
+    // The writer bumps it to "ready_for_design" explicitly (the design-handoff
+    // action), so linking a draft mid-write doesn't jump the stage.
     updated_at: now,
   };
   await writeAll(rows);

@@ -80,6 +80,14 @@
   box-sizing: border-box;
 }
 
+/* Global UI scale. The whole app is rem-based (Tailwind: text, spacing, widths
+   like the w-60 sidebar), so nudging the root font-size zooms everything
+   uniformly — roughly a built-in 120% browser zoom so type/layout read clearly
+   at 100%. Tune this single number to taste (125% ≈ 20px). */
+html {
+  font-size: 120%;
+}
+
 body {
   font-family: var(--font-sans);
   background: var(--color-chrome);

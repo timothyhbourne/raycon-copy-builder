@@ -1,8 +1,12 @@
 "use client";
 import { useState } from "react";
-import type { SectionSpec, SectionType } from "@/lib/schemas";
-import { OPTIONAL_ELEMENTS, isProductCardType } from "@/lib/schemas";
+import type { SectionSpec, SectionType, BundleMode } from "@/lib/schemas";
+import { OPTIONAL_ELEMENTS, isProductCardType, BUNDLE_TEMPLATES } from "@/lib/schemas";
+import { PRODUCT_CATEGORIES, getProductName } from "@/lib/products";
+import { RAYCON_BUNDLES, getBundle, bundleContentsLabel } from "@/lib/bundles";
 import { nanoid } from "@/lib/nanoid";
+
+const ALL_CATALOGUE_PRODUCTS = PRODUCT_CATEGORIES.flatMap((c) => c.products);
 
 const SECTION_TYPES: SectionType[] = [
   "header", "body", "free_form", "usps", "product_card", "product_card_review", "product_grid", "reviews", "cta_bridge", "footer_cta",
@@ -41,6 +45,26 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
     onChange(sections.map((s) => (s.id === id ? { ...s, product_slug: slug || undefined } : s)));
   };
 
+  const patchSection = (id: string, patch: Partial<SectionSpec>) => {
+    onChange(sections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  };
+  const setBundleMode = (id: string, mode: BundleMode) => {
+    // Switching source clears the previous selection so the two modes don't
+    // leave stale ids/products behind.
+    patchSection(id, { bundle_mode: mode, bundle_id: undefined, bundle_products: [] });
+  };
+  const pickExistingBundle = (id: string, bundleId: string) => {
+    const b = getBundle(bundleId);
+    patchSection(id, { bundle_id: bundleId || undefined, bundle_products: b?.products ?? [] });
+  };
+  const toggleBundleProduct = (id: string, slug: string) => {
+    const s = sections.find((x) => x.id === id);
+    const cur = s?.bundle_products ?? [];
+    patchSection(id, {
+      bundle_products: cur.includes(slug) ? cur.filter((p) => p !== slug) : [...cur, slug],
+    });
+  };
+
   const toggleOptionalElement = (id: string, element: string) => {
     onChange(sections.map((s) => {
       if (s.id !== id) return s;
@@ -60,15 +84,18 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
   const onDragStart = (id: string) => setDragging(id);
   const onDragOver = (e: React.DragEvent, id: string) => {
     e.preventDefault();
-    setDragOver(id);
+    // Don't draw a drop-line on the row being dragged itself.
+    if (id !== dragging) setDragOver(id);
   };
+  // Drop places the dragged section AFTER the hovered one — matching the purple
+  // drop-line drawn under that row, so the landing spot is unambiguous.
   const onDrop = (targetId: string) => {
     if (!dragging || dragging === targetId) return;
-    const from = sections.findIndex((s) => s.id === dragging);
-    const to = sections.findIndex((s) => s.id === targetId);
     const updated = [...sections];
+    const from = updated.findIndex((s) => s.id === dragging);
     const [item] = updated.splice(from, 1);
-    updated.splice(to, 0, item);
+    const targetIdx = updated.findIndex((s) => s.id === targetId);
+    updated.splice(targetIdx + 1, 0, item);
     onChange(updated);
     setDragging(null);
     setDragOver(null);
@@ -87,8 +114,11 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
             onDragOver={(e) => onDragOver(e, s.id)}
             onDrop={() => onDrop(s.id)}
             onDragEnd={() => { setDragging(null); setDragOver(null); }}
-            className={`flex items-start gap-2 p-2 rounded border text-sm transition-all ${
-              dragOver === s.id ? "border-slate-400 bg-slate-50" : "border-slate-200 bg-white"
+            className={`flex items-start gap-2 p-2 rounded border border-slate-200 bg-white text-sm transition-all ${
+              dragging === s.id ? "opacity-40" : ""
+            } ${
+              // Purple drop-line under the hovered row = "the section lands here".
+              dragOver === s.id ? "shadow-[inset_0_-3px_0_0_var(--color-accent)]" : ""
             }`}
           >
             <span className="cursor-grab text-slate-400 mt-0.5 select-none">⠿</span>
@@ -175,6 +205,95 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                   )}
                 </div>
               )}
+              {s.type === "bundle" && (() => {
+                const mode = s.bundle_mode ?? "custom";
+                const template = s.bundle_template ?? "unified";
+                const chosen = s.bundle_products ?? [];
+                const tmplHint = BUNDLE_TEMPLATES.find((t) => t.id === template)?.hint;
+                return (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 shrink-0 w-16">Source</span>
+                      <select
+                        value={mode}
+                        onChange={(e) => setBundleMode(s.id, e.target.value as BundleMode)}
+                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                      >
+                        <option value="custom">Custom bundle</option>
+                        <option value="existing">Existing Raycon bundle</option>
+                      </select>
+                    </div>
+
+                    {mode === "existing" ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 shrink-0 w-16">Bundle</span>
+                        <select
+                          value={s.bundle_id ?? ""}
+                          onChange={(e) => pickExistingBundle(s.id, e.target.value)}
+                          className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400 max-w-full"
+                        >
+                          <option value="">Choose a bundle…</option>
+                          {RAYCON_BUNDLES.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name} — {bundleContentsLabel(b)}{b.verified === false ? " (unverified)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-slate-400 shrink-0 w-16 mt-1">Products</span>
+                        <div className="flex-1 min-w-0">
+                          {chosen.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1">
+                              {chosen.map((id) => (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={() => toggleBundleProduct(s.id, id)}
+                                  className="text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-slate-50 text-slate-600 hover:border-red-300 hover:text-red-500 transition-colors"
+                                  title="Remove from bundle"
+                                >
+                                  {getProductName(id)} ✕
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <select
+                            value=""
+                            onChange={(e) => { if (e.target.value) toggleBundleProduct(s.id, e.target.value); }}
+                            className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                          >
+                            <option value="">+ Add product…</option>
+                            {ALL_CATALOGUE_PRODUCTS.filter((p) => !chosen.includes(p.id)).map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 shrink-0 w-16">Layout</span>
+                      <select
+                        value={template}
+                        onChange={(e) => patchSection(s.id, { bundle_template: e.target.value as SectionSpec["bundle_template"] })}
+                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                      >
+                        {BUNDLE_TEMPLATES.map((t) => (
+                          <option key={t.id} value={t.id}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {tmplHint && <div className="text-xs text-slate-400 pl-[4.5rem] leading-relaxed">{tmplHint}</div>}
+                    {chosen.length < 2 && (
+                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        A bundle needs at least 2 products. {mode === "existing" ? "Pick a bundle above." : "Add another product."}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <button
               type="button"

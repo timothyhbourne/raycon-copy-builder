@@ -78,6 +78,16 @@ export default function PlannerPage() {
   }, []);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+  // Deep link for design handoff: /planner?copy=<id>&as=<draft|final> opens the
+  // full-copy viewer straight away, so a link pasted in Slack lands the designer
+  // on the copy. Clean the query afterwards so a refresh doesn't reopen it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const copy = params.get("copy");
+    if (!copy) return;
+    openCopyDoc(copy, params.get("as") === "final" ? "final" : "draft");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [openCopyDoc]);
   useEffect(() => {
     fetch("/api/klaviyo/campaigns-list").then((r) => r.json()).then((j) => {
       if (j.campaigns) setCampaigns(j.campaigns);
@@ -309,7 +319,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
             <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
           </div>
           <div className="flex items-center gap-3 t-label">
-            <span className="flex items-center gap-1"><span aria-hidden>✉️</span> Email</span>
+            <span className="flex items-center gap-1"><span aria-hidden>📧</span> Email</span>
             <span className="flex items-center gap-1"><span aria-hidden>📱</span> SMS</span>
           </div>
         </div>
@@ -841,6 +851,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [copyStatus, setCopyStatus] = useState<"draft" | "final" | undefined>(row?.copy_status);
   const [copyPreview, setCopyPreview] = useState<CopyPreview | null>(null);
   const [copyLoading, setCopyLoading] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
 
@@ -988,6 +999,30 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
   };
+  // Design handoff: mark the row "ready for design" (persisted immediately, like
+  // the copy link) and copy a Slack-ready message — title, planned send, and a
+  // deep link that opens the full copy — to the clipboard in one click.
+  const copyDesignHandoff = async () => {
+    if (!row || !copyId) return;
+    setHandoffBusy(true);
+    try {
+      if (status !== "ready_for_design") {
+        await post(build({ status: "ready_for_design" }));
+        setStatus("ready_for_design");
+        onLinkChanged();
+      }
+      const link = `${window.location.origin}/planner?copy=${encodeURIComponent(copyId)}&as=${copyStatus ?? "draft"}`;
+      const sendLabel = fmtDateTime(localInputToIso(plannedSendAt));
+      const message = `Hi there 👋\n\nThis campaign, "${name.trim()}", is ready for design.\nPlanned send: ${sendLabel}\n\nView the copy: ${link}`;
+      await navigator.clipboard.writeText(message);
+      toast.success("Handoff copied — paste into Slack");
+    } catch {
+      toast.error("Couldn't copy the handoff message");
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+
   const duplicate = async () => {
     setSaving(true); setErr(null);
     try {
@@ -1239,8 +1274,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                   {copyPreview?.subject_lines?.[0] || copyPreview?.campaign_name
                     || (copyPreview ? `${copyPreview.sections.length} section${copyPreview.sections.length === 1 ? "" : "s"}` : "Linked copy")}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <Button variant="secondary" size="sm" onClick={() => onViewCopy(copyId, copyStatus ?? "draft")}>View copy</Button>
+                  <Button variant="primary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
+                    title="Mark ready for design and copy a Slack message with a link to the copy">
+                    📋 Copy design handoff
+                  </Button>
                   <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
                 </div>
               </>
@@ -1289,7 +1328,7 @@ interface CopyListEntry { id: string; name: string; date: string; type: string; 
 
 function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   rowId: string; allRows: PlannerRow[]; channel: PlannerChannel;
-  onPick: (copyId: string, status: "draft" | "final") => void; onClose: () => void;
+  onPick: (copyId: string, status: "draft" | "final") => void | Promise<void>; onClose: () => void;
 }) {
   const isSms = channel === "sms";
   const [tab, setTab] = useState<"drafts" | "library">("drafts");
@@ -1299,6 +1338,9 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   const [sms, setSms] = useState<CopyListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [move, setMove] = useState<{ copyId: string; status: "draft" | "final"; otherRow: string } | null>(null);
+  // Id of the copy currently being attached — drives the row's "Attaching…"
+  // spinner and disables the list so the click doesn't feel like a hang.
+  const [attachingId, setAttachingId] = useState<string | null>(null);
 
   useEffect(() => {
     // SMS rows attach SMS campaigns; email rows attach email drafts/library.
@@ -1332,14 +1374,18 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   const rowNameById = (id: string) => allRows.find((r) => r.id === id)?.name;
   const entries = isSms ? sms : tab === "drafts" ? drafts : library;
   const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
-  const choose = (e: CopyListEntry) => {
+  const choose = async (e: CopyListEntry) => {
+    if (attachingId) return;
     const status: "draft" | "final" = isSms
       ? (e.status === "final" ? "final" : "draft")
       : (tab === "drafts" ? "draft" : "final");
     if (e.planner_row_id && e.planner_row_id !== rowId) {
       setMove({ copyId: e.id, status, otherRow: rowNameById(e.planner_row_id) ?? "another campaign" });
     } else {
-      onPick(e.id, status);
+      setAttachingId(e.id);
+      // onPick resolves once the attach + refetch settle (it closes the picker on
+      // success). Clear either way so a failure re-enables the list.
+      try { await onPick(e.id, status); } finally { setAttachingId(null); }
     }
   };
 
@@ -1365,15 +1411,26 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
             <div className="py-8 text-center text-sm text-ink-muted">No {isSms ? "SMS campaigns" : tab} found.</div>
           ) : filtered.map((e) => {
             const linkedElsewhere = e.planner_row_id && e.planner_row_id !== rowId;
+            const isAttaching = attachingId === e.id;
             return (
-              <button key={e.id} type="button" onClick={() => choose(e)}
-                className="w-full text-left px-1 py-2.5 flex items-center gap-3 hover:bg-chrome transition-colors">
+              <button key={e.id} type="button" disabled={!!attachingId} onClick={() => choose(e)}
+                className={`w-full text-left px-1 py-2.5 flex items-center gap-3 transition-colors ${
+                  attachingId ? "opacity-60 cursor-default" : "hover:bg-chrome"
+                }`}>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-ink truncate">{e.name}</div>
                   <div className="t-label">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
                 </div>
-                {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
-                <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>
+                {isAttaching ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-accent shrink-0">
+                    <span className="animate-spin inline-block">↻</span> Attaching…
+                  </span>
+                ) : (
+                  <>
+                    {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
+                    <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>
+                  </>
+                )}
               </button>
             );
           })}
@@ -1381,7 +1438,13 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
       </Modal>
 
       <ConfirmModal open={!!move} onClose={() => setMove(null)}
-        onConfirm={() => { if (move) { onPick(move.copyId, move.status); setMove(null); } }}
+        onConfirm={async () => {
+          if (!move) return;
+          const m = move;
+          setMove(null);
+          setAttachingId(m.copyId);
+          try { await onPick(m.copyId, m.status); } finally { setAttachingId(null); }
+        }}
         title="Move this copy?" body={move ? `This copy is linked to ${move.otherRow}. Move it here instead?` : ""}
         confirmLabel="Move it here" />
     </>

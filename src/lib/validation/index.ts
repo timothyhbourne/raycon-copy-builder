@@ -76,10 +76,11 @@ function migrateAudience(raw: unknown): AudienceRef[] {
 
 function migrateStatus(s: unknown): PlannerRow["status"] {
   switch (s) {
-    case "writing_brief": case "planned": case "scheduled": case "cancelled":
+    case "writing_brief": case "ready_for_design": case "scheduled": case "cancelled":
       return s;
-    case "idea": return "writing_brief";
-    case "draft": return "planned";
+    // "planned" was removed — legacy rows (and old "idea"/"draft") fold back to
+    // the working state; the writer bumps them to ready_for_design explicitly.
+    case "idea": case "planned": case "draft": return "writing_brief";
     case "sent": case "scheduled_in_klaviyo": return "scheduled";
     default: return "writing_brief";
   }

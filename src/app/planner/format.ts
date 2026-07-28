@@ -24,7 +24,7 @@ export interface CampaignItem { id: string; name: string; status: string; send_t
 
 // Channel signal = an emoji glyph shown before the campaign name.
 export const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: string }> = {
-  email: { emoji: "✉️", label: "Email" },
+  email: { emoji: "📧", label: "Email" },
   sms: { emoji: "📱", label: "SMS" },
 };
 
@@ -33,7 +33,7 @@ export const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: strin
 // name. The scheduled label is channel-dependent — see statusLabel().
 export const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
   writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
-  planned: { pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  ready_for_design: { pill: "bg-purple-50 text-purple-700 border-purple-300" },
   scheduled: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
   cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
 };

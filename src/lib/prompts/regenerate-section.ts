@@ -1,5 +1,5 @@
 import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign } from "../schemas";
-import { SECTION_CATALOGUE, isProductCardType } from "../schemas";
+import { SECTION_CATALOGUE, isProductCardType, bundleElements } from "../schemas";
 import { getProductName } from "../products";
 import { rayconVoice, hardRulesGate } from "./voice";
 
@@ -49,7 +49,13 @@ export function regenerateSectionUserPrompt(
   }).join("\n\n");
 
   const currentElements = formatSection(sectionToRegenerate.current_content);
-  const elements = SECTION_CATALOGUE[sectionToRegenerate.type] ?? [];
+  // Bundle sections have template/product-count-driven elements; fall back to
+  // the keys already on the section if the spec didn't carry the template.
+  const elements = sectionToRegenerate.type === "bundle"
+    ? (sectionToRegenerate.bundle_template
+        ? bundleElements(sectionToRegenerate.bundle_template, (sectionToRegenerate.bundle_products ?? []).length)
+        : Object.keys(sectionToRegenerate.current_content.elements))
+    : (SECTION_CATALOGUE[sectionToRegenerate.type] ?? []);
 
   const productMapNote = isProductCardType(sectionToRegenerate.type) && sectionToRegenerate.product_slug
     ? `\n\nPRODUCT MAPPING , this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner leads with a concrete use-case framing , a scene, a need, an audience, or a moment that grounds the product , then follows with 2-3 specs. Do NOT default to "For the [audience] who [verbs]…" , that template has been overused; pick a different opener shape unless the campaign genuinely calls for it AND the other cards in this campaign use different openers.`

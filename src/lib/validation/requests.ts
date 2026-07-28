@@ -20,7 +20,7 @@ export const loginBody = looseObj({
 export const plannerUpsertBody = looseObj({
   name: z.string().min(1, "name is required"),
   channel: z.enum(["email", "sms"]),
-  status: z.enum(["writing_brief", "planned", "scheduled", "cancelled"]).optional(),
+  status: z.enum(["writing_brief", "ready_for_design", "scheduled", "cancelled"]).optional(),
 });
 
 const nnum = z.number().nullable().optional();

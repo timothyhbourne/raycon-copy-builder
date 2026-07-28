@@ -1,6 +1,7 @@
 import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "../schemas";
-import { SECTION_CATALOGUE, isProductCardType } from "../schemas";
+import { SECTION_CATALOGUE, isProductCardType, bundleElements } from "../schemas";
 import { getProductName } from "../products";
+import { getBundle } from "../bundles";
 import { rayconVoice, hardRulesGate } from "./voice";
 import { playbookBlock } from "./playbooks";
 
@@ -18,6 +19,8 @@ Email structure hierarchy. Single-product-led emails convert faster than emails 
 If a product_grid or multi-option section appears before the hero in the requested structure, write the hero module first and push the grid below it regardless of the section order specified , single-product focus above the fold is the higher-priority rule.
 
 Cohesion across sections. You are writing ONE email, not a stack of independent modules. You have every section in view as you write, so treat them as a single arc: each section should be aware of what the ones before it already said and add something new rather than restate it. A later section may deliberately build on, answer, or call back to an earlier one to make the whole email read as a connected piece , this is encouraged, not a violation of the "don't repeat" rule (callbacks that advance the argument are cohesion; saying the same thing twice is repetition). When a section's focus note asks it to reference or follow on from another section (e.g. "tie back to the body", "pay off the header's promise", "reference section 1"), honor that literally: read what that other section says and write this one so the two connect.
+
+Bundle sections. A bundle section sells a COMBINATION of products as one offer. The Bundle Name and Subheader lead with the bundle as a whole (the combined value, the occasion, or the shared use-case) , never list two product names in the Bundle Name or Subheader (the individual products get their own allocated lines: USPs, items, or add-ons per the section's layout note). Each per-product line stays true to that exact catalogue product. Sell why the pieces belong together, not just each piece on its own.
 
 Element craft. LENGTH CAPS ARE NOT RESTATED HERE , every cap lives once, in the Length caps table of the HARD RULES gate at the end of this prompt. Obey that table; if anything here seems to imply a different number, the table wins.
 - Headline: the HOOK, within the Headline cap. Draft one candidate per headline pattern in the voice (idiom remix, product-truth pun, rhyme/parallel, bold claim , 4 minimum), pick the strongest. Never a discount number, promo code, or urgency tag; the offer lives in the tagline.
@@ -81,9 +84,30 @@ export function generateUserPrompt(
   reviewsBySlug: Record<string, string[]> = {}
 ): string {
   const sectionList = sectionStructure.map((s, i) => {
-    const baseElements = SECTION_CATALOGUE[s.type] ?? [];
+    const isBundle = s.type === "bundle";
+    const bundleProducts = s.bundle_products ?? [];
+    const bundleTemplate = s.bundle_template ?? "unified";
+    const baseElements = isBundle
+      ? bundleElements(bundleTemplate, bundleProducts.length)
+      : (SECTION_CATALOGUE[s.type] ?? []);
     const optionalAdded = s.optional_elements ?? [];
     const allElements = [...baseElements, ...optionalAdded];
+    const bundleNote = isBundle ? (() => {
+      const names = bundleProducts.map(getProductName);
+      const existing = s.bundle_mode === "existing" ? getBundle(s.bundle_id) : undefined;
+      const nameLine = existing
+        ? `This is Raycon's existing "${existing.name}" bundle${existing.price ? ` (bundle price $${existing.price})` : ""}. Use that exact name in the Bundle Name element.`
+        : `This is a CUSTOM bundle. Coin a short, appealing bundle name for the Bundle Name element (never a promo code or a fake product name).`;
+      const allocation =
+        bundleTemplate === "unified"
+          ? `Layout , unified card: write ONE USP per product, in order (${names.map((n, idx) => `USP ${idx + 1} = ${n}`).join("; ")}). Each USP leads with that product's standout benefit; together they make the bundle read as greater than the sum.`
+          : bundleTemplate === "checklist"
+          ? `Layout , what's-inside checklist: write ONE item line per product, in order (${names.map((n, idx) => `Item ${idx + 1} = ${n}`).join("; ")}), each the product name plus a short one-liner. Value Line anchors the combined value or saving of buying them together${existing?.price ? ` (bundle price $${existing.price})` : ""}.`
+          : bundleTemplate === "pairing"
+          ? `Layout , better-together pairing of ${names.join(" + ")}: Pairing Line = how these specific products complete each other in real use; Combined Benefit = the payoff of owning both. Narrative, not a spec list.`
+          : `Layout , hero + add-ons: the hero is ${names[0] ?? "the first product"} (Hero Line sells it). The rest are add-ons, in order (${names.slice(1).map((n, idx) => `Add-On ${idx + 1} = ${n}`).join("; ") || "none"}). Bundle Offer states the combined deal.`;
+      return `\n  bundle products: ${names.join(", ") || "(none chosen)"}\n  ${nameLine}\n  ${allocation}`;
+    })() : "";
     const gridNote = s.type === "product_grid"
       ? `\n  grid layout: ${s.grid_cols ?? 2} columns × ${s.grid_rows ?? 2} rows = ${(s.grid_cols ?? 2) * (s.grid_rows ?? 2)} products total (Products array must have exactly this many entries)`
       : "";
@@ -99,7 +123,7 @@ export function generateUserPrompt(
           : `\n  Review element: no real review was supplied for this product , leave "Review" as an empty string. Never write or invent a review.`)
       : "";
     return `- section ${i + 1} , type: ${s.type}
-  elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}
+  elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}${bundleNote}
   focus (optional steering from user , may reference another section by number, e.g. "build on section 1"): ${s.focus || "none"}`;
   }).join("\n");
 
@@ -121,7 +145,9 @@ ${e.body}
       ).join(",");
       return `{"type":"product_grid","elements":{"Subheader":"...","Products":[${products}]}}`;
     }
-    const baseElements = SECTION_CATALOGUE[s.type] ?? [];
+    const baseElements = s.type === "bundle"
+      ? bundleElements(s.bundle_template ?? "unified", (s.bundle_products ?? []).length)
+      : (SECTION_CATALOGUE[s.type] ?? []);
     const optionalAdded = s.optional_elements ?? [];
     const allElements = [...baseElements, ...optionalAdded];
     const elemPairs = allElements.map((el) =>

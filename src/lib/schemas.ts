@@ -16,9 +16,15 @@ export type SectionType =
   | "product_card"
   | "product_card_review"
   | "product_grid"
+  | "bundle"
   | "reviews"
   | "cta_bridge"
   | "footer_cta";
+
+/** How a bundle section is laid out. See BUNDLE_TEMPLATES for descriptions. */
+export type BundleTemplate = "unified" | "checklist" | "pairing" | "hero_addons";
+/** Where a bundle's product list comes from. */
+export type BundleMode = "custom" | "existing";
 
 /** Section types that showcase exactly ONE featured product (get a product_slug). */
 export const PRODUCT_CARD_TYPES: SectionType[] = ["product_card", "product_card_review"];
@@ -39,6 +45,15 @@ export interface SectionSpec {
    * Populated by expandProductCardSections() before generation so each card maps to
    * exactly one product from the user's products_featured list. */
   product_slug?: string;
+  /** Bundle section config — only meaningful for `bundle` sections. */
+  bundle_mode?: BundleMode;
+  /** Layout template for the bundle (governs which copy elements get written). */
+  bundle_template?: BundleTemplate;
+  /** SKU ids that make up the bundle. Set directly for a custom bundle, or
+   * copied from the chosen existing bundle's contents. */
+  bundle_products?: string[];
+  /** For `existing` mode: which pre-built Raycon bundle (see lib/bundles). */
+  bundle_id?: string;
 }
 
 export interface LibraryCampaign {
@@ -256,10 +271,46 @@ export const SECTION_CATALOGUE: Record<SectionType, string[]> = {
   product_card: ["Product Name", "One-Liner", "CTA"],
   product_card_review: ["Product Name", "Subheader", "One-Liner", "Review", "CTA"],
   product_grid: ["Subheader", "Products"],
+  // Bundle elements are TEMPLATE-driven and product-count-driven — see
+  // bundleElements(). This base is only a fallback (e.g. an unconfigured bundle).
+  bundle: ["Bundle Name", "Subheader", "CTA"],
   reviews: ["Subheader", "Review 1", "Review 2", "Review 3"],
   cta_bridge: ["Subheader", "CTA"],
   footer_cta: ["Closing Line", "CTA"],
 };
+
+/** User-facing metadata for each bundle layout template. */
+export const BUNDLE_TEMPLATES: { id: BundleTemplate; label: string; hint: string }[] = [
+  { id: "unified", label: "Unified card + per-product USPs", hint: "One card for the whole bundle, one USP line per product" },
+  { id: "checklist", label: "What's-inside checklist", hint: "Itemized list of what's inside + a value line" },
+  { id: "pairing", label: "Better-together pairing", hint: "Narrative on how the items complete each other" },
+  { id: "hero_addons", label: "Hero + add-ons", hint: "One product leads, the rest are bonus add-ons" },
+];
+
+/**
+ * The copy elements a bundle section should produce, given its template and how
+ * many products are in the bundle. All flat string elements (Subheader keeps the
+ * app-wide 3-variant convention), so the section renders through the generic
+ * path with no special-casing. `n` is clamped to a sane 2–4 for numbered slots.
+ */
+export function bundleElements(template: BundleTemplate, productCount: number): string[] {
+  const n = Math.max(2, Math.min(4, productCount || 2));
+  const numbered = (label: string) => Array.from({ length: n }, (_, i) => `${label} ${i + 1}`);
+  switch (template) {
+    case "unified":
+      // One USP per product in the bundle.
+      return ["Bundle Name", "Subheader", ...numbered("USP"), "CTA"];
+    case "checklist":
+      // One "what's inside" line per product, then a value anchor.
+      return ["Bundle Name", "Subheader", ...numbered("Item"), "Value Line", "CTA"];
+    case "pairing":
+      // Narrative pairing — not per-product numbered.
+      return ["Bundle Name", "Subheader", "Pairing Line", "Combined Benefit", "CTA"];
+    case "hero_addons":
+      // Hero product leads; the remaining products are add-on lines.
+      return ["Bundle Name", "Hero Line", ...Array.from({ length: Math.max(1, n - 1) }, (_, i) => `Add-On ${i + 1}`), "Bundle Offer", "CTA"];
+  }
+}
 
 /** Elements that are off by default but can be toggled on per-section by the user. */
 export const OPTIONAL_ELEMENTS: Partial<Record<SectionType, string[]>> = {

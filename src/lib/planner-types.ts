@@ -11,17 +11,17 @@ export type PlannerChannel = "email" | "sms";
 // passed. Legacy statuses migrate on read (see lib/planner.ts). The "scheduled"
 // label is channel-dependent (Klaviyo for email, Postscript for sms) — use
 // statusLabel(status, channel) for display.
-export type PlannerStatus = "writing_brief" | "planned" | "scheduled" | "cancelled";
+export type PlannerStatus = "writing_brief" | "ready_for_design" | "scheduled" | "cancelled";
 export type OfferType = "evergreen" | "promo";
 
-export const PLANNER_STATUSES: PlannerStatus[] = ["writing_brief", "planned", "scheduled", "cancelled"];
+export const PLANNER_STATUSES: PlannerStatus[] = ["writing_brief", "ready_for_design", "scheduled", "cancelled"];
 export const PLANNER_CHANNELS: PlannerChannel[] = ["email", "sms"];
 
 // Channel-agnostic fallback labels. Prefer statusLabel(status, channel) so the
 // scheduled state names the right platform.
 export const PLANNER_STATUS_LABELS: Record<PlannerStatus, string> = {
   writing_brief: "Writing brief",
-  planned: "Planned",
+  ready_for_design: "Ready for design",
   scheduled: "Scheduled",
   cancelled: "Cancelled",
 };
