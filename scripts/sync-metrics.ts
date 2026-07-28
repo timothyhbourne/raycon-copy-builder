@@ -47,7 +47,7 @@ async function deepBackfill(from: string): Promise<number> {
   let ranAChunk = false;
   while (chunkStart <= today) {
     const chunkEnd = addDays(chunkStart, CHUNK_DAYS - 1) > today ? today : addDays(chunkStart, CHUNK_DAYS - 1);
-    const { missing } = readRange(chunkStart, chunkEnd);
+    const { missing } = await readRange(chunkStart, chunkEnd);
     if (missing.length === 0) {
       console.log(`  ${chunkStart}..${chunkEnd}  already synced — skipped`);
     } else {

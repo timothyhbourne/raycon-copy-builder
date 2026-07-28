@@ -54,6 +54,17 @@ export async function runWeeklyReport(targetIsoWeek?: string | null): Promise<We
     warnings.push("RPR is program-level (incl. flows): NB email revenue ÷ (campaign + flow sends). Switch to campaign mode once Northbeam splits campaign-vs-flow revenue.");
   }
 
+  // Attribution-model correction note (2026-07-23): the default flipped from
+  // last_touch to northbeam_custom ("Clicks only" — the model the team's CRM
+  // Campaign v2 view runs). Flag the first run(s) whose WoW baseline was
+  // computed under the old model so the level shift isn't read as a real
+  // revenue change; once the prior snapshot postdates the cutover, the note
+  // retires itself.
+  const prev = await getPreviousWeeklyReport(isoWeek);
+  if (prev && prev.generatedAt < "2026-07-23T00:00:00Z") {
+    warnings.push("Attribution model corrected to clicks-only (northbeam_custom) on 2026-07-23; the prior week's totals were last-touch, so WoW deltas this week reflect the model change, not just performance.");
+  }
+
   const inputs: WeeklyReportInputs = {
     weekStartYMD: startYMD,
     weekEndYMD: endYMD,
@@ -67,8 +78,7 @@ export async function runWeeklyReport(targetIsoWeek?: string | null): Promise<We
     warnings,
   };
 
-  const prev = getPreviousWeeklyReport(isoWeek);
   const report = computeWeeklyReport(inputs, prev, new Date().toISOString());
-  upsertWeeklyReport(report);
+  await upsertWeeklyReport(report);
   return report;
 }

@@ -3,6 +3,8 @@ import { linkCopyCampaign, unlinkCopyCampaign, listPlannerRows, getPlannerRow } 
 import { loadCampaign, setCampaignPlannerRow } from "@/lib/campaigns";
 import { getLibraryCampaignById, setLibraryPlannerRow } from "@/lib/library";
 import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
+import { parseBody } from "@/lib/validation/api";
+import { plannerLinkBody } from "@/lib/validation/requests";
 
 // Attach / detach a Copy Builder campaign to a planner row. Kept separate from
 // the main planner POST so the copy-builder doesn't have to resend name/channel
@@ -16,19 +18,21 @@ import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
 // Write (or clear) the copy record's planner_row_id back-reference, trying the
 // drafts store first, then the library, then the SMS store.
 async function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): Promise<void> {
-  if (setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
+  if (await setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
   if (await setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
   await setLibraryPlannerRow(copyCampaignId, plannerRowId);
 }
 
 // True if the id resolves to a draft, library, or SMS copy.
 async function copyExists(copyCampaignId: string): Promise<boolean> {
-  return !!loadCampaign(copyCampaignId) || !!(await getLibraryCampaignById(copyCampaignId)) || !!(await loadSmsCampaign(copyCampaignId));
+  return !!(await loadCampaign(copyCampaignId)) || !!(await getLibraryCampaignById(copyCampaignId)) || !!(await loadSmsCampaign(copyCampaignId));
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as {
+    const parsed = await parseBody(req, plannerLinkBody);
+    if (parsed.error) return parsed.error;
+    const body = parsed.data as {
       row_id?: string;
       copy_campaign_id?: string;
       copy_status?: string;

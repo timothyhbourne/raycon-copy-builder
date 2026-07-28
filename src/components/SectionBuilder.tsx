@@ -1,11 +1,11 @@
 "use client";
 import { useState } from "react";
 import type { SectionSpec, SectionType } from "@/lib/schemas";
-import { OPTIONAL_ELEMENTS } from "@/lib/schemas";
+import { OPTIONAL_ELEMENTS, isProductCardType } from "@/lib/schemas";
 import { nanoid } from "@/lib/nanoid";
 
 const SECTION_TYPES: SectionType[] = [
-  "header", "body", "usps", "product_card", "product_grid", "reviews", "cta_bridge", "footer_cta",
+  "header", "body", "free_form", "usps", "product_card", "product_card_review", "product_grid", "reviews", "cta_bridge", "footer_cta",
 ];
 
 interface Props {
@@ -13,9 +13,11 @@ interface Props {
   onChange: (sections: SectionSpec[]) => void;
   /** Number of products currently selected — used to validate grid dimensions */
   productsCount?: number;
+  /** The featured products (id + name) — used for the per-card product picker. */
+  selectedProducts?: { id: string; name: string }[];
 }
 
-export default function SectionBuilder({ sections, onChange, productsCount }: Props) {
+export default function SectionBuilder({ sections, onChange, productsCount, selectedProducts = [] }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -33,6 +35,10 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
   };
   const updateGridRows = (id: string, rows: number) => {
     onChange(sections.map((s) => (s.id === id ? { ...s, grid_rows: rows } : s)));
+  };
+  // "" = Auto (assign in featured-products order at expansion time).
+  const updateProductSlug = (id: string, slug: string) => {
+    onChange(sections.map((s) => (s.id === id ? { ...s, product_slug: slug || undefined } : s)));
   };
 
   const toggleOptionalElement = (id: string, element: string) => {
@@ -150,6 +156,25 @@ export default function SectionBuilder({ sections, onChange, productsCount }: Pr
                   </div>
                 );
               })()}
+              {isProductCardType(s.type) && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-slate-400 shrink-0">Product</span>
+                  {selectedProducts.length === 0 ? (
+                    <span className="text-xs text-amber-600">Select featured products first</span>
+                  ) : (
+                    <select
+                      value={s.product_slug ?? ""}
+                      onChange={(e) => updateProductSlug(s.id, e.target.value)}
+                      className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                    >
+                      <option value="">Auto (assign in order)</option>
+                      {selectedProducts.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
             </div>
             <button
               type="button"

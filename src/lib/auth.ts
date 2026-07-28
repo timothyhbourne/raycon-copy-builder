@@ -19,7 +19,9 @@ export const AUTH_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 // Gate is active only when both credentials are configured.
 export const authEnabled = Boolean(USER && PASSWORD);
 
-function safeEqual(a: string, b: string) {
+// Constant-time string comparison. Exported so secret checks elsewhere (the cron
+// routes' CRON_SECRET compare) reuse it instead of a leaky `===`.
+export function safeEqual(a: string, b: string) {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
   if (ab.length !== bb.length) return false;
@@ -34,6 +36,12 @@ export function credentialsValid(user: string, pass: string) {
   return okUser && okPass;
 }
 
+// The session token is a STATIC HMAC of the username — it does not change
+// between logins. Tradeoff: a leaked cookie stays valid until the 7-day expiry
+// (AUTH_MAX_AGE) or a secret/password rotation, with no per-session revocation.
+// Acceptable for this single shared-credential internal tool; if per-session
+// revocation is ever needed, mint a random nonce per login and store it
+// server-side (out of scope here).
 export function makeToken() {
   return createHmac("sha256", SECRET).update(`v1:${USER}`).digest("base64url");
 }

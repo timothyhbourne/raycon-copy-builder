@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { syncMetrics } from "@/lib/metrics/sync";
-import { AUTH_COOKIE, authEnabled, tokenValid } from "@/lib/auth";
+import { AUTH_COOKIE, authEnabled, tokenValid, safeEqual } from "@/lib/auth";
+import { readEnv } from "@/lib/env";
+import { metricsSyncBody } from "@/lib/validation/requests";
 
 // Background metrics sync trigger. Two callers, same dual auth as the weekly job:
 //  - Vercel cron (no app cookie) → presents CRON_SECRET (Authorization: Bearer,
@@ -16,24 +16,13 @@ export const dynamic = "force-dynamic";
 // headroom on Vercel; the platform clamps this to the plan's max.
 export const maxDuration = 300;
 
-function cronSecret(): string {
-  const sys = process.env.CRON_SECRET;
-  if (sys && sys.trim()) return sys.trim();
-  try {
-    const env = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
-    const m = env.match(/^CRON_SECRET=(.+)$/m);
-    if (m) return m[1].trim();
-  } catch { /* prod: rely on process.env */ }
-  return "";
-}
-
 function authorized(req: NextRequest): boolean {
   if (!authEnabled) return true; // whole app open in local/dev
-  const secret = cronSecret();
+  const secret = readEnv("CRON_SECRET");
   if (secret) {
-    const bearer = req.headers.get("authorization");
-    const key = new URL(req.url).searchParams.get("key");
-    if (bearer === `Bearer ${secret}` || key === secret) return true;
+    const bearer = req.headers.get("authorization") ?? "";
+    const key = new URL(req.url).searchParams.get("key") ?? "";
+    if (safeEqual(bearer, `Bearer ${secret}`) || safeEqual(key, secret)) return true;
   }
   if (tokenValid(req.cookies.get(AUTH_COOKIE)?.value)) return true;
   return false;
@@ -46,8 +35,14 @@ const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 async function paramsFrom(req: NextRequest): Promise<SyncParams> {
   const out: SyncParams = {};
   const sp = new URL(req.url).searchParams;
+  // The body is OPTIONAL supplementary input (query params take priority), so a
+  // malformed/absent body is not a 400 — it just leaves params to the query
+  // string. Validate its shape when present via the shared schema.
   let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { /* no/invalid JSON body */ }
+  try {
+    const res = metricsSyncBody.safeParse(await req.json());
+    if (res.success) body = res.data as Record<string, unknown>;
+  } catch { /* no/invalid JSON body */ }
 
   const backfill = sp.get("backfill_days") ?? body?.backfill_days;
   const n = Number(backfill);

@@ -69,7 +69,7 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Key features:** Ergonomic and secure fit, Physical button controls (reliable, no fidget), ANC / Awareness mode, 32 Hour Battery Life
 - **Colours:** Carbon Black, Electric Blue, Rose Gold, Cool Mint, Blush Violet
 - **Positioning:** The flagship. Most popular earbud. The default Raycon recommendation.
-- **NAMING — current rule:** This product is now called **"Everyday Earbuds"** (or "the Everyday Earbuds"). The "Classic" name is **retired**. Do NOT write "Everyday Earbuds Classic" or "the Classic" in any new copy — subject line, headline, body, CTA, image direction, anywhere. Past campaigns in the reference library still say "Classic"; that is historical only. Ignore that convention and use "Everyday Earbuds" in everything you generate. (The slug `everyday-earbuds-classic` stays unchanged internally for retrieval — it is never shown to readers.)
+- **NAMING:** Call this "Everyday Earbuds" (or "the Everyday Earbuds"). The "Classic" name is retired in all new copy. The slug `everyday-earbuds-classic` stays unchanged internally and is never shown to readers. Full rule in `copy-system.md`.
 - **Special editions:** MLB Edition (Dodgers, Yankees, Astros, Phillies, Cubs, Red Sox), Hershey's collab (Silver Foil, Cotton Candy, Mango, Donut Operator).
 
 ### Everyday Earbuds Plus
@@ -81,7 +81,7 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Key features:** Ergonomic and comfortable fit, IP66 Dust and Waterproof, 32 Hour Battery Life
 - **Stock note:** Violet colourway is the active US SKU (other colours phased out).
 - **Positioning:** Premium, tougher, more weather-ready in-ear.
-- **INCLUSION RULE — flash sale only:** This product may ONLY appear in a campaign when that campaign is a **huge flash sale on the Everyday Earbuds Plus itself** (a deep, headline-grade discount — the kind of 40%+ / final-inventory event seen with codes like PLUS40, EDAY60, BLOOM50). In any other campaign — regular promos, seasonal sales, gift guides, multi-product round-ups, evergreen sends — do NOT mention, feature, or list the Everyday Earbuds Plus at all. If a brief selects it for a non-flash-sale campaign, leave it out and use another in-ear product instead. See hard-rules.md.
+- **INCLUSION RULE (flash sale only):** Feature the Everyday Earbuds Plus only when the campaign is a huge flash sale on the Plus itself (a deep, headline-grade discount, e.g. codes PLUS40, EDAY60, BLOOM50). In every other campaign, leave it out and substitute another in-ear product. Full rule in `copy-system.md`.
 
 ### The Fitness Earbuds
 - **Slug:** `fitness-earbuds`
@@ -93,7 +93,7 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Key features:** Stabilizing gel fin (no-budge fit), ANC / Awareness Mode, IPX7 Waterproof, 56 Hour Total Battery (12h per charge), Multipoint connectivity, Bluetooth 5.3
 - **Colours:** Cobalt Blue, Onyx Black, Everest Green, Lavender Purple
 - **Positioning:** For anyone who moves and needs sound that stays with them — runs, training, hikes, long days on the go. The secure fit and big battery are the draw.
-- **COPY GUIDANCE — do not narrow to the gym:** Lead with the broad active life, not gym-specific lingo. Avoid "gym", "gym rat", "leg day", "lifters", "the weight room", "reps", "sets" as the framing — that lingo signals "this is only for gym people" and shrinks the audience. The product is for runners, walkers, commuters, parents on the move, travellers, and anyone active, not just lifters. Use the no-budge fit, sweat/waterproofing (IPX7), and 56-hour battery to support a movement-and-endurance story that any active person sees themselves in.
+- **COPY GUIDANCE (not gym-only):** Lead with the broad active life (runners, walkers, commuters, parents on the move, travellers), not gym lingo ("gym", "leg day", "lifters", "reps", "sets"). Let the no-budge fit, IPX7, and 56-hour battery carry it. Full rule in `copy-system.md`.
 
 ### The Impact Earbuds
 - **Slug:** `impact-earbuds`

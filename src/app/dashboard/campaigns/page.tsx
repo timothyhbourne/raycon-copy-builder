@@ -1,16 +1,36 @@
 "use client";
 import { useDashboardData } from "../dashboard-context";
 import type { CampaignMeta } from "../types";
-import { formatMoney, formatInt, formatDate, formatDateTime } from "../format";
+import { formatMoney, formatInt, formatPct, formatDate, formatDateTime } from "../format";
+import Card from "@/components/ui/Card";
+import { KPIRow, StatCell } from "@/components/ui/Stat";
 
 export default function CampaignsPage() {
   const { data } = useDashboardData();
   if (!data) return null;
   const campaigns = data.campaigns;
   const status = data.campaign_status;
+  const revenue = data.revenue;
+  const campaignRecipients = campaigns.reduce((a, c) => a + (c.recipients ?? 0), 0);
 
   return (
     <>
+      {/* Channel-scoped revenue — campaigns only, over the selected range. */}
+      <Card className="mb-4" bodyClassName="p-6">
+        <KPIRow cols={2}>
+          <StatCell
+            label="Campaign revenue (Klaviyo-attributed)"
+            value={formatMoney(revenue.attributed_from_campaigns)}
+            description={<>{formatPct(revenue.attributed_from_campaigns, revenue.total)} of placed-order revenue</>}
+          />
+          <StatCell
+            label="Campaign recipients"
+            value={formatInt(campaignRecipients)}
+            description={<>{campaigns.length} sent in range</>}
+          />
+        </KPIRow>
+      </Card>
+
       {/* Performance table — sent campaigns with activity in range */}
       <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden mb-4">
         <div className="px-6 py-4 border-b border-line flex items-center justify-between">

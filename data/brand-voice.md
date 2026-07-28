@@ -37,7 +37,7 @@ The constant is the voice. The variable is how far above the references you clim
 |---|---|
 | Subject Line | Under 50 characters. One flowing line (one breath), not two clipped fragments. Up to ~10 words if it reads as a single thought. |
 | Preview Text | 1 flowing sentence, under 90 characters. Complements the subject, never repeats it. |
-| Headline | 2 to 5 words. Count them. Do not exceed 5. |
+| Headline | 3 to 5 words. Count them. Needs to be advertorial and concise. |
 | Tagline | 1 short line, 10 words max |
 | Sub-Tagline | Omit by default. Only include if explicitly requested and the headline genuinely needs more context. Real Raycon campaigns rarely use this element. |
 | Hero Image Direction | 1 to 2 sentences, 30 to 50 words. No editorial self-commentary about the campaign or the deal. Just the visual brief. |

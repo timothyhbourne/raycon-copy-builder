@@ -1,5 +1,6 @@
 import path from "path";
 import { getAdapter } from "./storage";
+import { parseSmsCampaigns, stampAll } from "./validation";
 import type { SmsCampaign } from "./schemas";
 
 // Store for SMS campaigns: a single JSON array behind the shared storage adapter
@@ -29,17 +30,16 @@ async function readAll(): Promise<SmsCampaign[]> {
   const raw = await store.read(STORE_KEY);
   if (raw == null) return []; // absent store → no SMS campaigns
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // Guard the same shape the old per-file parser did.
-    return parsed.filter((c): c is SmsCampaign => !!c && Array.isArray(c.variants));
+    // Validate at the boundary — a malformed campaign is logged and skipped
+    // rather than surfacing as a wrongly-typed record.
+    return parseSmsCampaigns(JSON.parse(raw));
   } catch {
     return [];
   }
 }
 
 async function writeAll(entries: SmsCampaign[]): Promise<void> {
-  await store.write(STORE_KEY, JSON.stringify(entries, null, 2));
+  await store.write(STORE_KEY, JSON.stringify(stampAll(entries), null, 2));
 }
 
 // Meta view for the sidebar list — omits the variant bodies.

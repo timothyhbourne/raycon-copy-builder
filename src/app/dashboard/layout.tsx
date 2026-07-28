@@ -2,12 +2,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardDataProvider } from "./dashboard-context";
 import type { OverviewData } from "./types";
-import { ymd, formatMoney, formatInt, formatPct } from "./format";
+import { ymd, formatMoney, formatInt } from "./format";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
 import Card from "@/components/ui/Card";
 import PageHeader from "@/components/ui/PageHeader";
-import { KPIRow, StatCell } from "@/components/ui/Stat";
+import { StatCell } from "@/components/ui/Stat";
 import { SegmentedToggle } from "@/components/ui/FilterBar";
 import { toast } from "@/components/ui/Toast";
 
@@ -137,7 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const freshness = relSync(data?.last_synced_at);
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto bg-surface">
       <div className="max-w-6xl mx-auto px-8 py-8">
         {/* Header: eyebrow → title → description, with range control + Sync now */}
         <PageHeader
@@ -223,28 +223,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             ))}
           </div>
         ) : hasData && revenue ? (
-          <>
-            <Card className="mb-3" bodyClassName="p-6">
-              <KPIRow cols={2}>
-                <StatCell
-                  label="Placed-order revenue (Klaviyo)"
-                  value={formatMoney(revenue.total)}
-                  description={<>{formatInt(revenue.order_count)} orders · source: Klaviyo &ldquo;Placed Order&rdquo; (Shopify)</>}
-                />
-                <StatCell
-                  label="Klaviyo-attributed revenue"
-                  value={formatMoney(revenue.attributed)}
-                  description={<>{formatPct(revenue.attributed, revenue.total)} of placed-order revenue</>}
-                />
-              </KPIRow>
-            </Card>
-            <div className="text-xs text-ink-muted mb-6 px-1">
-              Attributed = {formatMoney(revenue.attributed_from_flows)} flows + {formatMoney(revenue.attributed_from_campaigns)} campaigns
-              {" = "}{formatMoney(revenue.attributed_from_flows + revenue.attributed_from_campaigns)}
-              {" · "}{formatPct(revenue.attributed, revenue.total)} of total
-              {" · email-only, account timezone"}
-            </div>
-          </>
+          // Placed-order revenue is NOT channel-split in the Klaviyo payload, so
+          // it lives here as ONE channel-neutral figure (all email, both flows +
+          // campaigns). The channel-specific attributed revenue is rendered per
+          // page (flows/page.tsx, campaigns/page.tsx) so the two tabs never show
+          // the same number.
+          <Card className="mb-6" bodyClassName="p-6">
+            <StatCell
+              label="Placed-order revenue · all email (both channels)"
+              value={formatMoney(revenue.total)}
+              description={<>{formatInt(revenue.order_count)} orders · Klaviyo &ldquo;Placed Order&rdquo; (Shopify) · flows + campaigns combined, account timezone</>}
+            />
+          </Card>
         ) : null}
 
         {/* Content: skeleton table on first load, otherwise the active route

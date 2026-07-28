@@ -5,10 +5,29 @@ import { SECTION_CATALOGUE } from "@/lib/schemas";
 import { nanoid } from "@/lib/nanoid";
 import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
-import RegenerateModal from "./RegenerateModal";
+import VariationsModal from "./VariationsModal";
 import DesignModal from "./DesignModal";
 import Skeleton from "./ui/Skeleton";
 import type { RepetitionFlag } from "@/lib/repetition-client";
+
+const SECTION_CHIPS = ["Warmer", "Punchier", "More playful", "More premium", "Less salesy", "More specific"];
+
+// A short, readable preview of a section for the variations picker.
+function sectionPreview(section: GeneratedSection): string {
+  const el = section.elements as Record<string, unknown>;
+  const lines: string[] = [];
+  for (const k of ["Headline", "Tagline", "Subheader", "Body Copy", "Body", "One-Liner", "Review", "Closing Line", "CTA"]) {
+    const v = el[k];
+    if (typeof v === "string" && v.trim()) lines.push(v.trim());
+    else if (k === "Subheader" && Array.isArray(v) && typeof v[0] === "string") lines.push(v[0]);
+  }
+  if (Array.isArray(el["Products"])) {
+    for (const p of el["Products"] as { name?: string; one_liner?: string }[]) {
+      if (p?.name) lines.push(`${p.name}${p.one_liner ? ": " + p.one_liner : ""}`);
+    }
+  }
+  return lines.slice(0, 5).join("\n") || "(no preview)";
+}
 
 interface Props {
   campaign: GeneratedCampaign;
@@ -25,8 +44,6 @@ interface Props {
   /** Fired after a manual regenerate settles, so the parent can re-check. */
   onRegenerated?: (updated: GeneratedCampaign) => void;
   onChange: (c: GeneratedCampaign) => void;
-  onConceitEdit: () => void;
-  onNewConceits: () => void;
 }
 
 export default function CampaignCanvas({
@@ -42,11 +59,8 @@ export default function CampaignCanvas({
   onDismissFlag,
   onRegenerated,
   onChange,
-  onConceitEdit,
-  onNewConceits,
 }: Props) {
   const [regenModal, setRegenModal] = useState<{ sectionId: string; type: string } | null>(null);
-  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [regeneratingMeta, setRegeneratingMeta] = useState(false);
   const [designModal, setDesignModal] = useState<{ sectionId: string } | null>(null);
   const [designingSection, setDesigningSection] = useState<string | null>(null);
@@ -69,54 +83,16 @@ export default function CampaignCanvas({
     onChange({ ...campaign, sections: updated });
   };
 
-  const insertAfter = (afterId: string) => {
+  const insertAfter = (afterId: string, type: SectionType) => {
     const idx = campaign.sections.findIndex((s) => s.id === afterId);
     const newSection: GeneratedSection = {
       id: nanoid(),
-      type: "body" as SectionType,
-      elements: Object.fromEntries(SECTION_CATALOGUE["body"].map((el) => [el, ""])),
+      type,
+      elements: Object.fromEntries((SECTION_CATALOGUE[type] ?? []).map((el) => [el, ""])),
     };
     const updated = [...campaign.sections];
     updated.splice(idx + 1, 0, newSection);
     onChange({ ...campaign, sections: updated });
-  };
-
-  const handleRegenerate = async (sectionId: string, steering: string, sectionTone: number) => {
-    if (!expandedBrief || !chosenConceit) return;
-    setRegeneratingSection(sectionId);
-    setRegenModal(null);
-    try {
-      const sectionIdx = campaign.sections.findIndex((s) => s.id === sectionId);
-      if (sectionIdx === -1) return;
-      const section = campaign.sections[sectionIdx];
-      // Match by position first (so multiple product_card sections each get
-      // their own spec / product_slug), fall back to first-of-type.
-      const sectionSpec = sectionStructure[sectionIdx]?.type === section.type
-        ? sectionStructure[sectionIdx]
-        : sectionStructure.find((s) => s.type === section.type) || { id: "", type: section.type };
-
-      const res = await fetch("/api/regenerate-section", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          expanded_brief: expandedBrief,
-          chosen_conceit: chosenConceit,
-          section_to_regenerate: { ...sectionSpec, current_content: section },
-          full_campaign: campaign,
-          steering,
-          tone_dial: sectionTone,
-          retrieved_examples: retrievedExamples,
-        }),
-      });
-      const data = await res.json();
-      if (data.section) {
-        const updated = { ...campaign, sections: campaign.sections.map((sec) => (sec.id === sectionId ? data.section : sec)) };
-        onChange(updated);
-        onRegenerated?.(updated);
-      }
-    } finally {
-      setRegeneratingSection(null);
-    }
   };
 
   const handleRegenerateMeta = async () => {
@@ -178,23 +154,19 @@ export default function CampaignCanvas({
 
   return (
     <div className="space-y-4">
-      {/* Conceit bar */}
+      {/* Brief bar — the deterministically compiled angle/thesis (read-only). */}
       <div className="bg-white border border-slate-200 rounded-lg px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="t-label mb-1">Conceit</div>
+            <div className="t-label mb-1">Brief</div>
             {chosenConceit ? (
               <>
                 <div className="font-semibold text-slate-900">{chosenConceit.name}</div>
                 <div className="text-sm text-slate-500 mt-0.5 leading-relaxed">{chosenConceit.description}</div>
               </>
             ) : (
-              <div className="text-sm text-slate-400">No conceit selected</div>
+              <div className="text-sm text-slate-400">Compiling…</div>
             )}
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={onConceitEdit} className="text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:bg-slate-50 transition-colors">edit</button>
-            <button onClick={onNewConceits} className="text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-1 hover:bg-slate-50 transition-colors">propose new</button>
           </div>
         </div>
       </div>
@@ -209,57 +181,101 @@ export default function CampaignCanvas({
         onDismissFlag={onDismissFlag}
       />
 
-      {/* Section blocks */}
-      {campaign.sections.map((section, i) => {
-        // Find the matching spec to carry grid dimensions into the renderer.
-        // Match by position first (most accurate), fall back to type.
-        const spec = sectionStructure[i] ?? sectionStructure.find((s) => s.type === section.type);
-        const gridCols = section.type === "product_grid" ? (spec?.grid_cols ?? 2) : undefined;
-        const isNewest = isGenerating && i === campaign.sections.length - 1;
-        return (
-          <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
-            {regeneratingSection === section.id && (
-              <div className="absolute inset-0 bg-white/70 rounded-lg flex items-center justify-center z-10">
-                <span className="text-xs text-slate-500 animate-pulse">Regenerating...</span>
-              </div>
-            )}
-            <SectionBlock
-              section={section}
-              index={i}
-              total={campaign.sections.length}
-              gridCols={gridCols}
-              flags={repetitionFlags}
-              onDismissFlag={onDismissFlag}
-              onChange={(s) => updateSection(section.id, s)}
-              onRegenerate={() => setRegenModal({ sectionId: section.id, type: section.type })}
-              onDelete={() => deleteSection(section.id)}
-              onMoveUp={() => moveSection(section.id, "up")}
-              onMoveDown={() => moveSection(section.id, "down")}
-              onInsertAfter={() => insertAfter(section.id)}
-              onDesign={section.type === "header" ? () => handleDesign(section.id) : undefined}
-            />
+      {/* Email body — one connected sheet so the sections read as a single
+          document, not a stack of isolated cards. */}
+      <div className="rc-canvas-sheet">
+        {campaign.sections.map((section, i) => {
+          // Find the matching spec to carry grid dimensions into the renderer.
+          // Match by position first (most accurate), fall back to type.
+          const spec = sectionStructure[i] ?? sectionStructure.find((s) => s.type === section.type);
+          const gridCols = section.type === "product_grid" ? (spec?.grid_cols ?? 2) : undefined;
+          // Product the Review refresh control should pull for: the card's own
+          // product for product_card_review; the campaign's first featured product
+          // for a plain reviews section.
+          const reviewSlug = section.type === "product_card_review"
+            ? spec?.product_slug
+            : section.type === "reviews"
+              ? expandedBrief?.products_featured?.[0]
+              : undefined;
+          const isNewest = isGenerating && i === campaign.sections.length - 1;
+          return (
+            <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
+              <SectionBlock
+                section={section}
+                index={i}
+                total={campaign.sections.length}
+                gridCols={gridCols}
+                flags={repetitionFlags}
+                onDismissFlag={onDismissFlag}
+                onChange={(s) => updateSection(section.id, s)}
+                onRegenerate={() => setRegenModal({ sectionId: section.id, type: section.type })}
+                onDelete={() => deleteSection(section.id)}
+                onMoveUp={() => moveSection(section.id, "up")}
+                onMoveDown={() => moveSection(section.id, "down")}
+                onInsertAfter={(type) => insertAfter(section.id, type)}
+                onDesign={section.type === "header" ? () => handleDesign(section.id) : undefined}
+                productSlug={reviewSlug}
+              />
+            </div>
+          );
+        })}
+
+        {/* "more coming" affordance while streaming */}
+        {isGenerating && (
+          <div className="px-10 py-8 space-y-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
           </div>
+        )}
+      </div>
+
+      {regenModal && (() => {
+        const sectionId = regenModal.sectionId;
+        const idx = campaign.sections.findIndex((s) => s.id === sectionId);
+        const section = campaign.sections[idx];
+        const sectionSpec = sectionStructure[idx]?.type === section?.type
+          ? sectionStructure[idx]
+          : sectionStructure.find((s) => s.type === section?.type) || { id: "", type: regenModal.type as SectionType };
+        return (
+          <VariationsModal
+            title={`${regenModal.type} section`}
+            chips={SECTION_CHIPS}
+            showTone
+            defaultTone={toneDial}
+            onFetch={async (feedback, tone) => {
+              if (!expandedBrief || !chosenConceit || !section) return [];
+              const res = await fetch("/api/section-variations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  expanded_brief: expandedBrief,
+                  chosen_conceit: chosenConceit,
+                  section_to_regenerate: { ...sectionSpec, current_content: section },
+                  full_campaign: campaign,
+                  feedback,
+                  tone_dial: tone,
+                  retrieved_examples: retrievedExamples,
+                }),
+              });
+              const data = await res.json();
+              const vars = (data.variations ?? []) as { label: string; section: GeneratedSection }[];
+              return vars.map((v) => ({ label: v.label, preview: sectionPreview(v.section), payload: v.section }));
+            }}
+            onApply={(payload) => {
+              const newSection = payload as GeneratedSection;
+              const updated = {
+                ...campaign,
+                sections: campaign.sections.map((s) => (s.id === sectionId ? { ...newSection, id: sectionId } : s)),
+              };
+              onChange(updated);
+              onRegenerated?.(updated);
+            }}
+            onClose={() => setRegenModal(null)}
+          />
         );
-      })}
-
-      {/* "more coming" affordance while streaming */}
-      {isGenerating && (
-        <div className="rounded-md border border-line bg-surface p-6 space-y-3">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-5 w-2/3" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-5/6" />
-        </div>
-      )}
-
-      {regenModal && (
-        <RegenerateModal
-          sectionType={regenModal.type}
-          defaultTone={toneDial}
-          onConfirm={(steering, sectionTone) => handleRegenerate(regenModal.sectionId, steering, sectionTone)}
-          onClose={() => setRegenModal(null)}
-        />
-      )}
+      })()}
 
       {designModal && (() => {
         const sec = campaign.sections.find((s) => s.id === designModal.sectionId);

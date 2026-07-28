@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Raycon · Lifecycle Engine</title>
+<style>
+  :root{
+    --ink:#0d1117; --ink2:#3a4252; --muted:#6b7688; --line:#e7eaf0; --bg:#f6f8fb; --card:#ffffff;
+    --accent:#3355ff; --accent2:#eef2ff;
+    --new:#3b82f6; --active:#16a34a; --upsell:#d99b00; --atrisk:#f97316; --churn:#ef4444;
+    --lapsed:#8b93a3; --suppress:#b91c1c;
+    --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  header.top{background:#0d1117;color:#fff;padding:14px 0}
+  header.top .wrap{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-weight:800;letter-spacing:.02em;font-size:15px}
+  .brand span{color:#7f9bff}
+  .tabs{display:flex;gap:4px;background:#171c26;border-radius:10px;padding:4px}
+  .tab{padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;color:#aeb6c6;cursor:pointer;border:none;background:none}
+  .tab.active{background:#3355ff;color:#fff}
+  .hero{padding:40px 0 26px}
+  .eyebrow{color:var(--accent);font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  h1{font-size:34px;line-height:1.15;margin:8px 0 10px;letter-spacing:-.02em}
+  .lede{font-size:16px;color:var(--ink2);max-width:760px}
+  .proof{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 8px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .stat .n{font-size:26px;font-weight:800;letter-spacing:-.01em}
+  .stat .l{color:var(--muted);font-size:12.5px;margin-top:3px}
+  section{padding:8px 0 30px}
+  .sec-h{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:26px 0 12px}
+  /* distribution bar */
+  .distro{display:flex;height:56px;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
+  .distro div{display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;position:relative}
+  .distro div small{display:block;font-weight:600;opacity:.9;font-size:10px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;color:var(--ink2);font-size:12.5px}
+  .legend b{color:var(--ink)}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow)}
+  .tile .cap{font-size:12px;color:var(--muted)}
+  .tile .big{font-size:22px;font-weight:800;margin-top:4px}
+  .tile .sub{font-size:12px;color:var(--ink2);margin-top:2px}
+  .stripe{height:4px;border-radius:4px;margin-bottom:10px}
+  /* send today cards */
+  .rank{color:var(--muted);font-weight:800;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow);margin-bottom:14px}
+  .card.head-row{display:grid;grid-template-columns:34px 1fr auto;gap:16px;align-items:start}
+  .ctitle{font-size:17px;font-weight:800;margin:0 0 2px}
+  .why{color:var(--ink2);font-size:13.5px;margin:2px 0 0}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .pill{font-size:12px;font-weight:600;border-radius:20px;padding:4px 10px;background:var(--accent2);color:#2440d0}
+  .pill.grey{background:#f0f2f6;color:#55607a}
+  .pill.green{background:#e8f6ee;color:#137a3a}
+  .rec{margin-top:12px;background:#fbfcfe;border:1px dashed var(--line);border-radius:12px;padding:12px 14px;font-size:13.5px}
+  .rec b{color:var(--ink)}
+  .metrics{text-align:right;min-width:180px}
+  .metrics .rev{font-size:22px;font-weight:800}
+  .metrics .revl{font-size:11px;color:var(--muted)}
+  .metrics .size{font-size:13px;color:var(--ink2);margin-top:8px}
+  .actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
+  .btn{border:none;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer}
+  .btn.p{background:var(--accent);color:#fff}
+  .btn.g{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .note{color:var(--muted);font-size:12px;margin-top:18px;line-height:1.6}
+  .hide{display:none}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0d1117;color:#fff;
+    padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:var(--shadow);opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .updated{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px}
+  .live{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 3px #d7f5e1}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand">RAYCON · <span>Lifecycle Engine</span></div>
+  <div class="tabs">
+    <button class="tab active" data-tab="today">Send Today</button>
+    <button class="tab" data-tab="overview">Lifecycle Overview</button>
+  </div>
+</div></header>
+
+<div class="wrap">
+  <div class="hero">
+    <div class="eyebrow">Customer Lifecycle Intelligence</div>
+    <h1>Every morning, the engine tells us exactly who to message — and what to send.</h1>
+    <p class="lede">We score all 1.28M contacts against their real purchase behavior, group them into lifecycle stages, and surface the highest-value cohorts to activate <b>today</b> — each with a recommended message and offer, one click from a Klaviyo list. Refreshed daily.</p>
+    <div class="proof">
+      <div class="stat"><div class="n">911K</div><div class="l">buyers analyzed · 24 months of orders</div></div>
+      <div class="stat"><div class="n">83%</div><div class="l">are one-time buyers — the retention prize</div></div>
+      <div class="stat"><div class="n">94 days</div><div class="l">median time to reorder — our timing signal</div></div>
+      <div class="stat"><div class="n">85%</div><div class="l">own just one category — cross-sell headroom</div></div>
+    </div>
+    <div style="margin-top:14px" class="updated"><span class="live"></span> Auto-refreshed daily · last run today, 05:00 ET</div>
+  </div>
+
+  <!-- ================= SEND TODAY ================= -->
+  <section id="today">
+    <div class="sec-h">Today's cohorts to activate — ranked by opportunity</div>
+
+    <div class="card head-row">
+      <div class="rank">01</div>
+      <div>
+        <p class="ctitle" style="color:var(--upsell)">Reorder-Due · Earbuds replenishment</p>
+        <p class="why">Bought earbuds 60–150 days ago and haven't been back — entering their reorder window (median reorder is 94 days). Highest-intent, time-sensitive.</p>
+        <div class="pills"><span class="pill">owns: Earbuds</span><span class="pill grey">no order 60–150d</span><span class="pill green">peak reorder window</span></div>
+        <div class="rec"><b>Send:</b> "Time for a fresh pair" — upgrade to the latest earbuds, or restock ear tips. &nbsp; <b>Suggested offer:</b> 15% off next earbuds or free Memory-Foam tips with purchase.</div>
+        <div class="actions"><button class="btn p" onclick="toast('List created in Klaviyo — 98,075 profiles')">Create Klaviyo list</button><button class="btn g" onclick="toast('Exported 98,075 rows to CSV')">Export CSV</button></div>
+      </div>
+      <div class="metrics"><div class="rev">$667K</div><div class="revl">modeled monthly opportunity*</div><div class="size">98,075 customers</div></div>
+    </div>
+
+    <div class="card head-row">
+      <div class="rank">02</div>
+      <div>
+        <p class="ctitle" style="color:var(--atrisk)">At-Risk · Earbuds reorder overdue</p>
+        <p class="why">Past their typical reorder point (151–300 days) with no return — slipping away, but still recoverable with a nudge now.</p>
+        <div class="pills"><span class="pill">owns: Earbuds</span><span class="pill grey">overdue 151–300d</span></div>
+        <div class="rec"><b>Send:</b> "We saved your spot" — reminder + social proof. &nbsp; <b>Suggested offer:</b> 20% off to come back.</div>
+        <div class="actions"><button class="btn p" onclick="toast('List created in Klaviyo — 147,303 profiles')">Create Klaviyo list</button><button class="btn g" onclick="toast('Exported 147,303 rows to CSV')">Export CSV</button></div>
+      </div>
+      <div class="metrics"><div class="rev">$501K</div><div class="revl">modeled monthly opportunity*</div><div class="size">147,303 customers</div></div>
+    </div>
+
+    <div class="card head-row">
+      <div class="rank">03</div>
+      <div>
+        <p class="ctitle" style="color:var(--churn)">Win-Back · lapsed 6–12 months</p>
+        <p class="why">Last purchase 181–365 days ago. Reachable, and they already know the brand — classic escalating win-back.</p>
+        <div class="pills"><span class="pill grey">last order 181–365d</span></div>
+        <div class="rec"><b>Send:</b> "We miss you" win-back series. &nbsp; <b>Suggested offer:</b> escalating code (25% → 30%).</div>
+        <div class="actions"><button class="btn p" onclick="toast('List created in Klaviyo — 303,770 profiles')">Create Klaviyo list</button><button class="btn g" onclick="toast('Exported 303,770 rows to CSV')">Export CSV</button></div>
+      </div>
+      <div class="metrics"><div class="rev">$387K</div><div class="revl">modeled monthly opportunity*</div><div class="size">303,770 customers</div></div>
+    </div>
+
+    <div class="card head-row">
+      <div class="rank">04</div>
+      <div>
+        <p class="ctitle" style="color:var(--new)">Cross-Sell · Earbuds → Headphones</p>
+        <p class="why">Recent earbuds buyers (≤120d) who don't own headphones — warm, with a clear next-best product.</p>
+        <div class="pills"><span class="pill">owns: Earbuds</span><span class="pill grey">missing: Headphones</span><span class="pill green">recent buyer</span></div>
+        <div class="rec"><b>Send:</b> "Complete your setup" — headphones for home/travel. &nbsp; <b>Suggested offer:</b> bundle discount.</div>
+        <div class="actions"><button class="btn p" onclick="toast('List created in Klaviyo — 103,966 profiles')">Create Klaviyo list</button><button class="btn g" onclick="toast('Exported 103,966 rows to CSV')">Export CSV</button></div>
+      </div>
+      <div class="metrics"><div class="rev">$265K</div><div class="revl">modeled monthly opportunity*</div><div class="size">103,966 customers</div></div>
+    </div>
+
+    <div class="card head-row">
+      <div class="rank">05</div>
+      <div>
+        <p class="ctitle" style="color:var(--active)">New Customer · 2nd-order nudge</p>
+        <p class="why">First order in the last 45 days. The single biggest lever, since 83% never buy twice — win the second order now.</p>
+        <div class="pills"><span class="pill grey">1 order · ≤45d</span></div>
+        <div class="rec"><b>Send:</b> onboarding + "made for your earbuds" accessories. &nbsp; <b>Suggested offer:</b> accessory bundle, low/no discount.</div>
+        <div class="actions"><button class="btn p" onclick="toast('List created in Klaviyo — 41,012 profiles')">Create Klaviyo list</button><button class="btn g" onclick="toast('Exported 41,012 rows to CSV')">Export CSV</button></div>
+      </div>
+      <div class="metrics"><div class="rev">$209K</div><div class="revl">modeled monthly opportunity*</div><div class="size">41,012 customers</div></div>
+    </div>
+
+    <p class="note">*Modeled opportunity = cohort size × an assumed campaign response rate (6–8% for high-intent, 1.5–3% for win-back/cross-sell) × $85 avg order value. Sizes are real, pulled from 24 months of Shopify orders; response rates are placeholders to be replaced by measured results. Cohorts overlap; do not sum. "Create Klaviyo list" is a demo action in this prototype.</p>
+  </section>
+
+  <!-- ================= OVERVIEW ================= -->
+  <section id="overview" class="hide">
+    <div class="sec-h">The whole audience, by lifecycle stage — at a glance (no more Kanban)</div>
+    <div class="distro">
+      <div style="width:13.3%;background:var(--active)">13%<small>Active</small></div>
+      <div style="width:14.5%;background:var(--upsell)">15%<small>Reorder window</small></div>
+      <div style="width:33.3%;background:var(--atrisk)">33%<small>At-Risk / Win-Back</small></div>
+      <div style="width:38.9%;background:var(--lapsed)">39%<small>Dormant</small></div>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--active)"></i><b>Active</b> ≤90d · 120,922</span>
+      <span><i class="dot" style="background:var(--upsell)"></i><b>Reorder window</b> 91–180d · 132,374</span>
+      <span><i class="dot" style="background:var(--atrisk)"></i><b>At-Risk / Win-Back</b> 181–365d · 303,770</span>
+      <span><i class="dot" style="background:var(--lapsed)"></i><b>Dormant</b> &gt;365d · 354,400</span>
+    </div>
+
+    <div class="sec-h" style="margin-top:28px">Key segments the engine tracks</div>
+    <div class="tiles">
+      <div class="tile"><div class="stripe" style="background:var(--new)"></div><div class="cap">New Customers</div><div class="big">41,012</div><div class="sub">1st order ≤45d · win the 2nd</div></div>
+      <div class="tile"><div class="stripe" style="background:var(--upsell)"></div><div class="cap">Reorder-Due (Earbuds)</div><div class="big">98,075</div><div class="sub">in the 60–150d window</div></div>
+      <div class="tile"><div class="stripe" style="background:var(--active)"></div><div class="cap">High-Value Repeat</div><div class="big">66,624</div><div class="sub">2+ orders · ≥$173 spend</div></div>
+      <div class="tile"><div class="stripe" style="background:var(--suppress)"></div><div class="cap">Suppression Watch</div><div class="big">354,400</div><div class="sub">&gt;365d · protect deliverability</div></div>
+    </div>
+
+    <div class="sec-h" style="margin-top:28px">The insight that shapes every recommendation</div>
+    <div class="card">
+      <p style="margin:0 0 10px;font-weight:700">When Earbuds buyers come back, here's what they actually buy:</p>
+      <div id="nbp"></div>
+      <p class="note" style="margin-top:12px">82% buy earbuds again → the engine is <b>replenishment-first</b> (upgrade + accessories), with cross-sell as the secondary play. This is why we don't just blast "buy headphones."</p>
+    </div>
+    <p class="note">Purchase-recency bands shown for clarity; the live engine refines each customer with an engagement axis and a statistical P(active) score, and re-scores the full base nightly.</p>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+  // tabs
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click',function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+      t.classList.add('active');
+      var id=t.getAttribute('data-tab');
+      document.getElementById('today').classList.toggle('hide', id!=='today');
+      document.getElementById('overview').classList.toggle('hide', id!=='overview');
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  // toast
+  var tEl=document.getElementById('toast'), tHandle;
+  function toast(msg){ tEl.textContent=msg; tEl.classList.add('show'); clearTimeout(tHandle);
+    tHandle=setTimeout(function(){tEl.classList.remove('show')},2200); }
+  // next-best-product mini bars
+  var nbp=[['Earbuds again',82.4],['Headphones',15.4],['Power Tech',13.5],['Accessories',13.4],['Audio',7.5]];
+  var html=nbp.map(function(r){
+    return '<div style="display:flex;align-items:center;gap:12px;margin:6px 0">'+
+      '<div style="width:110px;font-size:13px;color:#3a4252">'+r[0]+'</div>'+
+      '<div style="flex:1;background:#eef1f6;border-radius:6px;height:16px;overflow:hidden">'+
+        '<div style="width:'+r[1]+'%;height:100%;background:'+(r[0]==='Earbuds again'?'#d99b00':'#3355ff')+'"></div>'+
+      '</div><div style="width:48px;text-align:right;font-weight:700;font-size:13px">'+r[1]+'%</div></div>';
+  }).join('');
+  document.getElementById('nbp').innerHTML=html;
+</script>
+</body>
+</html>

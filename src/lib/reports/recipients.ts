@@ -1,6 +1,6 @@
-// Recipient capture for the weekly report. Reuses the existing Klaviyo /
-// Postscript clients unchanged — we only sum delivered recipients over the same
-// week window handed to Northbeam.
+// Recipient capture for the weekly report. Email reuses the Klaviyo client;
+// SMS recipients have NO API source (see captureSmsRecipients below) and
+// degrade to "—" in the report.
 //
 // We capture BOTH campaign and flow email recipients so the report can run in
 // either RPR mode (see src/lib/reports/run.ts):
@@ -11,7 +11,6 @@
 //     confirmed to break revenue out campaign-vs-flow for this account).
 
 import { campaignValuesReport, flowValuesReport, dayRangeISO, resolvePlacedOrderMetric } from "@/lib/klaviyo";
-import { isPostscriptConfigured, listPostscriptCampaigns, getPostscriptCampaignMetrics } from "@/lib/postscript";
 
 export interface EmailRecipients {
   campaignRecipients: number; // delivered recipients of campaigns that sent in-week
@@ -58,31 +57,20 @@ export interface SmsRecipients {
   error?: string; // set when configured but the API call failed
 }
 
-function withinWeek(sendTime: string | null, weekStartYMD: string, weekEndYMD: string): boolean {
-  if (!sendTime) return false;
-  const ymd = sendTime.slice(0, 10);
-  return ymd >= weekStartYMD && ymd <= weekEndYMD;
-}
-
-// SMS campaign recipients: campaigns sent within the week, summed. Degrades to
-// null (not an error) when Postscript isn't configured. SMS has no flow-level
-// recipient source here, so SMS is inherently campaign-only.
-export async function captureSmsRecipients(weekStartYMD: string, weekEndYMD: string): Promise<SmsRecipients> {
-  if (!isPostscriptConfigured()) return { recipients: null, campaignCount: 0, connected: false };
-  try {
-    const campaigns = await listPostscriptCampaigns();
-    const inWeek = campaigns.filter((c) => withinWeek(c.send_time, weekStartYMD, weekEndYMD));
-    let recipients = 0;
-    let campaignCount = 0;
-    for (const c of inWeek) {
-      const m = await getPostscriptCampaignMetrics(c.id);
-      if (m && m.recipients != null) { recipients += m.recipients; campaignCount++; }
-    }
-    return { recipients, campaignCount, connected: true };
-  } catch (e) {
-    // Configured but the API call failed (endpoint/plan/permissions). SMS
-    // revenue still comes from Northbeam; degrade recipients/RPR to "—" rather
-    // than failing the whole run.
-    return { recipients: null, campaignCount: 0, connected: false, error: e instanceof Error ? e.message : "Postscript error" };
-  }
+// SMS recipients CANNOT be captured via API. Postscript's public partner API
+// has no campaign, flow, or analytics endpoints AT ALL (confirmed 2026-07-23
+// against the complete endpoint index — developers.postscript.io/llms.txt; the
+// API is subscribers, custom events, webhooks, unsubscribe/redact). The old
+// lib/postscript.ts client called GET /campaigns — an endpoint that does not
+// exist — and was deleted; do NOT rebuild it against imaginary endpoints. See
+// docs/SMS_PLANNER_NB_LINK_AND_MANUAL_METRICS_SPEC.md. SMS revenue comes from
+// Northbeam; recipients/click-rate are manual entry in the Planner. If the
+// Postscript CSM ever grants analytics access or CSV exports, replace this stub.
+export async function captureSmsRecipients(_weekStartYMD: string, _weekEndYMD: string): Promise<SmsRecipients> {
+  return {
+    recipients: null,
+    campaignCount: 0,
+    connected: false,
+    error: "Postscript's public API has no campaign/analytics endpoints — SMS recipients are manual entry in the Planner.",
+  };
 }

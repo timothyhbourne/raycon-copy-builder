@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getDesignSpec, resolveProductImage } from "@/lib/design";
 import { buildImagePromptRequest } from "@/lib/prompts/design-section";
+import { parseBody } from "@/lib/validation/api";
+import { designSectionBody } from "@/lib/validation/requests";
 import type { SectionType } from "@/lib/schemas";
 
 const VALID_SECTION_TYPES = new Set<string>([
@@ -17,17 +19,23 @@ function getOpenAI() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body: {
+    const parsed = await parseBody(req, designSectionBody);
+    if (parsed.error) return parsed.error;
+    const body = parsed.data as {
       section_type: string;
       elements: Record<string, string>;
       offer?: string;
-    } = await req.json();
+    };
 
     if (!VALID_SECTION_TYPES.has(body.section_type)) {
       return NextResponse.json({ error: "Invalid section_type" }, { status: 400 });
     }
 
     const elements = body.elements ?? {};
+    // NOTE: "Hero Image Direction" was removed from SECTION_CATALOGUE (the
+    // builder is copy-only now), so these reads resolve to "" on new campaigns
+    // and the design falls back to the headline/tagline. Older saved campaigns
+    // may still carry the field, so we keep reading it.
     const spec = getDesignSpec(body.section_type); // null if not yet extracted — that's fine
     const productImage = resolveProductImage(
       elements["Hero Image Direction"] ?? "",

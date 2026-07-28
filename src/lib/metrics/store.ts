@@ -1,5 +1,6 @@
-import fs from "fs";
 import path from "path";
+import { getAdapter } from "../storage";
+import { stamp } from "../validation";
 
 // Daily metrics store — the read side of the "sync-then-read" dashboard. The
 // sync engine (lib/metrics/sync.ts) writes per-day snapshots here; the overview
@@ -12,16 +13,14 @@ import path from "path";
 //   data/metrics/dimensions.json         global (flow/campaign names, draft/
 //                                         scheduled lists, timezone, synced_at)
 //
-// PERSISTENCE / PRODUCTION: this mirrors the repo's existing file-store idiom
-// (lib/reports/weekly-store.ts, lib/planner.ts) — plain JSON on the working-dir
-// disk. That persists on a single long-lived instance (a VM/container running
-// `next start`) but NOT on Vercel's serverless runtime, where the FS is
-// read-only except /tmp and /tmp is per-invocation ephemeral. All writes here go
-// through `adapter` and are wrapped so a read-only FS degrades gracefully (logs,
-// never crashes) — but data will not survive between serverless invocations. To
-// run this on serverless, implement `StorageAdapter` against Vercel KV / Postgres
-// / S3 and swap the `adapter` binding below; nothing else changes. Move to a real
-// DB once this outgrows a single writer.
+// PERSISTENCE / PRODUCTION: all reads/writes go through the single canonical
+// storage seam (lib/storage.ts), exactly like lib/planner.ts and
+// lib/library.ts. It is file-backed locally (data/metrics/...) and Upstash
+// Redis when its env is configured — durable across Vercel's ephemeral,
+// read-only-except-/tmp serverless FS. Because the seam is async (a network KV
+// can't be synchronous) the store functions below are async; callers await.
+// Key layout is preserved (daily/YYYY-MM-DD.json, dimensions.json) so existing
+// seed data and Redis keys keep working.
 
 export interface DayFlowStat { flow_id: string; recipients: number; opens: number; clicks: number; revenue: number }
 export interface DayCampaignStat { campaign_id: string; recipients: number; opens: number; clicks: number; revenue: number }
@@ -53,50 +52,11 @@ export interface Dimensions {
   scheduled: CampaignDim[];
 }
 
-// ---------------------------------------------------------------------------
-// Storage seam. The store logic below is backend-agnostic; only this adapter
-// touches the filesystem. Implement the same three methods against KV/Postgres/
-// S3 and reassign `adapter` to run on serverless. Keys are POSIX-relative paths
-// under the metrics root (e.g. "daily/2026-07-08.json", "dimensions.json").
-// ---------------------------------------------------------------------------
-export interface StorageAdapter {
-  read(key: string): string | null;        // null when absent
-  write(key: string, contents: string): void;
-  list(dirKey: string): string[];           // immediate entries in a "directory"
-}
-
+// Storage seam — the single canonical adapter from lib/storage.ts. Keys are
+// POSIX-relative paths under the metrics root (e.g. "daily/2026-07-08.json",
+// "dimensions.json"); the namespace "metrics" scopes them in Redis.
 const METRICS_ROOT = path.join(process.cwd(), "data/metrics");
-
-const fileAdapter: StorageAdapter = {
-  read(key) {
-    try {
-      return fs.readFileSync(path.join(METRICS_ROOT, key), "utf8");
-    } catch {
-      return null; // missing / unreadable
-    }
-  },
-  write(key, contents) {
-    try {
-      const full = path.join(METRICS_ROOT, key);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, contents, "utf8");
-    } catch (e) {
-      // Read-only FS (e.g. Vercel serverless): don't crash the sync run. The
-      // caller still gets a summary; the data just isn't durable here.
-      console.warn(`[metrics/store] write failed for ${key}: ${e instanceof Error ? e.message : e}`);
-    }
-  },
-  list(dirKey) {
-    try {
-      return fs.readdirSync(path.join(METRICS_ROOT, dirKey));
-    } catch {
-      return [];
-    }
-  },
-};
-
-// Swap this binding to run on a non-file backend.
-const adapter: StorageAdapter = fileAdapter;
+const adapter = getAdapter(METRICS_ROOT, "metrics");
 
 const DAILY_DIR = "daily";
 const DIMENSIONS_KEY = "dimensions.json";
@@ -122,7 +82,12 @@ export function eachDay(startYMD: string, endYMD: string): string[] {
 }
 
 // Defensive parse: a missing/corrupt/mis-shaped file is treated as "no snapshot"
-// (null), never a throw. Normalizes arrays so downstream summing is safe.
+// (null), never a throw. This is the metrics store's boundary validator — it
+// intentionally COERCES (Number()) and defaults rather than rejecting, because a
+// snapshot with one odd field is still summable. That tolerance is stronger than
+// a strict schema parse here, so metrics keeps this purpose-built validator; the
+// zod DaySnapshot/Dimensions schemas (lib/validation) mirror the shape for tests
+// and lockstep. Writes are stamped with schema_version via stamp().
 function parseDay(raw: string | null): DaySnapshot | null {
   if (!raw) return null;
   try {
@@ -155,33 +120,35 @@ function normCampaign(c: unknown): DayCampaignStat | null {
   return { campaign_id: r.campaign_id, recipients: Number(r.recipients) || 0, opens: Number(r.opens) || 0, clicks: Number(r.clicks) || 0, revenue: Number(r.revenue) || 0 };
 }
 
-export function readDay(date: string): DaySnapshot | null {
+export async function readDay(date: string): Promise<DaySnapshot | null> {
   if (!isValidYMD(date)) return null;
-  return parseDay(adapter.read(dayKey(date)));
+  return parseDay(await adapter.read(dayKey(date)));
 }
 
-export function writeDay(snapshot: DaySnapshot): void {
+export async function writeDay(snapshot: DaySnapshot): Promise<void> {
   if (!isValidYMD(snapshot.date)) throw new Error(`writeDay: invalid date ${snapshot.date}`);
-  adapter.write(dayKey(snapshot.date), JSON.stringify(snapshot, null, 2));
+  await adapter.write(dayKey(snapshot.date), JSON.stringify(stamp(snapshot), null, 2));
 }
 
 // Read every day in [start, end]. Returns the snapshots found plus the dates
 // that have no (valid) snapshot yet, so callers can surface coverage / trigger a
 // backfill.
-export function readRange(startYMD: string, endYMD: string): { days: DaySnapshot[]; missing: string[] } {
+export async function readRange(startYMD: string, endYMD: string): Promise<{ days: DaySnapshot[]; missing: string[] }> {
   const days: DaySnapshot[] = [];
   const missing: string[] = [];
-  for (const d of eachDay(startYMD, endYMD)) {
-    const snap = readDay(d);
+  // Read days in parallel — each is an independent adapter round-trip.
+  const results = await Promise.all(
+    eachDay(startYMD, endYMD).map(async (d) => ({ d, snap: await readDay(d) }))
+  );
+  for (const { d, snap } of results) {
     if (snap) days.push(snap); else missing.push(d);
   }
   return { days, missing };
 }
 
 // All dates that currently have a snapshot on disk (valid filename only).
-export function listSyncedDates(): string[] {
-  return adapter
-    .list(DAILY_DIR)
+export async function listSyncedDates(): Promise<string[]> {
+  return (await adapter.list(DAILY_DIR))
     .filter((f) => f.endsWith(".json") && isValidYMD(f.slice(0, -5)))
     .map((f) => f.slice(0, -5))
     .sort();
@@ -189,8 +156,8 @@ export function listSyncedDates(): string[] {
 
 const EMPTY_DIMENSIONS: Dimensions = { synced_at: null, timezone: "UTC", flows: [], campaigns: [], draft: [], scheduled: [] };
 
-export function readDimensions(): Dimensions {
-  const raw = adapter.read(DIMENSIONS_KEY);
+export async function readDimensions(): Promise<Dimensions> {
+  const raw = await adapter.read(DIMENSIONS_KEY);
   if (!raw) return { ...EMPTY_DIMENSIONS };
   try {
     const p = JSON.parse(raw);
@@ -207,6 +174,6 @@ export function readDimensions(): Dimensions {
   }
 }
 
-export function writeDimensions(dims: Dimensions): void {
-  adapter.write(DIMENSIONS_KEY, JSON.stringify(dims, null, 2));
+export async function writeDimensions(dims: Dimensions): Promise<void> {
+  await adapter.write(DIMENSIONS_KEY, JSON.stringify(stamp(dims), null, 2));
 }

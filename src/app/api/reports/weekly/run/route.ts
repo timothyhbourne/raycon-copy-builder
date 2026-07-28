@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { runWeeklyReport } from "@/lib/reports/run";
-import { AUTH_COOKIE, authEnabled, tokenValid } from "@/lib/auth";
+import { AUTH_COOKIE, authEnabled, tokenValid, safeEqual } from "@/lib/auth";
+import { readEnv } from "@/lib/env";
 
 // The weekly run job. Two callers:
 //  - external cron (no app cookie) → must present the CRON_SECRET.
@@ -20,24 +19,13 @@ import { AUTH_COOKIE, authEnabled, tokenValid } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-function cronSecret(): string {
-  const sys = process.env.CRON_SECRET;
-  if (sys && sys.trim()) return sys.trim();
-  try {
-    const env = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
-    const m = env.match(/^CRON_SECRET=(.+)$/m);
-    if (m) return m[1].trim();
-  } catch { /* prod: rely on process.env */ }
-  return "";
-}
-
 function authorized(req: NextRequest): boolean {
   if (!authEnabled) return true; // whole app is open in this mode (local/dev)
-  const secret = cronSecret();
+  const secret = readEnv("CRON_SECRET");
   if (secret) {
-    const bearer = req.headers.get("authorization");
-    const key = new URL(req.url).searchParams.get("key");
-    if (bearer === `Bearer ${secret}` || key === secret) return true;
+    const bearer = req.headers.get("authorization") ?? "";
+    const key = new URL(req.url).searchParams.get("key") ?? "";
+    if (safeEqual(bearer, `Bearer ${secret}`) || safeEqual(key, secret)) return true;
   }
   // Logged-in team member hitting "Run now" (cookie sent automatically).
   if (tokenValid(req.cookies.get(AUTH_COOKIE)?.value)) return true;

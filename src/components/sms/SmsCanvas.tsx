@@ -1,8 +1,11 @@
 "use client";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import type { SmsCampaign } from "@/lib/schemas";
 import { SMS_VARIANT_LABELS } from "@/lib/schemas";
 import { smsLength, TARGET_CHARS } from "@/lib/sms-format";
+import VariationsModal from "../VariationsModal";
+
+const SMS_CHIPS = ["Warmer", "Punchier", "More playful", "More premium", "Less salesy", "Shorter"];
 
 // Human-readable name for the character that forced Unicode encoding, for the
 // counter hint. Falls back to the literal character in quotes.
@@ -69,6 +72,8 @@ interface Props {
 }
 
 export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVariant }: Props) {
+  const [altFor, setAltFor] = useState<number | null>(null);
+
   return (
     <div className="space-y-3">
       <div className="t-label">
@@ -98,6 +103,13 @@ export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVa
               <span className="t-label text-ink-secondary">
                 {SMS_VARIANT_LABELS[i] ?? `Variant ${i + 1}`}
               </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setAltFor(i); }}
+                className="ml-auto text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-0.5 hover:bg-slate-50 transition-colors"
+                title="Get alternative wordings for this message"
+              >
+                Alternatives
+              </button>
             </div>
             {/* Stop clicks inside the editor from re-triggering selection. */}
             <div onClick={(e) => e.stopPropagation()}>
@@ -109,6 +121,29 @@ export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVa
           </div>
         );
       })}
+
+      {altFor !== null && (
+        <VariationsModal
+          title={`SMS: ${SMS_VARIANT_LABELS[altFor] ?? `Variant ${altFor + 1}`}`}
+          chips={SMS_CHIPS}
+          onFetch={async (feedback) => {
+            const res = await fetch("/api/sms-variations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                current_sms: campaign.variants[altFor].text,
+                brief: campaign.brief,
+                feedback,
+              }),
+            });
+            const data = await res.json();
+            const vars = (data.variations ?? []) as { label: string; text: string }[];
+            return vars.map((vv) => ({ label: vv.label, preview: vv.text, payload: vv.text }));
+          }}
+          onApply={(payload) => onChangeVariant(altFor, payload as string)}
+          onClose={() => setAltFor(null)}
+        />
+      )}
     </div>
   );
 }

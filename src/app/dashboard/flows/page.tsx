@@ -1,13 +1,34 @@
 "use client";
 import { useDashboardData } from "../dashboard-context";
-import { formatMoney, formatInt } from "../format";
+import { formatMoney, formatInt, formatPct } from "../format";
+import Card from "@/components/ui/Card";
+import { KPIRow, StatCell } from "@/components/ui/Stat";
 
 export default function FlowsPage() {
   const { data } = useDashboardData();
   if (!data) return null;
   const flows = data.flows;
+  const revenue = data.revenue;
+  const flowRecipients = flows.reduce((a, f) => a + (f.recipients ?? 0), 0);
 
   return (
+    <>
+      {/* Channel-scoped revenue — flows only, over the selected range. */}
+      <Card className="mb-4" bodyClassName="p-6">
+        <KPIRow cols={2}>
+          <StatCell
+            label="Flow revenue (Klaviyo-attributed)"
+            value={formatMoney(revenue.attributed_from_flows)}
+            description={<>{formatPct(revenue.attributed_from_flows, revenue.total)} of placed-order revenue</>}
+          />
+          <StatCell
+            label="Flow recipients"
+            value={formatInt(flowRecipients)}
+            description={<>{flows.length} active flow{flows.length === 1 ? "" : "s"} in range</>}
+          />
+        </KPIRow>
+      </Card>
+
     <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
       <div className="px-6 py-4 border-b border-line flex items-center justify-between">
         <div>
@@ -57,5 +78,6 @@ export default function FlowsPage() {
         </table>
       </div>
     </div>
+    </>
   );
 }

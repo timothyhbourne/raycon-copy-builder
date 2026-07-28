@@ -162,7 +162,7 @@ export async function GET(req: NextRequest) {
   const full = searchParams.get("full") === "1";
   if (!id) return NextResponse.json({ error: "id query param required" }, { status: 400 });
 
-  const draft = loadCampaign(id);
+  const draft = await loadCampaign(id);
   if (draft) {
     const base: CopyBase = { id, source: "draft", campaign_name: draft.campaign_name, updated_at: draft.updated_at };
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runRawCampaignExport, isNorthbeamConfigured, normalizeCampaignName } from "@/lib/northbeam";
 import { previousCompletedWeek, weekWindowForIsoWeek } from "@/lib/reports/weekly";
+import { debugRoutesEnabled } from "@/lib/env";
 
 // Phase-1 confirmation helper for the campaign-level Northbeam export that backs
 // the planner's "NB rev (1d click)" column. Cookie-gated by the app proxy (same
@@ -16,12 +17,13 @@ import { previousCompletedWeek, weekWindowForIsoWeek } from "@/lib/reports/weekl
 //
 //   ?week=YYYY-Www  → that ISO week   (default: previous completed week)
 //
-// Use the 422 responses to lock the correct `level` / campaign breakdown key,
-// then set NORTHBEAM_CAMPAIGN_LEVEL / NORTHBEAM_CAMPAIGN_BREAKDOWN in .env.local.
+// The recipe is CONFIRMED live (2026-07-23, see buildCampaignExportBody) — this
+// route stays as the reconciliation/diagnostic dump for the planner column.
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  if (!debugRoutesEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!isNorthbeamConfigured()) {
     return NextResponse.json({ error: "Northbeam not configured — set NORTHBEAM_API_KEY / NORTHBEAM_CLIENT_ID." }, { status: 400 });
   }

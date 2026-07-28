@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { listPlannerRows, writeSyncedMetrics } from "@/lib/planner";
 import type { PlannerRow, SyncedMetrics, SyncResult } from "@/lib/planner-types";
 import { campaignValuesReport, dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
-import { isPostscriptConfigured, getPostscriptCampaignMetrics, getPostscriptCampaign } from "@/lib/postscript";
 import { isNorthbeamConfigured, getCampaignRevenue, normalizeCampaignName, northbeamPlatformLabels } from "@/lib/northbeam";
 
 // Per-window cache for the Klaviyo campaign values report so repeated syncs of
@@ -43,10 +42,13 @@ export async function POST() {
     let syncedCount = 0;
     const now = new Date().toISOString();
 
-    // A row is a sync candidate if it is LINKED — regardless of local status.
-    // Syncability then hinges on the real send time being in the past.
+    // An email row is a sync candidate if it is LINKED — regardless of local
+    // status; syncability then hinges on the real send time being in the past.
+    // SMS platform metrics are MANUAL entry (Postscript's public API has no
+    // campaign/analytics endpoints — see recipients.ts / the SMS spec); SMS rows
+    // only participate in the Northbeam pass, joined by northbeam_campaign_name.
     const emailRows = rows.filter((r) => r.channel === "email" && r.klaviyo_campaign_id);
-    const smsRows = rows.filter((r) => r.channel === "sms" && r.postscript_campaign_id);
+    const smsRows = rows.filter((r) => r.channel === "sms");
 
     // ---- Email → Klaviyo ----
     if (emailRows.length > 0) {
@@ -86,6 +88,12 @@ export async function POST() {
           results.push({ id: row.id, name: row.name, matched: false, reason: "not_sent_yet" });
           continue;
         }
+        // Structural guard: the sync NEVER overwrites manually-entered platform
+        // metrics (today that's SMS-only, but the guard is channel-agnostic).
+        if (row.metrics_source === "manual" || row.metrics_source === "postscript_csv") {
+          results.push({ id: row.id, name: row.name, matched: false, reason: "sms_manual" });
+          continue;
+        }
         const s = byId.get(row.klaviyo_campaign_id!);
         if (!s) {
           results.push({ id: row.id, name: row.name, matched: false, reason: "no_activity_in_window" });
@@ -106,39 +114,16 @@ export async function POST() {
       }
     }
 
-    // ---- SMS → Postscript (sequential; no opens on SMS) ----
-    const postscriptConnected = isPostscriptConfigured();
+    // ---- SMS platform metrics: MANUAL, by design ----
+    // Postscript's public API has no campaign/flow/analytics endpoints
+    // (confirmed 2026-07-23), so recipients/click/revenue for SMS rows are
+    // typed in from the Postscript dashboard and the sync never touches them.
+    // Surfaced as informational (never an error); NB rev still syncs below.
     for (const row of smsRows) {
-      if (!postscriptConnected) {
-        results.push({ id: row.id, name: row.name, matched: false, reason: "postscript_not_connected" });
-        continue;
-      }
-      if (!isPast(smsSendBasis(row))) {
-        results.push({ id: row.id, name: row.name, matched: false, reason: "not_sent_yet" });
-        continue;
-      }
-      const m = await getPostscriptCampaignMetrics(row.postscript_campaign_id!);
-      if (!m || m.recipients === null) {
-        results.push({ id: row.id, name: row.name, matched: false, reason: "no_activity_in_window" });
-        continue;
-      }
-      const metrics: SyncedMetrics = {
-        recipients: m.recipients,
-        open_rate: null, // SMS has no opens — never fabricate
-        click_rate: m.click_rate,
-        revenue: m.revenue,
-        revenue_per_recipient: m.revenue_per_recipient,
-        metrics_synced_at: now,
-      };
-      await writeSyncedMetrics(row.id, metrics);
-      syncedCount++;
-      results.push({ id: row.id, name: row.name, matched: true, reason: "matched" });
-    }
-    if (smsRows.length > 0 && !postscriptConnected) {
-      warnings.push("Postscript not connected — set POSTSCRIPT_API_KEY to sync SMS metrics.");
+      results.push({ id: row.id, name: row.name, matched: false, reason: "sms_manual" });
     }
 
-    // ---- Northbeam campaign revenue (1-day click / last-touch / cash) ----
+    // ---- Northbeam campaign revenue (1-day click / clicks-only / cash) ----
     // Additive + fully isolated: matched to each row by its LINKED platform
     // campaign name (Northbeam's campaign dimension = utm_campaign, which
     // defaults to the Klaviyo/Postscript campaign name — NOT row.name). Any
@@ -153,21 +138,27 @@ export async function POST() {
     } else {
       try {
         const eligibleEmail = emailRows.filter((r) => isPast(emailSendBasis(r)));
-        const eligibleSms = smsRows.filter((r) => isPast(smsSendBasis(r)));
+        // SMS rows join Northbeam by their picked northbeam_campaign_name (the
+        // utm_campaign) — no platform link needed, but the send must be past.
+        const eligibleSms = smsRows.filter((r) => isPast(smsSendBasis(r)) && (r.northbeam_campaign_name || "").trim());
         const eligible = [...eligibleEmail, ...eligibleSms];
         if (eligible.length > 0) {
-          // Same window basis the K/PS passes use: earliest real send − 1 day → today.
+          // Window start mirrors the K/PS passes (earliest real send − 1 day),
+          // but the END is pinned to YESTERDAY — Northbeam's last fully
+          // processed day (its own MTD reporting stops there). Including today
+          // would return systematically low numbers for recent sends; a
+          // campaign sent today simply stays unmatched ("—") until tomorrow.
           const bases = eligible
             .map((r) => (r.channel === "email" ? emailSendBasis(r) : smsSendBasis(r)))
             .filter((b): b is string => !!b)
             .map(ymd)
             .sort();
+          const endYMD = addDaysYMD(ymd(now), -1);
           const startYMD = addDaysYMD(bases[0], -1);
-          const endYMD = ymd(now);
 
           const cr = await getCampaignRevenue(`${startYMD}T00:00:00`, `${endYMD}T23:59:59`);
-          // Sum by (platform, normalized name): WEEKLY granularity returns one
-          // row per campaign per week across a multi-week window.
+          // Sum by (platform, normalized name): DAILY granularity returns one
+          // row per campaign per day it earned revenue.
           const labels = northbeamPlatformLabels();
           const keyOf = (platform: string, name: string) => `${platform.trim().toLowerCase()}||${normalizeCampaignName(name)}`;
           const revByKey = new Map<string, number>();
@@ -176,28 +167,22 @@ export async function POST() {
             revByKey.set(k, (revByKey.get(k) ?? 0) + cRow.revenue);
           }
 
-          // Resolve each row's LINKED campaign name (never assume row.name).
+          // Resolve each row's join name (never assume row.name). One
+          // mechanism, both channels: an explicit northbeam_campaign_name wins;
+          // email rows without one default to the linked Klaviyo campaign name.
           const emailNameById = new Map<string, string>();
-          const emailIds = eligibleEmail.map((r) => r.klaviyo_campaign_id!).filter(Boolean);
+          const emailIds = eligibleEmail
+            .filter((r) => !(r.northbeam_campaign_name || "").trim())
+            .map((r) => r.klaviyo_campaign_id!)
+            .filter(Boolean);
           if (emailIds.length > 0) {
             for (const c of await fetchCampaignsByIds(emailIds)) emailNameById.set(c.id, c.name);
-          }
-          // Only resolve SMS names when Postscript is connected — otherwise the
-          // fetch throws and would abort the whole NB pass (including email).
-          // Unresolved SMS rows simply fall through to northbeam_unmatched.
-          const smsNameById = new Map<string, string>();
-          if (postscriptConnected) {
-            for (const r of eligibleSms) {
-              const c = await getPostscriptCampaign(r.postscript_campaign_id!);
-              if (c?.name) smsNameById.set(r.postscript_campaign_id!, c.name);
-            }
           }
 
           for (const row of eligible) {
             const label = row.channel === "email" ? labels.email : labels.sms;
-            const linkedName = row.channel === "email"
-              ? emailNameById.get(row.klaviyo_campaign_id!)
-              : smsNameById.get(row.postscript_campaign_id!);
+            const linkedName = (row.northbeam_campaign_name || "").trim()
+              || (row.channel === "email" ? emailNameById.get(row.klaviyo_campaign_id!) : undefined);
             const rev = linkedName ? revByKey.get(keyOf(label, linkedName)) : undefined;
             if (rev == null) {
               // Explicit null (never silently 0) + a visible unmatched result.
@@ -224,7 +209,6 @@ export async function POST() {
     return NextResponse.json({
       ok: true,
       synced: syncedCount,
-      postscript_connected: postscriptConnected,
       northbeam_configured: northbeamConfigured,
       results,
       northbeam_results: northbeamResults,

@@ -1,14 +1,30 @@
 export type CampaignType = "promo" | "launch" | "restock" | "story" | "seasonal" | "winback" | "newsletter";
 export type AudienceType = "all" | "engaged" | "lapsed" | "post_purchase" | "vip";
+
+// Selection-driven brief model (deterministic compiler — see src/lib/brief/).
+// `angle` is how the arc is shaped; `SendStage`/`UrgencyTier` are COMPUTED by the
+// compiler from the promotion dates, never hand-entered (a manual override is
+// allowed in the UI but still flows through these fields).
+export type Angle = "offer_led" | "product_led" | "story_led" | "occasion_led";
+export type SendStage = "launch" | "reminder" | "last_call";
+export type UrgencyTier = 1 | 2 | 3;
 export type SectionType =
   | "header"
   | "body"
+  | "free_form"
   | "usps"
   | "product_card"
+  | "product_card_review"
   | "product_grid"
   | "reviews"
   | "cta_bridge"
   | "footer_cta";
+
+/** Section types that showcase exactly ONE featured product (get a product_slug). */
+export const PRODUCT_CARD_TYPES: SectionType[] = ["product_card", "product_card_review"];
+export function isProductCardType(t: SectionType): boolean {
+  return t === "product_card" || t === "product_card_review";
+}
 
 export interface SectionSpec {
   id: string;
@@ -58,6 +74,11 @@ export interface ExpandedBrief {
   tonal_direction: string;
   structural_notes: string;
   rewritten_hero_angle: string;
+  /** Honest deadline phrasing computed from send date vs. end date ("tonight",
+   * "tomorrow night", "in 48 hours", "Friday, Aug 7"). Set by the compiler
+   * whenever an end date is known; the generator injects it as a literal
+   * constraint so copy never says "tonight" 48 hours early. */
+  deadline_language?: string;
   // original brief fields retained for retrieval
   campaign_type: CampaignType;
   audience: AudienceType;
@@ -123,9 +144,17 @@ export interface SavedCampaign {
   offer: string;
   promo_code?: string;
   audience: AudienceType;
-  hero_angle: string;
+  hero_angle?: string; // legacy; no longer collected
   products_featured: string[];
   section_structure: SectionSpec[];
+  // Selection-driven brief fields — persisted so a library reload rebuilds the
+  // same brief (the form re-populates from these).
+  angle?: Angle;
+  promotion_id?: string;
+  occasion?: string;
+  hero_product_slug?: string;
+  send_stage?: SendStage;
+  urgency?: UrgencyTier;
   expanded_brief?: ExpandedBrief;
   chosen_conceit?: Conceit;
   campaign: GeneratedCampaign;
@@ -184,10 +213,33 @@ export interface BriefInput {
   offer: string;
   promo_code?: string;
   audience: AudienceType;
-  hero_angle: string;
+  /** How the arc is shaped (replaces the free-text hero angle). */
+  angle: Angle;
+  /** Selected Promotional Calendar promotion id (occasion picker), if any. */
+  promotion_id?: string;
+  /** Occasion label — auto-set from the promotion, or manual. */
+  occasion?: string;
+  /** Which featured product leads above the fold. */
+  hero_product_slug?: string;
   products_featured: string[];
   section_structure: SectionSpec[];
+  /** Optional free-text NUDGE ("Anything special about this send?") — the only
+   * free text left, mapped to the user's-literal-instructions priority tier. */
   campaign_specific_rules?: string;
+  /** Legacy free-text hero angle — no longer collected; kept optional so saved
+   * library items still type-check. The UI does not show it. */
+  hero_angle?: string;
+  /** "flash_sale" = evergreen ad-hoc occasion, decoupled from the promo calendar. */
+  occasion_kind?: "promo_calendar" | "flash_sale";
+  /** Flash sale window (ISO yyyy-mm-dd). Required when occasion_kind === "flash_sale". */
+  flash_sale_start?: string;
+  flash_sale_end?: string;
+  /** Planned send date (ISO). Defaults to today at compile time. Drives deadline language. */
+  send_date?: string;
+  /** Computed by compileBrief() from the promotion dates; persisted so a saved
+   * campaign reloads faithfully. A manual UI override still writes here. */
+  send_stage?: SendStage;
+  urgency?: UrgencyTier;
   /** 1 = conservative / strict imitation, 5 = experimental / more humor + edge */
   tone_dial?: number;
   /** Back-reference to the Planner row this campaign was written for (if any). */
@@ -195,10 +247,14 @@ export interface BriefInput {
 }
 
 export const SECTION_CATALOGUE: Record<SectionType, string[]> = {
-  header: ["Headline", "Tagline", "Hero Image Direction", "CTA"],
+  header: ["Headline", "Tagline", "CTA"],
   body: ["Subheader", "Body Copy", "CTA"],
+  // General-purpose content block. Same shape as `body` but semantically a
+  // free-form section the user can drop in anywhere.
+  free_form: ["Subheader", "Body Copy", "CTA"],
   usps: ["Subheader", "USP 1", "USP 2", "USP 3", "CTA"],
-  product_card: ["Product Name", "Image Direction", "One-Liner", "CTA"],
+  product_card: ["Product Name", "One-Liner", "CTA"],
+  product_card_review: ["Product Name", "Subheader", "One-Liner", "Review", "CTA"],
   product_grid: ["Subheader", "Products"],
   reviews: ["Subheader", "Review 1", "Review 2", "Review 3"],
   cta_bridge: ["Subheader", "CTA"],

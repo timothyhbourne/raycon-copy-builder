@@ -3,20 +3,24 @@ import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { regenerateMetaRoleInstruction, regenerateMetaUserPrompt } from "@/lib/prompts/regenerate-meta";
 import { buildAvoidBlock } from "@/lib/constructions";
+import { parseBody } from "@/lib/validation/api";
+import { regenerateMetaBody } from "@/lib/validation/requests";
 import type { ExpandedBrief, Conceit } from "@/lib/schemas";
 
 export async function POST(req: NextRequest) {
   try {
-    const body: {
+    const parsedBody = await parseBody(req, regenerateMetaBody);
+    if (parsedBody.error) return parsedBody.error;
+    const body = parsedBody.data as unknown as {
       expanded_brief: ExpandedBrief;
       chosen_conceit: Conceit;
       current_campaign_summary: string;
       library_id?: string; // exclude the campaign being re-finalized from recency memory
       avoid_note?: string; // targeted dedup instruction from the repetition checker
-    } = await req.json();
+    };
 
     const systemBlocks = buildSystemBlocks(getBrandContext(), regenerateMetaRoleInstruction);
-    const avoidBlock = buildAvoidBlock({
+    const avoidBlock = await buildAvoidBlock({
       campaignType: body.expanded_brief.campaign_type,
       excludeId: body.library_id,
     });

@@ -3,14 +3,14 @@ export function designSpecSystemPrompt(): string {
 }
 
 export function designSpecUserPrompt(): string {
-  return `I'm showing you screenshots of approved Raycon email campaigns. Analyse the HEADER section only — the top portion of each email that includes: a narrow logo bar (Raycon wordmark on a dark background) and the hero area below it (product render, headline, offer/tagline text, and CTA button). Ignore everything below the header.
+  return `I'm showing you screenshots of approved Raycon email campaigns. Analyse the HEADER section only , the top portion of each email that includes: a narrow logo bar (Raycon wordmark on a dark background) and the hero area below it (product render, headline, offer/tagline text, and CTA button). Ignore everything below the header.
 
 Synthesise a unified style specification across all the references. Where they vary, capture the dominant pattern.
 
 Return a single JSON object with exactly this structure:
 
 {
-  "source_count": <integer — number of reference images you analysed>,
+  "source_count": <integer , number of reference images you analysed>,
   "logo_bar": {
     "bg": "<hex colour>",
     "height_approx": "narrow (40-50px) | medium (60-80px)",

@@ -1,5 +1,6 @@
 import path from "path";
 import { getAdapter } from "./storage";
+import { parseLibraryCampaigns, stampAll } from "./validation";
 import type { LibraryCampaign, GeneratedCampaign, BriefInput, Conceit, SectionSpec } from "./schemas";
 
 // Store for the Copy Builder Library: a single JSON array behind the shared
@@ -25,8 +26,9 @@ async function readAll(): Promise<LibraryCampaign[]> {
   const raw = await store.read(STORE_KEY);
   if (raw == null) return []; // absent store → empty library
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    // Validate at the boundary — a malformed entry is logged and skipped rather
+    // than surfacing as a wrongly-typed campaign or crashing the whole list.
+    return parseLibraryCampaigns(JSON.parse(raw));
   } catch {
     return [];
   }
@@ -35,7 +37,8 @@ async function readAll(): Promise<LibraryCampaign[]> {
 async function writeAll(entries: LibraryCampaign[]): Promise<void> {
   // On the file backend the adapter absorbs read-only-FS failures (logs, no-op);
   // the Redis backend makes the write durable across serverless invocations.
-  await store.write(STORE_KEY, JSON.stringify(entries, null, 2));
+  // stampAll records the current schema_version for future migrations.
+  await store.write(STORE_KEY, JSON.stringify(stampAll(entries), null, 2));
 }
 
 export async function getLibraryCampaigns(): Promise<LibraryCampaign[]> {
@@ -118,7 +121,7 @@ export async function saveToLibrary(
     campaign_type: briefInput.campaign_type,
     offer: briefInput.offer,
     promo_code: briefInput.promo_code || undefined,
-    hero_angle: briefInput.hero_angle,
+    hero_angle: briefInput.hero_angle ?? "", // legacy field; no longer collected
     audience: briefInput.audience,
     products_featured: briefInput.products_featured,
     conceit: conceit?.name ?? "[FILL ME IN]",

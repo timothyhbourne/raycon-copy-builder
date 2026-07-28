@@ -1,24 +1,22 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type {
   BriefInput, ExpandedBrief, Conceit, GeneratedCampaign, GeneratedSection,
   LibraryCampaign, SavedCampaign, SectionType, SectionSpec, SmsCampaign, SmsBrief
 } from "@/lib/schemas";
-import { SECTION_CATALOGUE } from "@/lib/schemas";
-import { smsLength } from "@/lib/sms-format";
 import type { PlannerRow } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections } from "@/lib/expand-sections";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
+import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
 import {
   collectCheckElements, collectMetaElements, collectSectionElements,
   specForSection, targetForKey, type RepetitionFlag,
 } from "@/lib/repetition-client";
 import InputForm from "@/components/InputForm";
-import ConceitPicker from "@/components/ConceitPicker";
 import CampaignCanvas from "@/components/CampaignCanvas";
 import SmsForm, { type EmailSource, type SmsGenerateArgs } from "@/components/sms/SmsForm";
 import SmsCanvas from "@/components/sms/SmsCanvas";
@@ -28,183 +26,23 @@ import Chip from "@/components/ui/Chip";
 import EmptyState from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/Modal";
 import { toast } from "@/components/ui/Toast";
-
-const LS_DRAFT = "raycon_canvas_draft";
-
-type Stage = "form" | "conceits" | "canvas";
-
-// Where the current canvas content came from
-type CanvasSource = "new" | "draft" | "library";
-
-// Planner handoff context, needed for write-back on save. Persisted alongside
-// the canvas draft so it survives the generate -> save cycle and a refresh.
-interface PlannerLinkContext { rowId: string; name: string; channel: string }
-
-// Reads the deep-link query params. Isolated into its own component because
-// Next 16 requires useSearchParams to sit inside a <Suspense> boundary (a static
-// page that calls it otherwise fails the production build). Renders nothing; it
-// just fires the callbacks once per distinct param value. Callbacks are read
-// through a ref so the effect only runs on real URL changes, not every parent
-// re-render (which happens on every streamed token during generation).
-function DeepLinkReader({ onPlanner, onCampaign }: {
-  onPlanner: (rowId: string, channel: string | null) => void;
-  onCampaign: (savedId: string) => void;
-}) {
-  const searchParams = useSearchParams();
-  const cbRef = useRef({ onPlanner, onCampaign });
-  cbRef.current = { onPlanner, onCampaign };
-  const lastConsumed = useRef<string | null>(null);
-  useEffect(() => {
-    const planner = searchParams.get("planner");
-    const campaign = searchParams.get("campaign");
-    const channel = searchParams.get("channel");
-    const token = planner ? `p:${planner}:${channel ?? ""}` : campaign ? `c:${campaign}` : null;
-    if (!token || lastConsumed.current === token) return;
-    lastConsumed.current = token;
-    if (planner) cbRef.current.onPlanner(planner, channel);
-    else if (campaign) cbRef.current.onCampaign(campaign);
-  }, [searchParams]);
-  return null;
-}
-
-type StepKey = "form" | "conceits" | "canvas";
-const STEP_ORDER: Record<StepKey, number> = { form: 0, conceits: 1, canvas: 2 };
-
-// Compact Brief → Conceit → Canvas stepper. Current in accent, completed in ink
-// with a check, future muted. Completed steps navigate back where possible.
-function Stepper({ activeKey, canGoBack, onNavigate }: {
-  activeKey: StepKey;
-  canGoBack: (key: StepKey) => boolean;
-  onNavigate: (key: StepKey) => void;
-}) {
-  const steps: { key: StepKey; label: string }[] = [
-    { key: "form", label: "Brief" },
-    { key: "conceits", label: "Conceit" },
-    { key: "canvas", label: "Canvas" },
-  ];
-  const activeIdx = STEP_ORDER[activeKey];
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      {steps.map((s, i) => {
-        const idx = STEP_ORDER[s.key];
-        const state = idx < activeIdx ? "done" : idx === activeIdx ? "current" : "future";
-        const clickable = state === "done" && canGoBack(s.key);
-        return (
-          <div key={s.key} className="flex items-center gap-2">
-            {clickable ? (
-              <button type="button" onClick={() => onNavigate(s.key)} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-                <StepDot state={state} index={i} />
-                <span className="font-medium text-ink">{s.label}</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <StepDot state={state} index={i} />
-                <span className={`font-medium ${state === "current" ? "text-accent" : state === "done" ? "text-ink" : "text-ink-muted"}`}>{s.label}</span>
-              </div>
-            )}
-            {i < steps.length - 1 && <span className="text-ink-muted" aria-hidden>→</span>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-function StepDot({ state, index }: { state: "done" | "current" | "future"; index: number }) {
-  return (
-    <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] ${
-      state === "current" ? "bg-accent text-white" : state === "done" ? "bg-ink text-white" : "bg-chrome text-ink-muted border border-line"
-    }`}>
-      {state === "done" ? "✓" : index + 1}
-    </span>
-  );
-}
-// Quiet autosave status shown for library canvases in place of the save button.
-// mono micro text: "Saving…" → "Saved ✓" (fades to a lone ✓) → "Autosave failed — Retry".
-function AutosaveStatus({ status, onRetry }: {
-  status: "idle" | "saving" | "saved" | "check" | "error";
-  onRetry: () => void;
-}) {
-  if (status === "idle") return null;
-  if (status === "error") {
-    return (
-      <div className="flex items-center gap-2 text-[11px] text-danger-600">
-        <span>Autosave failed</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="px-1.5 py-0.5 rounded-sm border border-danger-200 text-danger-600 hover:bg-danger-50 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-  if (status === "saving") {
-    return (
-      <div className="flex items-center gap-1.5 text-[11px] text-ink-muted">
-        <span className="w-3 h-3 rounded-full border-2 border-line border-t-ink-muted animate-spin" aria-hidden />
-        Saving…
-      </div>
-    );
-  }
-  // "saved" (with label) and "check" (label faded out) share the checkmark.
-  return (
-    <div className="flex items-center gap-1 text-[11px] text-ink-muted" aria-live="polite">
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
-      {status === "saved" && <span>Saved</span>}
-    </div>
-  );
-}
-function CollapseIcon() {
-  return (<svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>);
-}
-function PanelIcon() {
-  return (<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></svg>);
-}
-
-interface LibraryMeta extends Omit<LibraryCampaign, "body"> {}
-interface SavedMeta extends Omit<SavedCampaign, "campaign" | "expanded_brief" | "section_structure"> {}
-
-function makeSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-function resetState(setters: {
-  setStage: (s: Stage) => void;
-  setCampaign: (c: GeneratedCampaign | null) => void;
-  setExpandedBrief: (e: ExpandedBrief | null) => void;
-  setChosenConceit: (c: Conceit | null) => void;
-  setSectionStructure: (s: SectionSpec[]) => void;
-  setCurrentBriefInput: (b: BriefInput | null) => void;
-  setConceits: (c: Conceit[]) => void;
-  setCanvasSource: (s: CanvasSource) => void;
-  setCurrentDraftId: (id: string | null) => void;
-  setCurrentLibraryId: (id: string | null) => void;
-}) {
-  setters.setStage("form");
-  setters.setCampaign(null);
-  setters.setExpandedBrief(null);
-  setters.setChosenConceit(null);
-  setters.setSectionStructure([]);
-  setters.setCurrentBriefInput(null);
-  setters.setConceits([]);
-  setters.setCanvasSource("new");
-  setters.setCurrentDraftId(null);
-  setters.setCurrentLibraryId(null);
-  localStorage.removeItem(LS_DRAFT);
-}
+import {
+  LS_DRAFT, makeSlug, resetState,
+  type Stage, type CanvasSource, type PlannerLinkContext,
+  type StepKey, type LibraryMeta, type SavedMeta,
+} from "./helpers";
+import { DeepLinkReader, Stepper, AutosaveStatus, CollapseIcon, PanelIcon } from "./components";
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("form");
   // Single loading phase — eliminates any in-between render where two booleans
   // could both be false at the same time and flash the empty state.
-  const [loadingPhase, setLoadingPhase] = useState<null | "conceits" | "generating">(null);
+  const [loadingPhase, setLoadingPhase] = useState<null | "generating">(null);
   const [error, setError] = useState<string | null>(null);
 
   const [currentBriefInput, setCurrentBriefInput] = useState<BriefInput | null>(null);
   const [expandedBrief, setExpandedBrief] = useState<ExpandedBrief | null>(null);
   const [retrievedExamples, setRetrievedExamples] = useState<LibraryCampaign[]>([]);
-  const [conceits, setConceits] = useState<Conceit[]>([]);
   const [chosenConceit, setChosenConceit] = useState<Conceit | null>(null);
   const [campaign, setCampaign] = useState<GeneratedCampaign | null>(null);
   const [sectionStructure, setSectionStructure] = useState<SectionSpec[]>([]);
@@ -358,7 +196,6 @@ export default function Home() {
     setChosenConceit(null);
     setSectionStructure([]);
     setCurrentBriefInput(null);
-    setConceits([]);
     setCanvasSource("new");
     setCurrentDraftId(null);
     setCurrentLibraryId(null);
@@ -492,7 +329,7 @@ export default function Home() {
     flushAutosaveRef.current();   // persist any pending library edit before clearing
     resetState({
       setStage, setCampaign, setExpandedBrief, setChosenConceit,
-      setSectionStructure, setCurrentBriefInput, setConceits,
+      setSectionStructure, setCurrentBriefInput,
       setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
     });
     setPlannerLink(null);
@@ -509,31 +346,22 @@ export default function Home() {
     setPendingBriefInput(input);
   };
 
+  // The whole fast path: structured picks → straight to generation. The brief is
+  // compiled DETERMINISTICALLY server-side (no brief-expansion or conceits LLM
+  // step); the compiled brief + conceit come back on the first stream event so
+  // the client can persist them (save + regenerate/variations run off them).
   const handleBriefSubmit = async (input: BriefInput) => {
-    setLoadingPhase("conceits");
     setError(null);
     // Expand product_card sections so each card maps to a selected product.
-    // This shapes the structure the canvas, brief, and generation all see.
     const expandedStructure = expandProductCardSections(input.section_structure, input.products_featured);
     const normalised: BriefInput = { ...input, section_structure: expandedStructure };
     setCurrentBriefInput(normalised);
     setSectionStructure(expandedStructure);
+
+    // Retrieve similar past campaigns (client-side scoring) to pass into generate.
+    let topExamples: LibraryCampaign[] = [];
     try {
-      // Kick off brief expansion AND library fetch in parallel
-      const [briefRes, libRes] = await Promise.all([
-        fetch("/api/brief", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(normalised),
-        }),
-        fetch("/api/library?all=true"),
-      ]);
-
-      const briefData = await briefRes.json();
-      if (briefData.error) throw new Error(briefData.error);
-      setExpandedBrief(briefData.expanded_brief);
-
-      // One bulk fetch for all library campaigns with bodies (avoids N round-trips)
+      const libRes = await fetch("/api/library?all=true");
       const libData = await libRes.json();
       const library: LibraryCampaign[] = libData.campaigns || [];
       const scored = library.map((c) => {
@@ -545,51 +373,26 @@ export default function Home() {
         score += Math.max(0, 2 - ageYears * 0.4);
         return { c, score };
       });
-      const topExamples = scored.sort((a, b) => b.score - a.score).slice(0, 8).map((x) => x.c);
+      topExamples = scored.sort((a, b) => b.score - a.score).slice(0, 4).map((x) => x.c);
       setRetrievedExamples(topExamples);
+    } catch { /* retrieval is best-effort; generation proceeds without examples */ }
 
-      const cRes = await fetch("/api/conceits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expanded_brief: briefData.expanded_brief, retrieved_examples: topExamples }),
-      });
-      const cData = await cRes.json();
-      if (cData.error) throw new Error(cData.error);
-      setConceits(cData.conceits || []);
-      setStage("conceits");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setLoadingPhase(null);
-    }
-  };
-
-  const handlePickConceit = async (conceit: Conceit) => {
-    setChosenConceit(conceit);
+    // Straight to the canvas; copy streams in progressively.
     setLoadingPhase("generating");
-    setError(null);
-
-    // Initialise an empty campaign and show the canvas immediately so content
-    // appears progressively as each JSONL line streams in.
     const empty: GeneratedCampaign = { meta: { subject_lines: [], preview_texts: [] }, sections: [] };
     setCampaign(empty);
     setRepetitionFlags({});
     setCanvasSource("new");
     setStage("canvas");
 
+    let compiledBrief: ExpandedBrief | null = null;
+    let compiledConceit: Conceit | null = null;
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          expanded_brief: expandedBrief,
-          chosen_conceit: conceit,
-          section_structure: sectionStructure,
-          retrieved_examples: retrievedExamples,
-          tone_dial: currentBriefInput?.tone_dial ?? 1,
-        }),
+        body: JSON.stringify({ brief_input: normalised, retrieved_examples: topExamples }),
       });
-
       if (!res.body) throw new Error("No response stream");
 
       const reader = res.body.getReader();
@@ -611,17 +414,32 @@ export default function Home() {
           if (!line.startsWith("data: ")) continue;
           const payload = line.slice(6).trim();
           if (payload === "[DONE]") break;
-          // Only attempt to parse lines that look like JSON objects —
-          // skips any preamble prose the model might emit before the JSONL.
           if (!payload.startsWith("{")) continue;
           try {
             const parsed = JSON.parse(payload);
             if (parsed.error) throw new Error(parsed.error);
-            if (parsed.meta) {
-              meta = parsed.meta;
+            if (parsed.compiled) {
+              // The deterministic brief, compiled server-side. Persist for save +
+              // regenerate/variations, and record the derived stage/urgency.
+              compiledBrief = parsed.compiled.expanded_brief;
+              compiledConceit = parsed.compiled.conceit;
+              setExpandedBrief(compiledBrief);
+              setChosenConceit(compiledConceit);
+              setCurrentBriefInput((prev) => (prev ? { ...prev, send_stage: parsed.compiled.send_stage, urgency: parsed.compiled.urgency } : prev));
+              // Explain any Review card that will come back empty — we never
+              // fabricate, so an empty field is always a real data gap.
+              const gaps: { slug: string; name: string }[] = parsed.review_gaps ?? [];
+              if (gaps.length) {
+                toast.info(
+                  `No eligible review found for ${gaps.map((g) => g.name).join(", ")} — that Review field stays empty. Add one to data/reviews/<SKU>.json or paste it in manually.`
+                );
+              }
+            } else if (parsed.meta) {
+              // Deterministic punctuation scrub before anything renders.
+              meta = scrubMeta(parsed.meta);
               setCampaign({ meta, sections: [...sections] });
             } else if (parsed.type) {
-              const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(parsed.elements);
+              const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(scrubElements(parsed.elements));
               const newSection: GeneratedSection = {
                 id: nanoid(),
                 type: parsed.type,
@@ -637,14 +455,41 @@ export default function Home() {
         }
       }
       toast.success(`Campaign written — ${sections.length} section${sections.length === 1 ? "" : "s"}`);
-      // Post-generation similarity pass (auto-retries offenders, then flags).
-      void runRepetitionCheck({ meta, sections });
+      void runHardRulesCheck({ meta, sections });
+      void runRepetitionCheck({ meta, sections }, { brief: compiledBrief, conceit: compiledConceit });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
       setCampaign(null);
-      setStage("conceits");
+      setStage("form");
     } finally {
       setLoadingPhase(null);
+    }
+  };
+
+
+  // ---- Post-generation hard-rules gate --------------------------------------
+  // Punctuation (em/en dashes, ellipses, stacked "!") is auto-fixed as copy
+  // streams in, so it never reaches the canvas. This second pass POSTs the
+  // finished copy to /api/hard-rules-check and surfaces the non-fixable
+  // violations (banned words, hype words, the retired "Classic", length caps)
+  // as a concise notice. Fails open — never blocks the user.
+  const runHardRulesCheck = async (campaignToCheck: GeneratedCampaign) => {
+    try {
+      const elements = collectHardRuleElements(campaignToCheck);
+      if (!elements.length) return;
+      const res = await fetch("/api/hard-rules-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ elements }),
+      });
+      if (!res.ok) return;
+      const { report } = await res.json();
+      if (report && !report.ok) {
+        const summary = summarizeReport(report);
+        if (summary) toast.error(`Hard-rule check: ${summary}`);
+      }
+    } catch (e) {
+      console.warn("Hard-rules check skipped:", e);
     }
   };
 
@@ -654,9 +499,16 @@ export default function Home() {
   // flag anything still too close. Fails open — never blocks saving.
   const MAX_AUTO_RETRIES = 4;
 
-  const runRepetitionCheck = async (campaignToCheck: GeneratedCampaign) => {
+  const runRepetitionCheck = async (
+    campaignToCheck: GeneratedCampaign,
+    opts?: { brief?: ExpandedBrief | null; conceit?: Conceit | null },
+  ) => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-    if (!campaignToCheck?.sections || !expandedBrief || !chosenConceit) return;
+    // The compiled brief/conceit may have just been set from the generate
+    // stream (state not yet flushed to this closure), so accept explicit values.
+    const brief = opts?.brief ?? expandedBrief;
+    const conceit = opts?.conceit ?? chosenConceit;
+    if (!campaignToCheck?.sections || !brief || !conceit) return;
 
     const excludeId = currentLibraryId ?? undefined;
     const toneDial = currentBriefInput?.tone_dial ?? 1;
@@ -721,8 +573,8 @@ export default function Home() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                expanded_brief: expandedBrief,
-                chosen_conceit: chosenConceit,
+                expanded_brief: brief,
+                chosen_conceit: conceit,
                 current_campaign_summary: summary,
                 library_id: excludeId,
                 avoid_note: note,
@@ -732,10 +584,10 @@ export default function Home() {
             if (data.subject_lines || data.preview_texts) {
               working = {
                 ...working,
-                meta: {
+                meta: scrubMeta({
                   subject_lines: data.subject_lines || working.meta.subject_lines,
                   preview_texts: data.preview_texts || working.meta.preview_texts,
-                },
+                }),
               };
               setCampaign(working);
             }
@@ -750,8 +602,8 @@ export default function Home() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                expanded_brief: expandedBrief,
-                chosen_conceit: chosenConceit,
+                expanded_brief: brief,
+                chosen_conceit: conceit,
                 section_to_regenerate: { ...spec, current_content: section },
                 full_campaign: working,
                 steering: note,
@@ -761,7 +613,11 @@ export default function Home() {
             });
             const data = await res.json();
             if (data.section) {
-              working = { ...working, sections: working.sections.map((s) => (s.id === target ? data.section : s)) };
+              const fixedSection: GeneratedSection = {
+                ...data.section,
+                elements: scrubElements(data.section.elements) as GeneratedSection["elements"],
+              };
+              working = { ...working, sections: working.sections.map((s) => (s.id === target ? fixedSection : s)) };
               setCampaign(working);
             }
             const newIdx = working.sections.findIndex((s) => s.id === target);
@@ -793,7 +649,7 @@ export default function Home() {
     offer: "",
     promo_code: undefined,
     audience: expandedBrief?.audience ?? "all",
-    hero_angle: expandedBrief?.hero_angle_verbatim ?? expandedBrief?.rewritten_hero_angle ?? "",
+    angle: "offer_led",
     products_featured: expandedBrief?.products_featured ?? [],
     section_structure: sectionStructure,
   });
@@ -812,7 +668,13 @@ export default function Home() {
         offer: bi.offer,
         promo_code: bi.promo_code,
         audience: bi.audience,
-        hero_angle: bi.hero_angle,
+        // Selection-driven brief fields — persisted so a reload rebuilds it.
+        angle: bi.angle,
+        promotion_id: bi.promotion_id,
+        occasion: bi.occasion,
+        hero_product_slug: bi.hero_product_slug,
+        send_stage: bi.send_stage,
+        urgency: bi.urgency,
         products_featured: bi.products_featured,
         section_structure: sectionStructure,
         expanded_brief: expandedBrief ?? undefined,
@@ -1052,7 +914,14 @@ export default function Home() {
           offer: c.offer,
           promo_code: c.promo_code,
           audience: c.audience,
-          hero_angle: c.hero_angle,
+          // Selection-driven brief fields — restored so the form rebuilds the
+          // same brief (older saves predate them, so fall back sensibly).
+          angle: c.angle ?? "offer_led",
+          promotion_id: c.promotion_id,
+          occasion: c.occasion,
+          hero_product_slug: c.hero_product_slug,
+          send_stage: c.send_stage,
+          urgency: c.urgency,
           products_featured: c.products_featured,
           section_structure: c.section_structure ?? [],
           planner_row_id: c.planner_row_id,
@@ -1151,7 +1020,8 @@ export default function Home() {
       offer: lib.offer,
       promo_code: lib.promo_code,
       audience: lib.audience,
-      hero_angle: lib.hero_angle,
+      // Library items predate the selection-driven brief; default the angle.
+      angle: "offer_led",
       products_featured: lib.products_featured,
       section_structure: sectionStructureForView,
       planner_row_id: lib.planner_row_id,
@@ -1163,26 +1033,6 @@ export default function Home() {
     setCurrentDraftId(null);
     setCanvasSource("library");
     setStage("canvas");
-  };
-
-  const handleNewConceits = async () => {
-    if (!expandedBrief) return;
-    setLoadingPhase("conceits");
-    setError(null);
-    try {
-      const res = await fetch("/api/conceits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expanded_brief: expandedBrief, retrieved_examples: retrievedExamples }),
-      });
-      const data = await res.json();
-      if (data.conceits) setConceits(data.conceits);
-      setStage("conceits");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to get conceits");
-    } finally {
-      setLoadingPhase(null);
-    }
   };
 
   const handleRenameCampaign = (name: string) => {
@@ -1210,7 +1060,7 @@ export default function Home() {
       plainParts.push(`PREVIEW TEXT ${i + 1}: ${p}`)
     );
 
-    campaign.sections.forEach((sec, i) => {
+    campaign.sections.forEach((sec) => {
       plainParts.push(hr);
       Object.entries(sec.elements).forEach(([k, v]) => {
         if (Array.isArray(v)) {
@@ -1375,7 +1225,7 @@ export default function Home() {
         name: brief.name?.trim() || brief.offer.slice(0, 40) || "SMS campaign",
         source_email_id: entry === "email" ? sourceEmailId : undefined,
         brief: { offer: brief.offer, promo_code: brief.promo_code, deadline: brief.deadline, angle: brief.angle, audience: brief.audience },
-        variants: data.variants,
+        variants: (data.variants as SmsCampaign["variants"]).map((v) => ({ text: autoFixMechanical(v.text) })) as SmsCampaign["variants"],
         selected_variant: 0,
         planner_row_id: plannerLink?.rowId,
         status: "draft",
@@ -1492,19 +1342,14 @@ export default function Home() {
   };
 
   // Stepper state derived from stage + loading phase.
-  const activeKey: StepKey = loadingPhase === "conceits" ? "conceits" : loadingPhase === "generating" ? "canvas" : (stage as StepKey);
-  const canGoBack = (key: StepKey) => {
-    if (key === "form") return activeKey === "conceits";
-    if (key === "conceits") return activeKey === "canvas" && conceits.length > 0;
-    return false;
-  };
+  const activeKey: StepKey = loadingPhase === "generating" ? "canvas" : (stage as StepKey);
+  const canGoBack = (key: StepKey) => key === "form" && activeKey === "canvas";
   const onStepNavigate = (key: StepKey) => {
     if (key === "form") setStage("form");
-    else if (key === "conceits") setStage("conceits");
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-chrome">
+    <div className="flex h-screen overflow-hidden bg-surface">
       {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
       <Suspense fallback={null}>
         <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
@@ -1592,7 +1437,7 @@ export default function Home() {
               )}
               <InputForm
                 onSubmit={handleBriefSubmitRequest}
-                loading={loadingPhase === "conceits"}
+                loading={loadingPhase === "generating"}
                 seed={formSeed}
                 seedLabel={formSeedLabel}
                 onClearSeed={handleClearSeed}
@@ -1617,7 +1462,7 @@ export default function Home() {
         <div className="max-w-3xl mx-auto px-6 pb-8">
           {channel === "email" && (<>
           {/* Sticky top bar + stepper */}
-          <div className="sticky top-0 z-10 bg-chrome border-b border-line -mx-6 px-6">
+          <div className="sticky top-0 z-10 bg-surface border-b border-line -mx-6 px-6">
             <div className="flex items-center justify-between gap-3 py-3">
               <div className="flex items-center gap-3 min-w-0">
                 {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
@@ -1658,7 +1503,6 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-4 pb-3">
               <Stepper activeKey={activeKey} canGoBack={canGoBack} onNavigate={onStepNavigate} />
-              {loadingPhase === "conceits" && <span className="text-xs text-ink-muted">Generating conceits…</span>}
               {loadingPhase === "generating" && (
                 <span className="text-xs text-ink-muted">
                   Writing — section {Math.min((campaign?.sections.length ?? 0) + 1, sectionStructure.length || 99)} of {sectionStructure.length || "…"}
@@ -1687,23 +1531,6 @@ export default function Home() {
               />
             )}
 
-            {loadingPhase === "conceits" && (
-              <ConceitPicker loading conceits={[]} chosen={null} onPick={() => {}} />
-            )}
-
-            {stage === "conceits" && loadingPhase === null && (
-              <div>
-                {expandedBrief && (
-                  <div className="bg-surface border border-line rounded-md px-6 py-4 mb-6">
-                    <div className="t-label mb-2">Expanded Brief</div>
-                    <p className="text-sm text-ink leading-relaxed">{expandedBrief.headline_thesis}</p>
-                    <p className="text-sm text-ink-secondary mt-2 leading-relaxed">{expandedBrief.tonal_direction}</p>
-                  </div>
-                )}
-                <ConceitPicker conceits={conceits} chosen={chosenConceit} onPick={handlePickConceit} onShuffle={handleNewConceits} />
-              </div>
-            )}
-
             {stage === "canvas" && campaign && (
               <CampaignCanvas
                 campaign={campaign}
@@ -1718,8 +1545,6 @@ export default function Home() {
                 onDismissFlag={(key) => setRepetitionFlags((prev) => { const next = { ...prev }; delete next[key]; return next; })}
                 onRegenerated={(updated) => void runRepetitionCheck(updated)}
                 onChange={setCampaign}
-                onConceitEdit={() => setStage("conceits")}
-                onNewConceits={handleNewConceits}
               />
             )}
           </div>
@@ -1728,7 +1553,7 @@ export default function Home() {
           {channel === "sms" && (
             <>
               {/* SMS top bar */}
-              <div className="sticky top-0 z-10 bg-chrome border-b border-line -mx-6 px-6">
+              <div className="sticky top-0 z-10 bg-surface border-b border-line -mx-6 px-6">
                 <div className="flex items-center justify-between gap-3 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     {smsCampaign ? (

@@ -58,7 +58,14 @@ export interface PlannerRow {
   notes: string; // freeform notes / learnings
   // --- Link keys to pull metrics ---
   klaviyo_campaign_id?: string;
+  /** DEPRECATED (2026-07-23): Postscript's public API has no campaign endpoints
+   * (see docs/SMS_PLANNER_NB_LINK_AND_MANUAL_METRICS_SPEC.md) — this id linked
+   * to nothing. Kept for saved-row compatibility; hidden in the UI. */
   postscript_campaign_id?: string;
+  /** Northbeam-reported campaign name (utm_campaign) — the join key for the NB
+   * revenue match. SMS rows set it via the picker; email rows default to the
+   * linked Klaviyo campaign name at sync time (this field, when set, wins). */
+  northbeam_campaign_name?: string;
   // Real platform send time captured when the campaign is linked via the picker.
   // Drives the metrics window + syncability so it can't miss the actual send.
   klaviyo_send_time?: string | null;
@@ -76,14 +83,34 @@ export interface PlannerRow {
   revenue?: number | null;
   revenue_per_recipient?: number | null;
   metrics_synced_at?: string | null;
-  // Northbeam 1-day-click / last-touch / cash revenue for this campaign, matched
+  // Northbeam 1-day-click / clicks-only (northbeam_custom) / cash revenue for this campaign, matched
   // by the linked platform campaign's name (utm_campaign). Distinct from the
   // platform-reported `revenue` above. null = no data / no name match yet.
   northbeam_revenue?: number | null;
   northbeam_synced_at?: string | null;
+  // --- Manual platform metrics (SMS rows: Postscript UI numbers, typed in) ---
+  // "manual" marks the platform-metric fields (recipients/click/revenue/rpr) as
+  // human-entered; the sync route then never overwrites them. A future CSV
+  // importer writes "postscript_csv". NB revenue is separate and keeps syncing.
+  metrics_source?: "manual" | "postscript_csv" | null;
+  metrics_entered_at?: string | null;
+  /** True when revenue_per_recipient was manually overridden (Tim sometimes has
+   * the platform's own figure). False/absent = derived from revenue/recipients;
+   * clearing the override re-derives. */
+  rpr_override?: boolean;
   // --- Bookkeeping ---
   created_at: string;
   updated_at: string;
+}
+
+// The four manually-enterable platform metrics for SMS rows (PATCH
+// /api/planner/manual-metrics). All optional — a PATCH carries only what
+// changed. `null` clears a value (empty ≠ 0; zero is a real entered value).
+export interface ManualMetricsPatch {
+  recipients?: number | null;
+  click_rate?: number | null;             // 0..1 fraction, same as synced email rows
+  revenue?: number | null;
+  revenue_per_recipient?: number | null;  // number = manual override; null = clear override → re-derive
 }
 
 // The metrics half a sync writes back onto a row. The Northbeam fields are
@@ -109,7 +136,9 @@ export function isEffectivelySent(row: PlannerRow): boolean {
 }
 
 // Per-row sync outcome so the UI can explain exactly why a row did/didn't sync.
-export type SyncReason = "matched" | "not_linked" | "not_sent_yet" | "no_activity_in_window" | "postscript_not_connected" | "northbeam_unmatched";
+// "sms_manual" is informational, not an error: SMS platform metrics are manual
+// entry (Postscript's public API has no campaign/analytics endpoints).
+export type SyncReason = "matched" | "not_linked" | "not_sent_yet" | "no_activity_in_window" | "sms_manual" | "northbeam_unmatched";
 export interface SyncResult {
   id: string;
   name: string;

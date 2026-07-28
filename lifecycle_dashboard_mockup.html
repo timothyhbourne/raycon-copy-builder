@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Raycon · Customer Lifecycle</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e2230; --line:#2a2f3a;
+    --ink:#e8eaf0; --muted:#9aa3b2; --accent:#4c7dff;
+    --lead:#7c8aa0; --new:#4c9dff; --active:#37c26b; --upsell:#f2b134;
+    --atrisk:#f08a3c; --churn:#e8574c; --lapsed:#8a8f9c; --suppress:#b0242a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;padding:28px 32px}
+  h1{font-size:22px;margin:0}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;
+    font-size:13px;font-weight:600;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .banner{margin:14px 0 20px;padding:8px 12px;border:1px dashed var(--line);border-radius:8px;
+    color:var(--muted);font-size:12px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .kpi .label{color:var(--muted);font-size:12px}
+  .kpi .val{font-size:26px;font-weight:700;margin-top:6px}
+  .kpi .delta{font-size:12px;margin-top:4px}
+  .up{color:#37c26b}.down{color:#e8574c}
+  .section-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 12px}
+  .stages{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .stripe{height:5px}
+  .card .body{padding:15px 16px 16px}
+  .stage-name{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#2a2f3a;color:#cfd6e4}
+  .tag.daily{background:#243a2b;color:#7ee29b}
+  .count{font-size:30px;font-weight:800;margin:10px 0 2px}
+  .pct{color:var(--muted);font-size:12px}
+  .meta{display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--muted);
+    border-top:1px solid var(--line);padding-top:10px}
+  .meta b{color:var(--ink);font-weight:700;display:block;font-size:13px}
+  .rule{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.4;min-height:32px}
+  .actions{display:flex;gap:8px;margin-top:14px}
+  .actions .btn{flex:1;text-align:center;padding:9px 8px;font-size:12px}
+  .foot{margin-top:26px;color:var(--muted);font-size:12px;line-height:1.6}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px}
+  .legend span{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <h1>Customer Lifecycle</h1>
+      <div class="sub">All 1,284,610 Klaviyo profiles · scored by model v1 · last run today 06:00 ET</div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn ghost">Export all (CSV)</button>
+      <button class="btn">Sync all stages to Klaviyo ▸</button>
+    </div>
+  </div>
+
+  <div class="banner">Illustrative layout — stage counts/values are placeholders. Real figures populate from the full-audience batch score (Phase 2 worker) and Klaviyo segment membership.</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">Total audience</div><div class="val">1.28M</div><div class="delta">across 8 stages</div></div>
+    <div class="kpi"><div class="label">Revenue at stake (At-Risk + Churning)</div><div class="val">$3.9M</div><div class="delta down">▲ 6% vs last week</div></div>
+    <div class="kpi"><div class="label">Reachable (engaged ≤365d)</div><div class="val">92%</div><div class="delta up">▲ 1.2%</div></div>
+    <div class="kpi"><div class="label">Suppression-ready</div><div class="val">102,769</div><div class="delta">clean before next send</div></div>
+  </div>
+
+  <div class="section-title">Lifecycle stages — full audience</div>
+  <div class="stages">
+    <!-- each card: stripe color, name, optional daily-target tag, count, %, value + avg P(active), rule, actions -->
+    <div class="card"><div class="stripe" style="background:var(--lead)"></div><div class="body">
+      <div class="stage-name">Lead / Non-Buyer</div>
+      <div class="count">282,614</div><div class="pct">22.0% of base</div>
+      <div class="meta"><span>Value<b>—</b></span><span>Avg P(active)<b>n/a</b></span></div>
+      <div class="rule">Subscribed, no purchase yet. Nurture toward first order.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--new)"></div><div class="body">
+      <div class="stage-name">New Customer <span class="tag daily">daily target</span></div>
+      <div class="count">102,769</div><div class="pct">8.0% of base</div>
+      <div class="meta"><span>Total CLV<b>$8.2M</b></span><span>Avg P(active)<b>0.91</b></span></div>
+      <div class="rule">1st order, ≤45 days. Onboard + drive the critical 2nd purchase.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--active)"></div><div class="body">
+      <div class="stage-name">Active / On-Track</div>
+      <div class="count">231,230</div><div class="pct">18.0% of base</div>
+      <div class="meta"><span>Total CLV<b>$41M</b></span><span>Avg P(active)<b>0.88</b></span></div>
+      <div class="rule">On their purchase cadence. Keep warm; don't over-message.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--upsell)"></div><div class="body">
+      <div class="stage-name">Upsell-Ready <span class="tag daily">daily target</span></div>
+      <div class="count">77,077</div><div class="pct">6.0% of base</div>
+      <div class="meta"><span>Total CLV<b>$29M</b></span><span>Avg P(active)<b>0.90</b></span></div>
+      <div class="rule">Active, high-value repeat buyers. Cross-sell (e.g. owns Audio → Home).</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--atrisk)"></div><div class="body">
+      <div class="stage-name">At-Risk (Disengaging) <span class="tag daily">daily target</span></div>
+      <div class="count">179,845</div><div class="pct">14.0% of base</div>
+      <div class="meta"><span>Rev at stake<b>$1.7M</b></span><span>Avg P(active)<b>0.63</b></span></div>
+      <div class="rule">≈1 cycle overdue / engagement fading. Gentle re-engagement now.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--churn)"></div><div class="body">
+      <div class="stage-name">Churning <span class="tag daily">daily target</span></div>
+      <div class="count">115,615</div><div class="pct">9.0% of base</div>
+      <div class="meta"><span>Rev at stake<b>$2.2M</b></span><span>Avg P(active)<b>0.34</b></span></div>
+      <div class="rule">Purchase-gone but reachable. Win-back offer; VIP-at-risk get priority + SMS.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--lapsed)"></div><div class="body">
+      <div class="stage-name">Lapsed / Dormant</div>
+      <div class="count">192,691</div><div class="pct">15.0% of base</div>
+      <div class="meta"><span>Rev at stake<b>$2.6M</b></span><span>Avg P(active)<b>0.11</b></span></div>
+      <div class="rule">Purchase-gone + engagement cooled. Last-chance win-back, then reduce.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+
+    <div class="card"><div class="stripe" style="background:var(--suppress)"></div><div class="body">
+      <div class="stage-name">Suppression-Ready</div>
+      <div class="count">102,769</div><div class="pct">8.0% of base</div>
+      <div class="meta"><span>Value<b>—</b></span><span>No engagement<b>&gt;365d</b></span></div>
+      <div class="rule">Final re-permission email, then suppress to protect deliverability.</div>
+      <div class="actions"><button class="btn">Create list</button><button class="btn ghost">Export</button></div>
+    </div></div>
+  </div>
+
+  <div class="foot">
+    <div class="legend">
+      <span><i class="dot" style="background:var(--new)"></i>“Create list” pushes that cohort to Klaviyo as a static list (snapshot) or refreshes its dynamic segment (recommended).</span>
+    </div>
+    <p><b>Recommended primary action:</b> “Sync stages to Klaviyo” writes a <code>lifecycle_stage</code> property back to each profile, so every stage becomes a live, auto-updating Klaviyo <b>segment</b> you target in campaigns &amp; flows. “Create list” / “Export” remain for one-off sends. “daily target” tags mark the small, high-intent pockets best for granular daily sends.</p>
+  </div>
+</body>
+</html>

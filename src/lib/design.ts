@@ -1,6 +1,10 @@
 import fs from "fs";
 import path from "path";
 
+// Read-only loaders for bundled design assets (product PNGs, SVG logo, design
+// spec JSON). These ship in the deploy bundle and are never written at runtime,
+// so reading them via fs on Vercel is correct — intentionally exempt from the
+// storage seam (see storage.ts / remediation §3.3).
 const SPECS_DIR = path.join(process.cwd(), "data/design-specs");
 const ASSETS_DIR = path.join(process.cwd(), "data/design-assets");
 const PRODUCTS_DIR = path.join(ASSETS_DIR, "Products");

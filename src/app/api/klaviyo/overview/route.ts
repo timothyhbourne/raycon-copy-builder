@@ -75,8 +75,8 @@ export async function GET(req: NextRequest) {
 
     // ---- Read + aggregate (zero external calls) ----
     const readStart = Date.now();
-    const { days, missing } = readRange(startYMD, endYMD);
-    const dims = readDimensions();
+    const { days, missing } = await readRange(startYMD, endYMD);
+    const dims = await readDimensions();
     timings.store_read = Date.now() - readStart;
 
     // Headline totals straight from the per-day revenue buckets.

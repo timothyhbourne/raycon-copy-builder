@@ -3,6 +3,8 @@ import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { smsSystemInstruction, buildSmsUserPrompt, type SmsBrief } from "@/lib/prompts/sms";
 import { buildSmsAvoidBlock } from "@/lib/constructions";
 import { smsLength } from "@/lib/sms-format";
+import { parseBody } from "@/lib/validation/api";
+import { smsGenerateBody } from "@/lib/validation/requests";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 
 // Structured-output schema: constrains the model to a JSON object with exactly
@@ -67,13 +69,15 @@ function overBudget(variants: string[]): { n: number; chars: number }[] {
 
 export async function POST(req: NextRequest) {
   try {
-    const body: { brief: SmsBrief; source_email?: string } = await req.json();
-    if (!body?.brief?.offer?.trim()) {
+    const parsed = await parseBody(req, smsGenerateBody);
+    if (parsed.error) return parsed.error;
+    const body = parsed.data as { brief: SmsBrief; source_email?: string };
+    if (!body.brief.offer?.trim()) {
       return NextResponse.json({ error: "offer is required" }, { status: 400 });
     }
 
     const system = smsSystemInstruction;
-    const userPrompt = buildSmsUserPrompt(body.brief, body.source_email, buildSmsAvoidBlock());
+    const userPrompt = buildSmsUserPrompt(body.brief, body.source_email, await buildSmsAvoidBlock());
     const messages: MessageParam[] = [{ role: "user", content: userPrompt }];
 
     const first = await callModel(system, messages);

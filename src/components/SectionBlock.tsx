@@ -1,9 +1,18 @@
 "use client";
 import { useState } from "react";
-import type { GeneratedSection, ProductInGrid } from "@/lib/schemas";
+import type { GeneratedSection, ProductInGrid, SectionType } from "@/lib/schemas";
+import { SECTION_CATALOGUE } from "@/lib/schemas";
+import type { ProductReview } from "@/lib/reviews/fetch";
 import EditableField from "./EditableField";
 import RepetitionChip from "./RepetitionChip";
 import { elementKey, gridProductKey, type RepetitionFlag } from "@/lib/repetition-client";
+
+// Section types offered in the "insert section" dropdown. product_grid is
+// omitted on purpose: it needs column/row dimensions that are only chosen in the
+// pre-generation Section Structure builder, and a blank grid has nothing to show.
+const INSERTABLE_TYPES: SectionType[] = [
+  "header", "body", "free_form", "usps", "product_card", "product_card_review", "reviews", "cta_bridge", "footer_cta",
+];
 
 interface Props {
   section: GeneratedSection;
@@ -19,9 +28,13 @@ interface Props {
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  onInsertAfter: () => void;
+  onInsertAfter: (type: SectionType) => void;
   /** Design feature — only wired up for header sections */
   onDesign?: () => void;
+  /** Product SKU this section's Review is about — drives the Review refresh
+   * control (product_card_review: the card's product; reviews: the campaign's
+   * featured product). Absent → no refresh control. */
+  productSlug?: string;
 }
 
 export default function SectionBlock({
@@ -38,8 +51,10 @@ export default function SectionBlock({
   onMoveDown,
   onInsertAfter,
   onDesign,
+  productSlug,
 }: Props) {
   const [hovered, setHovered] = useState(false);
+  const [insertOpen, setInsertOpen] = useState(false);
   const [draggingProduct, setDraggingProduct] = useState<number | null>(null);
   const [dragOverProduct, setDragOverProduct] = useState<number | null>(null);
 
@@ -47,6 +62,39 @@ export default function SectionBlock({
 
   const updateElement = (key: string, value: string | ProductInGrid[]) => {
     onChange({ ...section, elements: { ...section.elements, [key]: value } });
+  };
+
+  // Review refresh: cycle through real fetched reviews for this product; on
+  // exhausting the list, re-pull fresh from the storefront (refresh=1). Swaps
+  // both the review text and the attributed reviewer name. Never fabricates.
+  const [reviewList, setReviewList] = useState<ProductReview[] | null>(null);
+  const [reviewIdx, setReviewIdx] = useState(0);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const fmtReview = (r: ProductReview) => (r.author ? `${r.text} — ${r.author}` : r.text);
+  const cycleReview = async () => {
+    if (!productSlug || reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      let list = reviewList;
+      if (!list) {
+        const res = await fetch(`/api/reviews?product=${encodeURIComponent(productSlug)}&limit=5`);
+        list = ((await res.json())?.reviews ?? []) as ProductReview[];
+        setReviewList(list);
+      }
+      if (!list.length) return;
+      let idx = reviewIdx + 1;
+      if (idx >= list.length) {
+        const res = await fetch(`/api/reviews?product=${encodeURIComponent(productSlug)}&limit=5&refresh=1`);
+        list = ((await res.json())?.reviews ?? []) as ProductReview[];
+        setReviewList(list);
+        idx = 0;
+      }
+      if (list.length) {
+        setReviewIdx(idx % list.length);
+        updateElement("Review", fmtReview(list[idx % list.length]));
+      }
+    } catch { /* network hiccup — leave the current review in place */ }
+    finally { setReviewBusy(false); }
   };
 
   // Subheader variant picker: elements.Subheader always mirrors the selected variant.
@@ -105,7 +153,7 @@ export default function SectionBlock({
     );
   };
 
-  const renderElement = (key: string, value: string | ProductInGrid[]) => {
+  const renderElement = (key: string, value: string | ProductInGrid[], placeholder?: string) => {
     if (key === "Products" && Array.isArray(value)) {
       const cols = gridCols ?? 1;
       return (
@@ -197,24 +245,31 @@ export default function SectionBlock({
         </div>
       );
     }
-    if (typeof value !== "string" || value === null || value === undefined) return null;
+    if (Array.isArray(value)) return null;
     return (
       <EditableField
-        value={value}
+        value={value ?? ""}
         onChange={(v) => updateElement(key, v)}
+        placeholder={placeholder}
         multiline={key !== "Headline" && key !== "Tagline" && key !== "CTA" && key !== "Subheader" && key !== "Closing Line"}
       />
     );
   };
 
-  const elements = Object.entries(section.elements).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  // Fields to show, in catalogue order, plus any extra keys already on the
+  // section (e.g. an opted-in Sub-Tagline). Rendering the full catalogue , even
+  // when empty , is what lets a freshly INSERTED blank section be filled in;
+  // otherwise it renders as an empty box with nothing to type into.
+  const catalogue = SECTION_CATALOGUE[section.type] ?? [];
+  const extraKeys = Object.keys(section.elements).filter((k) => !catalogue.includes(k));
+  const elementKeys = [...catalogue, ...extraKeys];
 
   return (
-    <div className="relative group" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      <div className="bg-white border border-slate-200 rounded-lg section-block" style={{ padding: "32px 40px" }}>
-        {/* Section label + controls */}
-        <div className={`flex items-center justify-between mb-4 transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}>
-          <span className="t-label">{section.type}</span>
+    <div className="relative group section-block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      <div className="py-9">
+        {/* Section label + controls — float quietly, revealed on hover/focus. */}
+        <div className={`flex items-center justify-between mb-4 transition-opacity ${hovered || insertOpen ? "opacity-100" : "opacity-0"}`}>
+          <span className="t-label">{section.type.replace(/_/g, " ")}</span>
           <div className="flex items-center gap-1">
             {index > 0 && (
               <button onClick={onMoveUp} className="text-xs text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded hover:bg-slate-100 transition-colors" title="Move up">↑</button>
@@ -247,7 +302,8 @@ export default function SectionBlock({
 
         {/* Elements */}
         <div className="space-y-4">
-          {elements.map(([key, value]) => {
+          {elementKeys.map((key) => {
+            const value = section.elements[key] ?? "";
             const isSubheaderWithVariants = key === "Subheader" && (section.subheader_variants?.length ?? 0) > 1;
             const flag = flagFor(elementKey(section.id, key));
             return (
@@ -257,25 +313,57 @@ export default function SectionBlock({
                   {isSubheaderWithVariants && (
                     <span className="text-indigo-400 normal-case tracking-normal">· {section.subheader_variants!.length} options, pick one</span>
                   )}
+                  {key === "Review" && productSlug && (
+                    <button type="button" onClick={cycleReview} disabled={reviewBusy}
+                      title="Show a different real review"
+                      className="normal-case tracking-normal text-indigo-500 hover:text-indigo-700 disabled:opacity-50 transition-colors inline-flex items-center gap-1">
+                      <span className={reviewBusy ? "animate-spin inline-block" : "inline-block"}>↻</span> another review
+                    </button>
+                  )}
                   {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(elementKey(section.id, key))} />}
                 </div>
                 {isSubheaderWithVariants
                   ? renderSubheaderVariants()
-                  : renderElement(key, value as string | ProductInGrid[])}
+                  : renderElement(key, value as string | ProductInGrid[], `Write the ${key.toLowerCase()}…`)}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Insert after affordance */}
-      <div
-        className="insert-divider flex items-center gap-2 py-1 px-2 cursor-pointer group/insert"
-        onClick={onInsertAfter}
-      >
-        <div className="flex-1 h-px bg-slate-200 group-hover/insert:bg-slate-400 transition-colors" />
-        <span className="text-xs text-slate-400 group-hover/insert:text-slate-600 transition-colors">+ insert section</span>
-        <div className="flex-1 h-px bg-slate-200 group-hover/insert:bg-slate-400 transition-colors" />
+      {/* Insert-after affordance: a hairline that appears on hover, with a
+          dropdown to choose which kind of section to drop in. */}
+      <div className="insert-divider relative flex items-center gap-2 py-1" style={insertOpen ? { opacity: 1 } : undefined}>
+        <div className="flex-1 h-px bg-slate-200" />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setInsertOpen((o) => !o)}
+            className="text-xs text-slate-400 hover:text-slate-700 px-2 py-0.5 rounded hover:bg-slate-100 transition-colors whitespace-nowrap"
+          >
+            + insert section
+          </button>
+          {insertOpen && (
+            <>
+              {/* click-away backdrop */}
+              <div className="fixed inset-0 z-10" onClick={() => setInsertOpen(false)} />
+              <div className="absolute z-20 left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-md shadow-lg py-1 min-w-[190px]">
+                <div className="t-label px-3 py-1 text-slate-400">Insert…</div>
+                {INSERTABLE_TYPES.map((t) => (
+                  <button
+                    type="button"
+                    key={t}
+                    onClick={() => { onInsertAfter(t); setInsertOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    {t.replace(/_/g, " ")}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex-1 h-px bg-slate-200" />
       </div>
     </div>
   );

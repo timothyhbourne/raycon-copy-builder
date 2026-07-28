@@ -9,7 +9,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import { SegmentedToggle } from "@/components/ui/FilterBar";
 import { StatCard } from "@/components/ui/Stat";
 import EmptyState from "@/components/ui/EmptyState";
-import Chip, { type ChipTone } from "@/components/ui/Chip";
+import Chip from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
 import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
@@ -19,131 +19,12 @@ import CopyDocModal from "@/components/CopyDocModal";
 import { toast } from "@/components/ui/Toast";
 import { holidayName } from "@/lib/holidays";
 
-// Copy Builder link state for a row, resolved against the set of saved copy ids.
-type CopyEntry = "sms" | "unlinked" | "draft" | "final";
-
-// Normalized copy preview from /api/planner/copy.
-interface CopyPreview {
-  id: string;
-  source: "draft" | "library";
-  campaign_name: string;
-  updated_at: string;
-  subject_lines: string[];
-  preview_texts: string[];
-  sections: { type: string; fields: Record<string, string> }[];
-}
-
-// ---------- formatting ----------
-// Channel signal = an emoji glyph shown before the campaign name (the user asked
-// for emoji). Carries the channel on its own; there are no channel color dots.
-const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: string }> = {
-  email: { emoji: "✉️", label: "Email" },
-  sms: { emoji: "📱", label: "SMS" },
-};
-function ChannelGlyph({ channel, className = "" }: { channel: PlannerChannel; className?: string }) {
-  const g = CHANNEL_GLYPH[channel];
-  return <span role="img" aria-label={g.label} className={`text-[11px] leading-none ${className}`}>{g.emoji}</span>;
-}
-// Status-driven pill styling. Explicit palette classes so the exact colors render
-// regardless of the token layer. `check` prefixes a ✓ glyph; `strike` strikes the
-// name. The scheduled label is channel-dependent — see statusLabel().
-const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
-  writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
-  planned: { pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  scheduled: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
-  cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
-};
-
-// Small status pill, shape-matched to the Chip primitive. Table-only; it shows
-// the SHORT status label (e.g. "Scheduled") — the scheduling platform is carried
-// by the compact PlatformBadge dot beside it (same convention as the calendar),
-// so the pill stays narrow and never repeats the platform name.
-function StatusPill({ status, className = "" }: { status: PlannerStatus; className?: string }) {
-  const st = STATUS_STYLE[status];
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide leading-none whitespace-nowrap ${st.pill} ${className}`}>
-      {st.check && <span aria-hidden>✓</span>}
-      <span className={st.strike ? "line-through" : ""}>{PLANNER_STATUS_LABELS[status]}</span>
-    </span>
-  );
-}
-const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };
-
-// Inline copy affordance for a table row's Name cell. stopPropagation so the
-// links don't also open the row editor (the row onClick opens edit). Works for
-// both channels; SMS rows deep-link into the copy builder's SMS mode.
-function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; rowId: string; copyId?: string; channel: PlannerChannel }) {
-  if (entry === "sms") return null;
-  const writeHref = channel === "sms" ? `/copy-builder?planner=${rowId}&channel=sms` : `/copy-builder?planner=${rowId}`;
-  if (entry === "unlinked") {
-    return (
-      <Link href={writeHref} onClick={(e) => e.stopPropagation()}
-        className="mt-0.5 w-fit text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
-        Write copy
-      </Link>
-    );
-  }
-  return (
-    <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
-      <Chip tone={COPY_TONE[entry]}>Copy: {entry}</Chip>
-      <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
-        className="text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
-        Open copy
-      </Link>
-    </span>
-  );
-}
-const money = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n));
-const int = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US").format(Math.round(n)));
-const pct = (f: number | null | undefined) => (f == null ? "—" : `${(f * 100).toFixed(1)}%`);
-const rpr = (n: number | null | undefined) => (n == null ? "—" : `$${n.toFixed(2)}`);
-const fmtDate = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
-const fmtDateTime = (iso: string | null) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
-function isoToLocalInput(iso: string): string { const d = new Date(iso); if (isNaN(d.getTime())) return ""; return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
-function localInputToIso(v: string): string { const d = new Date(v); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); }
-function ymdOf(iso: string): string { return (iso || "").slice(0, 10); }
-// Table renders offer value and discount code as two separate columns.
-// Offer value = the human offer description; evergreen rows show the standing
-// offer. Discount code = the promo code, or null for evergreen (rendered as —).
-function offerValue(r: PlannerRow): string {
-  return r.offer_type === "evergreen" ? EVERGREEN_OFFER : (r.offer || "—");
-}
-function discountCode(r: PlannerRow): string | null {
-  return r.promo_code || null;
-}
-// Re-date an ISO to a new YMD, preserving time-of-day.
-function reDate(iso: string, newYmd: string): string {
-  const old = new Date(iso);
-  const [y, m, d] = newYmd.split("-").map(Number);
-  const nd = isNaN(old.getTime()) ? new Date() : new Date(old);
-  nd.setFullYear(y, m - 1, d);
-  return nd.toISOString();
-}
-
-// Small chevron for styled native <select>s (kept native under the hood for a11y).
-function Chevron() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden
-      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-// Small document glyph shown on calendar pills that have linked copy. Color/
-// position come from the wrapping element.
-function CopyGlyph() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
-    </svg>
-  );
-}
-const microLabel = "t-label";
-const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
-
-interface CampaignItem { id: string; name: string; status: string; send_time: string | null }
+import {
+  money, int, pct, rpr, fmtDate, fmtDateTime, isoToLocalInput, localInputToIso,
+  ymdOf, offerValue, discountCode, reDate, microLabel, selectCls, STATUS_STYLE,
+  type CopyEntry, type CopyPreview, type CampaignItem,
+} from "./format";
+import { ChannelGlyph, StatusPill, CopyLink, Chevron, CopyGlyph } from "./components";
 
 export default function PlannerPage() {
   const [rows, setRows] = useState<PlannerRow[]>([]);
@@ -254,15 +135,18 @@ export default function PlannerPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Sync failed");
       setRows(json.rows as PlannerRow[]);
-      const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched).length;
+      // sms_manual is informational (SMS platform metrics are manual entry by
+      // design — no Postscript analytics API), never counted as a failure.
+      const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched && r.reason !== "sms_manual").length;
+      const smsManual = (json.results ?? []).filter((r: SyncResult) => r.reason === "sms_manual").length;
       const nbUnmatched = (json.northbeam_results ?? []).filter((r: SyncResult) => !r.matched).length;
       const parts = [`Synced ${json.synced} campaign${json.synced === 1 ? "" : "s"}`];
       if (failed > 0) parts.push(`${failed} unmatched`);
       if (json.northbeam_configured && nbUnmatched > 0) parts.push(`${nbUnmatched} no NB match`);
-      if (!json.postscript_connected) parts.push("Postscript not connected");
+      if (smsManual > 0) parts.push(`${smsManual} SMS manual-entry`);
       const msg = parts.join(" · ");
       // No dedicated warning tone in the toast manager — info carries the caveats.
-      if (json.postscript_connected && failed === 0 && nbUnmatched === 0) toast.success(msg);
+      if (failed === 0 && nbUnmatched === 0) toast.success(msg);
       else toast.info(msg);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sync failed");
@@ -355,6 +239,7 @@ export default function PlannerPage() {
           onReschedule={reschedule} copyEntry={copyEntry} onViewCopy={openCopyDoc} />
       ) : (
         <TableView rows={filtered} onEdit={(r) => setEditing(r)} onReschedule={reschedule}
+          onRowUpdated={(row) => setRows((prev) => prev.map((r) => (r.id === row.id ? row : r)))}
           fChannel={fChannel} setFChannel={setFChannel} fStatus={fStatus} setFStatus={setFStatus}
           fStart={fStart} setFStart={setFStart} fEnd={fEnd} setFEnd={setFEnd}
           sortBy={sortBy} setSortBy={setSortBy} copyEntry={copyEntry} />
@@ -413,9 +298,9 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      {/* Calendar caps its own width (the shared layout is now much wider for the
-          Table view); left-aligned so its edge matches the page header. */}
-      <div className="max-w-6xl bg-surface border border-line rounded-md shadow-card overflow-hidden">
+      {/* Fill the full (wide) workspace width — the 7-column grid and day cells
+          stretch to fill, no dead gutter on the right. */}
+      <div className="w-full bg-surface border border-line rounded-md shadow-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="flex items-center gap-2">
             <button onClick={goPrev} aria-label="Previous month" title="Previous month" className={navBtn}>←</button>
@@ -529,6 +414,119 @@ function Num({ v, fmt, emphasize = false }: { v: number | null | undefined; fmt:
   return <span className={emphasize ? "text-ink font-medium" : "text-ink-muted"}>{fmt(v)}</span>;
 }
 
+// ---------- manual metrics (SMS rows) ----------
+// Postscript's public API has no analytics endpoints, so SMS platform metrics
+// are typed in from the Postscript dashboard. Parsing is forgiving ($ , % and
+// spaces stripped), storage is canonical (integers, 0..1 fractions, USD).
+type ManualField = "recipients" | "click_rate" | "revenue" | "revenue_per_recipient";
+
+// raw text → canonical value. "" → null (clear; empty ≠ 0). "invalid" keeps the
+// cell in its error state — never silently drop or coerce to 0.
+function parseManual(field: ManualField, raw: string): number | null | "invalid" {
+  const s = raw.replace(/[$,%\s]/g, "");
+  if (s === "") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return "invalid";
+  if (field === "recipients") return Math.round(n);
+  if (field === "click_rate") {
+    const f = n / 100; // percentage as typed: "2.4" or "2.4%" → 0.024
+    return f > 1 ? "invalid" : f;
+  }
+  return n;
+}
+// Canonical value → the text shown when a cell enters edit mode.
+function manualEditText(field: ManualField, v: number | null | undefined): string {
+  if (v == null) return "";
+  if (field === "recipients") return String(Math.round(v));
+  if (field === "click_rate") return `${(v * 100).toFixed(1)}`;
+  return v.toFixed(2);
+}
+
+// Click-to-edit metric cell for SMS rows. Commit on blur/Enter; Escape reverts;
+// an invalid entry keeps focus with an error outline. A commit PATCHes
+// /api/planner/manual-metrics and hands the updated row back to the table.
+function ManualCell({ row, field, fmt, emphasize = false, onRowUpdated }: {
+  row: PlannerRow; field: ManualField; fmt: (n: number) => string; emphasize?: boolean;
+  onRowUpdated: (r: PlannerRow) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [invalid, setInvalid] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const initial = useRef("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const v = row[field] as number | null | undefined;
+
+  const start = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    initial.current = manualEditText(field, v);
+    setText(initial.current);
+    setInvalid(false);
+    setEditing(true);
+  };
+  const close = () => { setEditing(false); setInvalid(false); };
+  const commit = async () => {
+    if (saving) return;
+    if (text.trim() === initial.current.trim()) { close(); return; } // untouched — never turns a derived rpr into an override
+    const parsed = parseManual(field, text);
+    if (parsed === "invalid") {
+      setInvalid(true);
+      inputRef.current?.focus(); // bad entry keeps focus, outlined
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/planner/manual-metrics", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, [field]: parsed }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      onRowUpdated(json.row as PlannerRow);
+      close();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the metric.");
+      setInvalid(true);
+      inputRef.current?.focus();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        value={text}
+        disabled={saving}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => { setText(e.target.value); setInvalid(false); }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { e.preventDefault(); close(); } // value unchanged
+        }}
+        className={`w-full min-w-0 text-right font-mono tabular-nums text-sm bg-surface border rounded-sm px-1 py-0.5 focus:outline-none ${
+          invalid ? "border-danger-600 ring-1 ring-danger-200" : "border-accent"
+        }`}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={start}
+      title="Manual entry — from Postscript dashboard"
+      className={`min-w-0 text-right underline-offset-2 decoration-dotted decoration-ink-muted/50 group-hover:underline focus-visible:underline ${
+        v == null || Number.isNaN(v) ? "text-ink-muted/50" : emphasize ? "text-ink font-medium" : "text-ink-muted"
+      }`}
+    >
+      {v == null || Number.isNaN(v) ? "—" : fmt(v)}
+    </button>
+  );
+}
+
 // Audience summary for a row's expanded detail line (+included / −excluded).
 function audienceSummary(r: PlannerRow): string {
   const inc = r.audience_included.map((a) => a.name).join(", ");
@@ -553,8 +551,9 @@ function ExpandToggle({ open, onToggle }: { open: boolean; onToggle: () => void 
   );
 }
 
-function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
+function TableView({ rows, onEdit, onReschedule, onRowUpdated, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
   rows: PlannerRow[]; onEdit: (r: PlannerRow) => void; onReschedule: (id: string, ymd: string) => void;
+  onRowUpdated: (r: PlannerRow) => void;
   fChannel: "all" | PlannerChannel; setFChannel: (v: "all" | PlannerChannel) => void;
   fStatus: "all" | PlannerStatus | "sent"; setFStatus: (v: "all" | PlannerStatus | "sent") => void;
   fStart: string; setFStart: (v: string) => void; fEnd: string; setFEnd: (v: string) => void;
@@ -669,7 +668,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
           <div className={numHead}>Click</div>
           <div className={numHead}>Rev/recip</div>
           <div className={numHead}>Revenue</div>
-          <div className={numHead} title="Northbeam attributed revenue — 1-day click, last-touch, cash accounting (matched by campaign name). Distinct from the platform-reported Revenue.">NB rev</div>
+          <div className={numHead} title="Northbeam attributed revenue — Clicks only · 1-day · cash — reconciles with CRM Campaign (v2). Matched by linked campaign name; window ends yesterday (last fully processed day). Distinct from the platform-reported Revenue.">NB rev</div>
         </div>
       </div>
 
@@ -695,7 +694,7 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                           {(dp, snap2) => (
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
-                              className={`grid bg-surface border-b border-line hover:bg-accent-50/50 cursor-pointer transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`}
+                              className={`group grid bg-surface border-b border-line hover:bg-accent-50/50 cursor-pointer transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`}
                               style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
                               <div className={cell}>
                                 <ExpandToggle open={isOpen} onToggle={() => toggle(r.id)} />
@@ -722,11 +721,22 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
                                   )}
                                 </div>
                               </div>
-                              <div className={`${numCell} border-l border-line`}><Num v={r.recipients} fmt={int} /></div>
+                              {/* SMS platform metrics are click-to-edit manual entry (no
+                                  Postscript analytics API); email cells stay synced/read-only.
+                                  NB rev keeps syncing for both channels. */}
+                              <div className={`${numCell} border-l border-line`}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="recipients" fmt={int} onRowUpdated={onRowUpdated} /> : <Num v={r.recipients} fmt={int} />}
+                              </div>
                               <div className={numCell}>{r.channel === "sms" ? <span className="text-ink-muted/50">—</span> : <Num v={r.open_rate} fmt={pct} />}</div>
-                              <div className={numCell}><Num v={r.click_rate} fmt={pct} /></div>
-                              <div className={numCell}><Num v={r.revenue_per_recipient} fmt={rpr} /></div>
-                              <div className={numCell}><Num v={r.revenue} fmt={money} emphasize /></div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="click_rate" fmt={pct} onRowUpdated={onRowUpdated} /> : <Num v={r.click_rate} fmt={pct} />}
+                              </div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="revenue_per_recipient" fmt={rpr} onRowUpdated={onRowUpdated} /> : <Num v={r.revenue_per_recipient} fmt={rpr} />}
+                              </div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="revenue" fmt={money} emphasize onRowUpdated={onRowUpdated} /> : <Num v={r.revenue} fmt={money} emphasize />}
+                              </div>
                               <div className={numCell}><Num v={r.northbeam_revenue} fmt={money} emphasize /></div>
                             </div>
                           )}
@@ -778,8 +788,44 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [excluded, setExcluded] = useState<AudienceRef[]>(row?.audience_excluded ?? []);
   const [klaviyoId, setKlaviyoId] = useState(row?.klaviyo_campaign_id ?? "");
   const [klaviyoSendTime, setKlaviyoSendTime] = useState<string | null>(row?.klaviyo_send_time ?? null);
-  const [postscriptId, setPostscriptId] = useState(row?.postscript_campaign_id ?? "");
+  // Northbeam campaign name — the join key for the NB rev match on SMS rows.
+  // (postscript_campaign_id is deprecated: it linked to endpoints that don't
+  // exist. The field is preserved on saved rows but has no UI.)
+  const [nbName, setNbName] = useState(row?.northbeam_campaign_name ?? "");
+  const [nbOpen, setNbOpen] = useState(false);
+  const [nbCandidates, setNbCandidates] = useState<{ name: string; revenue: number }[]>([]);
+  const [nbLoading, setNbLoading] = useState(false);
+  const nbFetched = useRef(false);
   const [notes, setNotes] = useState(row?.notes ?? "");
+  // Manual platform metrics (SMS): same four fields as the table's inline
+  // entry, here for completeness. Strings, parsed on Save; initial strings are
+  // kept so only touched fields get PATCHed (an untouched derived rev/recip
+  // must never become an override).
+  const manualInitial = useRef({
+    recipients: manualEditText("recipients", row?.recipients),
+    click_rate: manualEditText("click_rate", row?.click_rate),
+    revenue: manualEditText("revenue", row?.revenue),
+    revenue_per_recipient: manualEditText("revenue_per_recipient", row?.revenue_per_recipient),
+  });
+  const [manual, setManual] = useState(manualInitial.current);
+
+  // Lazily load the Northbeam-reported Postscript campaign names (cached ~1h
+  // server-side; the export takes minutes on a cold cache, hence on-demand).
+  const loadNbCandidates = useCallback(async () => {
+    if (nbFetched.current) return;
+    nbFetched.current = true;
+    setNbLoading(true);
+    try {
+      const res = await fetch("/api/planner/northbeam-campaigns?platform=postscript");
+      const j = await res.json();
+      if (res.ok && Array.isArray(j.names)) setNbCandidates(j.names);
+      else if (j.error) toast.info(`Northbeam names unavailable — type the campaign name manually. (${j.error})`);
+    } catch {
+      toast.info("Northbeam names unavailable — type the campaign name manually.");
+    } finally {
+      setNbLoading(false);
+    }
+  }, []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -890,7 +936,11 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     audience_included: included, audience_excluded: excluded,
     klaviyo_campaign_id: channel === "email" ? (klaviyoId.trim() || undefined) : undefined,
     klaviyo_send_time: channel === "email" ? klaviyoSendTime : undefined,
-    postscript_campaign_id: channel === "sms" ? (postscriptId.trim() || undefined) : undefined,
+    // deprecated postscript_campaign_id is intentionally NOT sent — the upsert
+    // preserves whatever a legacy row already carries.
+    // SMS: "" clears the join key; email rows keep theirs untouched (undefined
+    // keys are dropped by JSON.stringify, so the upsert preserves them).
+    northbeam_campaign_name: channel === "sms" ? nbName.trim() : undefined,
     notes, ...overrides,
   });
 
@@ -899,16 +949,51 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || "Save failed");
   };
+  // Manual-metric strings → a PATCH containing only the touched fields.
+  // Returns "invalid" (with the offending field) rather than silently coercing.
+  const buildManualPatch = (): Record<string, number | null> | { invalid: string } => {
+    const patch: Record<string, number | null> = {};
+    for (const f of ["recipients", "click_rate", "revenue", "revenue_per_recipient"] as const) {
+      if (manual[f].trim() === manualInitial.current[f].trim()) continue; // untouched
+      const parsed = parseManual(f, manual[f]);
+      if (parsed === "invalid") return { invalid: f };
+      patch[f] = parsed;
+    }
+    return patch;
+  };
+
   const save = async () => {
     if (!name.trim()) { setErr("Name is required"); return; }
+    // Validate manual metrics BEFORE saving the row so a bad entry never half-saves.
+    let manualPatch: Record<string, number | null> = {};
+    if (row && channel === "sms") {
+      const p = buildManualPatch();
+      if ("invalid" in p && typeof p.invalid === "string") {
+        setErr(`Invalid ${String(p.invalid).replace(/_/g, " ")} — numbers only (e.g. 41,250 · 2.4% · $1,842.50).`);
+        return;
+      }
+      manualPatch = p as Record<string, number | null>;
+    }
     setSaving(true); setErr(null);
-    try { await post(build()); toast.success(row ? "Campaign updated" : "Campaign created"); onSaved(); } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
+    try {
+      await post(build());
+      if (row && channel === "sms" && Object.keys(manualPatch).length > 0) {
+        const res = await fetch("/api/planner/manual-metrics", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: row.id, ...manualPatch }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Metrics save failed");
+      }
+      toast.success(row ? "Campaign updated" : "Campaign created");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
   };
   const duplicate = async () => {
     setSaving(true); setErr(null);
     try {
-      // Clone plan fields; clear link + metrics so the copy is a fresh plan.
-      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, postscript_campaign_id: undefined }));
+      // Clone plan fields; clear links + metrics so the copy is a fresh plan
+      // (the NB join name belongs to the ORIGINAL send, so it clears too).
+      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, northbeam_campaign_name: undefined }));
       toast.success("Campaign duplicated");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Duplicate failed"); setSaving(false); }
@@ -1068,11 +1153,65 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
           </>
         ) : (
           <>
-            <label className={label}>Postscript campaign id</label>
-            <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" />
+            {/* Postscript's public API has no campaign endpoints — SMS revenue is
+                matched through Northbeam by the send's utm_campaign name. Picking
+                from the reported names makes the join key typo-proof; free text
+                stays available as the fallback. */}
+            <label className={label}>Northbeam campaign (SMS revenue match)</label>
+            <div className="relative">
+              <input className={input} value={nbName}
+                onFocus={() => { setNbOpen(true); loadNbCandidates(); }}
+                onBlur={() => setTimeout(() => setNbOpen(false), 150)}
+                onChange={(e) => { setNbName(e.target.value); setNbOpen(true); }}
+                placeholder="Search Northbeam campaign names… (or type the utm_campaign)" />
+              {nbOpen && (nbLoading || nbCandidates.length > 0) && (
+                <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-56 overflow-y-auto">
+                  {nbLoading && <div className="px-2 py-1.5 text-xs text-ink-muted">Loading Northbeam campaign names…</div>}
+                  {nbCandidates
+                    .filter((c) => !nbName.trim() || c.name.toLowerCase().includes(nbName.trim().toLowerCase()))
+                    .slice(0, 12)
+                    .map((c) => (
+                      <button key={c.name} type="button" onMouseDown={(e) => { e.preventDefault(); setNbName(c.name); setNbOpen(false); }}
+                        className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
+                        <div className="text-ink truncate">{c.name}</div>
+                        <div className="text-[10px] text-ink-muted">{money(c.revenue)} · last 30 days</div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
+              Names come from Northbeam&apos;s Postscript-platform rows (last 30 days, cached ~1h). NB rev syncs by this name.
+            </p>
           </>
         )}
       </div>
+
+      {/* 5b. Manual platform metrics (SMS, saved rows) — Postscript's API has no
+          analytics, so these four come from the Postscript dashboard. Same
+          fields as the table's click-to-edit cells; parsed on Save. */}
+      {row && channel === "sms" && (
+        <div className={section}>
+          <label className={label}>Metrics (manual — from Postscript dashboard)</label>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              ["recipients", "Recipients", "41,250"],
+              ["click_rate", "Click rate", "2.4%"],
+              ["revenue", "Revenue", "$1,842.50"],
+              ["revenue_per_recipient", "Revenue / recipient", "$0.04"],
+            ] as const).map(([f, lbl, ph]) => (
+              <label key={f} className="flex flex-col gap-1">
+                <span className="t-label">{lbl}{f === "revenue_per_recipient" && !row.rpr_override ? " (auto)" : ""}</span>
+                <input className={`${input} font-mono tabular-nums`} inputMode="decimal" value={manual[f]}
+                  onChange={(e) => setManual((m) => ({ ...m, [f]: e.target.value }))} placeholder={ph} />
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
+            Revenue / recipient derives from revenue ÷ recipients; typing a value overrides it, clearing re-derives. The sync never overwrites these.
+          </p>
+        </div>
+      )}
 
       {/* 6. Audiences — auto-fetched from the linked campaign, read-only */}
       <div className={section}>

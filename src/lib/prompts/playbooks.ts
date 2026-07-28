@@ -2,7 +2,7 @@ import type { CampaignType, SectionType } from "../schemas";
 
 // Per-campaign-type playbooks: a short job + shape that modulate STRUCTURE and
 // pacing, plus an editable default section structure. This is deliberately small
-// — it never duplicates or overrides the brand voice (src/lib/prompts/voice.ts)
+// , it never duplicates or overrides the brand voice (src/lib/prompts/voice.ts)
 // or the user's literal instructions.
 
 export interface PlaybookSection {
@@ -21,7 +21,7 @@ export interface Playbook {
 export const PLAYBOOKS: Record<CampaignType, Playbook> = {
   promo: {
     job: "Make the deal unmissable. The offer is the story.",
-    shape: "Offer-first: short hero stating the deal, offer/code block early, product grid welcome, deadline named plainly near the top and again at the close. Short overall — a promo send earns its click fast or not at all.",
+    shape: "Offer-first: short hero stating the deal, offer/code block early, product grid welcome, deadline named plainly near the top and again at the close. Short overall , a promo send earns its click fast or not at all.",
     default_structure: [
       { type: "header", focus: "State the deal plainly." },
       { type: "cta_bridge", focus: "Offer and promo code, deadline named." },
@@ -42,13 +42,13 @@ export const PLAYBOOKS: Record<CampaignType, Playbook> = {
   },
   restock: {
     job: "It's back because people bought it out. Lead with proof.",
-    shape: "Popularity-first: hero announces the return, body leans on reputation and social proof (supplied reviews if any), single product focus, CTA to grab it before it goes again — stated as fact, not panic.",
+    shape: "Popularity-first: hero announces the return, body leans on reputation and social proof (supplied reviews if any), single product focus, CTA to grab it before it goes again , stated as fact, not panic.",
     default_structure: [
       { type: "header", focus: "Announce the return." },
       { type: "body", focus: "Reputation and why it sold out." },
       { type: "reviews", focus: "Supplied reviews only, if any." },
       { type: "product_card", focus: "Single product focus." },
-      { type: "footer_cta", focus: "Grab it before it goes again — stated as fact." },
+      { type: "footer_cta", focus: "Grab it before it goes again , stated as fact." },
     ],
   },
   story: {
@@ -56,7 +56,7 @@ export const PLAYBOOKS: Record<CampaignType, Playbook> = {
     shape: "Editorial: the conceit carries the email. Body-forward with the longest copy of any type, product enters as the natural conclusion, offer appears only in the footer CTA if at all.",
     default_structure: [
       { type: "header", focus: "The conceit, not the offer." },
-      { type: "body", focus: "The longest copy of any type — let the idea breathe." },
+      { type: "body", focus: "The longest copy of any type , let the idea breathe." },
       { type: "product_card", focus: "The product as the natural conclusion." },
       { type: "footer_cta", focus: "Gentle close; offer only if at all." },
     ],
@@ -75,7 +75,7 @@ export const PLAYBOOKS: Record<CampaignType, Playbook> = {
     job: "Reopen the relationship warmly. No guilt.",
     shape: "Welcome-first: open warm and human (never 'we miss you' clichés or guilt), lead with what's new or improved since they left, the offer lands as a welcome-back gesture, single clear CTA. Short.",
     default_structure: [
-      { type: "header", focus: "Warm, human open — no guilt." },
+      { type: "header", focus: "Warm, human open , no guilt." },
       { type: "body", focus: "What's new or improved since they left." },
       { type: "footer_cta", focus: "Offer as a welcome-back gesture; one clear CTA." },
     ],
@@ -85,8 +85,8 @@ export const PLAYBOOKS: Record<CampaignType, Playbook> = {
     shape: "Multi-topic: sectioned like a briefing, each section standalone, product mentions woven in rather than pitched, storefront link at the end. No hard offer blocks.",
     default_structure: [
       { type: "header", focus: "Briefing headline." },
-      { type: "body", focus: "Topic one — standalone." },
-      { type: "body", focus: "Topic two — standalone; weave the product in, don't pitch." },
+      { type: "body", focus: "Topic one , standalone." },
+      { type: "body", focus: "Topic two , standalone; weave the product in, don't pitch." },
       { type: "footer_cta", focus: "Storefront link; no hard offer block." },
     ],
   },

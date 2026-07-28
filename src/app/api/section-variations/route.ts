@@ -1,0 +1,102 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getBrandContext, buildSystemBlocks } from "@/lib/data";
+import { regenerateSectionRoleInstruction, regenerateSectionUserPrompt } from "@/lib/prompts/regenerate-section";
+import { toneDirective } from "@/lib/prompts/generate";
+import { REGISTERS, registerSteering } from "@/lib/prompts/variations";
+import { buildAvoidBlock } from "@/lib/constructions";
+import { isProductCardType } from "@/lib/schemas";
+import { autoFixMechanical } from "@/lib/hard-rules-check";
+import { extractSubheaderVariants } from "@/lib/normalize-section";
+import { nanoid } from "@/lib/nanoid";
+import { parseBody } from "@/lib/validation/api";
+import { regenerateSectionBody } from "@/lib/validation/requests";
+import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign, SectionElements } from "@/lib/schemas";
+import type { TextBlockParam } from "@anthropic-ai/sdk/resources/messages";
+
+// Scrub every string in a parsed section's element map (mirrors the client scrub
+// so variations are punctuation-clean regardless of entry point).
+function scrubSectionElements(elements: Record<string, unknown>): SectionElements {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(elements)) {
+    if (typeof v === "string") out[k] = autoFixMechanical(v);
+    else if (Array.isArray(v)) {
+      out[k] = v.map((item) =>
+        typeof item === "string" ? autoFixMechanical(item)
+          : item && typeof item === "object" ? scrubSectionElements(item as Record<string, unknown>)
+            : item
+      );
+    } else out[k] = v;
+  }
+  return out as SectionElements;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const parsed = await parseBody(req, regenerateSectionBody);
+    if (parsed.error) return parsed.error;
+    const body = parsed.data as unknown as {
+      expanded_brief: ExpandedBrief;
+      chosen_conceit: Conceit;
+      section_to_regenerate: SectionSpec & { current_content: GeneratedSection };
+      full_campaign: GeneratedCampaign;
+      feedback?: string;
+      tone_dial?: number;
+      retrieved_examples: LibraryCampaign[];
+    };
+
+    const roleInstruction = regenerateSectionRoleInstruction + toneDirective(body.tone_dial ?? 3);
+    const systemBlocks: TextBlockParam[] = buildSystemBlocks(getBrandContext(), roleInstruction);
+    const sec = body.section_to_regenerate;
+    const avoidBlock = isProductCardType(sec.type) && sec.product_slug
+      ? await buildAvoidBlock({ productsFeatured: [sec.product_slug] })
+      : await buildAvoidBlock({});
+    const currentId = sec.current_content.id || nanoid();
+
+    // One call per register, in parallel. Reusing the regenerate-section prompt
+    // guarantees each variation is a schema-valid section of the right type.
+    const results = await Promise.all(
+      REGISTERS.map(async (register) => {
+        try {
+          const userPrompt = regenerateSectionUserPrompt(
+            body.expanded_brief,
+            body.chosen_conceit,
+            body.section_to_regenerate,
+            body.full_campaign,
+            registerSteering(body.feedback ?? "", register),
+            body.retrieved_examples,
+            avoidBlock
+          );
+          const response = await getAnthropic().messages.create({
+            model: MODEL,
+            max_tokens: 1536,
+            system: systemBlocks,
+            messages: [{ role: "user", content: userPrompt }],
+          });
+          const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+          const json = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          const parsed = JSON.parse(json);
+          const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(parsed.elements);
+          const section: GeneratedSection = {
+            type: parsed.type ?? sec.type,
+            elements: scrubSectionElements(elements as Record<string, unknown>),
+            id: currentId,
+            ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
+          };
+          return { label: register.label, section };
+        } catch {
+          return null; // a single failed register is dropped, not fatal
+        }
+      })
+    );
+
+    const variations = results.filter((r): r is { label: string; section: GeneratedSection } => r !== null);
+    if (!variations.length) {
+      return NextResponse.json({ error: "Could not generate variations" }, { status: 502 });
+    }
+    return NextResponse.json({ variations });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "Section variations failed" }, { status: 500 });
+  }
+}

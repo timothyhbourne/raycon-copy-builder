@@ -68,7 +68,7 @@ async function main() {
   console.log(`[verify-metrics] range ${startYMD}..${endYMD}\n`);
 
   // ---- STORE side (fast path) ----
-  const { days, missing } = readRange(startYMD, endYMD);
+  const { days, missing } = await readRange(startYMD, endYMD);
   let storeTotal = 0, storeOrders = 0;
   const storeFlows = new Map<string, { recipients: number; opens: number; clicks: number; revenue: number }>();
   const storeCamps = new Map<string, { recipients: number; opens: number; clicks: number; revenue: number }>();

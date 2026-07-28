@@ -4,13 +4,18 @@ import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { regenerateSectionRoleInstruction, regenerateSectionUserPrompt } from "@/lib/prompts/regenerate-section";
 import { toneDirective } from "@/lib/prompts/generate";
 import { buildAvoidBlock } from "@/lib/constructions";
+import { isProductCardType } from "@/lib/schemas";
 import type { ExpandedBrief, Conceit, SectionSpec, GeneratedSection, GeneratedCampaign, LibraryCampaign } from "@/lib/schemas";
 import { nanoid } from "@/lib/nanoid";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
+import { parseBody } from "@/lib/validation/api";
+import { regenerateSectionBody } from "@/lib/validation/requests";
 
 export async function POST(req: NextRequest) {
   try {
-    const body: {
+    const parsedBody = await parseBody(req, regenerateSectionBody);
+    if (parsedBody.error) return parsedBody.error;
+    const body = parsedBody.data as unknown as {
       expanded_brief: ExpandedBrief;
       chosen_conceit: Conceit;
       section_to_regenerate: SectionSpec & { current_content: GeneratedSection };
@@ -18,16 +23,16 @@ export async function POST(req: NextRequest) {
       steering: string;
       tone_dial?: number;
       retrieved_examples: LibraryCampaign[];
-    } = await req.json();
+    };
 
     const roleInstruction = regenerateSectionRoleInstruction + toneDirective(body.tone_dial ?? 1);
     const systemBlocks = buildSystemBlocks(getBrandContext(), roleInstruction);
     // Product-scoped avoid slice when rewriting a product card (verbatim
     // one-liner repeats hurt most there); recency-only otherwise.
     const sec = body.section_to_regenerate;
-    const avoidBlock = sec.type === "product_card" && sec.product_slug
-      ? buildAvoidBlock({ productsFeatured: [sec.product_slug] })
-      : buildAvoidBlock({});
+    const avoidBlock = isProductCardType(sec.type) && sec.product_slug
+      ? await buildAvoidBlock({ productsFeatured: [sec.product_slug] })
+      : await buildAvoidBlock({});
     const userPrompt = regenerateSectionUserPrompt(
       body.expanded_brief,
       body.chosen_conceit,

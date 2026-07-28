@@ -1,4 +1,4 @@
-import { RAYCON_VOICE } from "./voice";
+import { rayconVoice } from "./voice";
 import { TARGET_CHARS } from "../sms-format";
 import type { SmsBrief } from "../schemas";
 
@@ -8,24 +8,25 @@ import type { SmsBrief } from "../schemas";
 
 export type { SmsBrief };
 
-const SMS_CRAFT = `SMS CRAFT RULES (these are absolute — an SMS is not a short email):
+export const SMS_CRAFT = `SMS CRAFT RULES (these are absolute , an SMS is not a short email):
 - One message = ONE idea: the offer or hook, the code, the deadline, and a link. Nothing else. Never cram in a second product or a second reason.
 - Hard budget: aim for ${TARGET_CHARS} characters or fewer; never exceed 160. Count the characters before you return.
 - GSM-7 only: no emoji, no em dashes or en dashes, no curly/smart quotes. Use straight quotes ('), a hyphen (-), and plain ASCII. A single curly quote or emoji silently cuts the budget to 70 characters, so this rule is not optional.
 - Open every message with "Raycon:" so the sender is instant.
 - Name the deadline plainly ("Ends Sunday", "Today only"). Put the promo code in CAPS. End with exactly one {link} placeholder, as the last thing in the message.
 - No "Hurry!!"-style shouting. No all-caps words except the promo code. At most ONE exclamation point across the whole message.
-- Offer stated plainly and proudly, per the voice. Numerals and symbols, never words ("30%", not "thirty percent").`;
+- Offer stated plainly and proudly, per the voice. Numerals and symbols, never words ("30%", not "thirty percent").
+- No banned phrases or hype words: no "elevate", "game-changer", "next-level", "unleash", "revolutionary", "seamless", "effortless", "just works", "makes sense". Never use the retired name "Classic" (it is the "Everyday Earbuds").`;
 
-const SMS_VARIANTS = `THE THREE VARIANTS — construction-distinct, in this exact order. These are three different builds, NOT three rewordings of one line:
-1. DIRECT — offer-first and plainest. Lead with the deal itself, then code and deadline. The no-nonsense version.
-2. FRIENDLY — the same offer in warm, human phrasing. Sounds like a helpful person texting you, not a banner. Same facts, softer build.
-3. ANGLE — leads with the hook, occasion, or reason (the angle), and states the offer second. The offer still lands, but the message opens on the why.
+const SMS_VARIANTS = `THE THREE VARIANTS , construction-distinct, in this exact order. These are three different builds, NOT three rewordings of one line:
+1. DIRECT , offer-first and plainest. Lead with the deal itself, then code and deadline. The no-nonsense version.
+2. FRIENDLY , the same offer in warm, human phrasing. Sounds like a helpful person texting you, not a banner. Same facts, softer build.
+3. ANGLE , leads with the hook, occasion, or reason (the angle), and states the offer second. The offer still lands, but the message opens on the why.
 If all three could be swapped without anyone noticing, you have failed the task. Make the openings and shapes genuinely different.`;
 
 export const smsSystemInstruction = `You are writing SMS marketing copy for Raycon.
 
-${RAYCON_VOICE}
+${rayconVoice()}
 
 ${SMS_CRAFT}
 
@@ -50,7 +51,7 @@ export function buildSmsUserPrompt(
   ].filter(Boolean).join("\n");
 
   const sourceBlock = sourceEmail
-    ? `\nSOURCE EMAIL CAMPAIGN — distill this into SMS. Pull ONE offer, ONE hook, and ONE deadline from it; do NOT compress the whole email into a string of fragments. The SMS is a single clean idea drawn from the email, not a summary of it.\n---\n${sourceEmail}\n---\n`
+    ? `\nSOURCE EMAIL CAMPAIGN , distill this into SMS. Pull ONE offer, ONE hook, and ONE deadline from it; do NOT compress the whole email into a string of fragments. The SMS is a single clean idea drawn from the email, not a summary of it.\n---\n${sourceEmail}\n---\n`
     : "";
 
   return `Write SMS copy from this brief:

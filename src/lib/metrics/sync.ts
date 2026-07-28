@@ -194,7 +194,7 @@ async function doSync(opts: SyncOptions = {}): Promise<SyncSummary> {
   const today = todayInTz(timezone);
   const windowStart = addDays(today, -(RESYNC_WINDOW_DAYS - 1)); // oldest non-frozen day
   const isFrozen = (date: string) => date < windowStart;
-  const synced = new Set(listSyncedDates());
+  const synced = new Set(await listSyncedDates());
 
   // (2) The span this run fetches, in one of two modes:
   //
@@ -300,7 +300,7 @@ async function doSync(opts: SyncOptions = {}): Promise<SyncSummary> {
   // (5) Campaign metadata (need send_time to bucket totals onto the send date).
   // Reuse anything dimensions already knows; fetch only the unknown ids. This
   // metadata also feeds the dimensions refresh below — fetched once, used twice.
-  const existing = readDimensions();
+  const existing = await readDimensions();
   const knownMeta = new Map(existing.campaigns.map((c) => [c.campaign_id, c]));
   const unknownIds = [...campaignTotals.keys()].filter((id) => !knownMeta.get(id)?.send_time);
   if (unknownIds.length) {
@@ -344,7 +344,7 @@ async function doSync(opts: SyncOptions = {}): Promise<SyncSummary> {
       flows,
       campaigns,
     };
-    writeDay(snapshot);
+    await writeDay(snapshot);
     daysSynced++;
   }
 
@@ -367,11 +367,11 @@ async function doSync(opts: SyncOptions = {}): Promise<SyncSummary> {
     dims.draft = draftRes.campaigns.map(toCampaignDim);
     dims.scheduled = scheduledRes.campaigns.map(toCampaignDim).sort((a, b) => (a.send_time || "").localeCompare(b.send_time || ""));
 
-    writeDimensions(dims);
+    await writeDimensions(dims);
   } catch (e) {
     warnings.push(`Dimensions refresh failed (names/statuses may be stale): ${e instanceof Error ? e.message : e}`);
     dims.campaigns = [...knownMeta.values()];
-    writeDimensions(dims); // still persist timezone/synced_at + whatever we had
+    await writeDimensions(dims); // still persist timezone/synced_at + whatever we had
   }
 
   const summary: SyncSummary = { days_synced: daysSynced, days_failed: 0, api_calls: apiCalls, duration_ms: Date.now() - startedAt, warnings };

@@ -1,4 +1,6 @@
-const BASE = "https://a.klaviyo.com/api";
+import { readEnv } from "./env";
+
+export const BASE = "https://a.klaviyo.com/api";
 const REVISION = "2026-04-15";
 
 export const METRIC_NAMES = {
@@ -31,8 +33,8 @@ interface KlaviyoFetchOpts {
   maxRetryDelayMs?: number;   // cap on a single sleep (default PATIENT_RETRY_DELAY_MS)
 }
 
-async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit, opts?: KlaviyoFetchOpts): Promise<T> {
-  const key = process.env.KLAVIYO_API_KEY;
+export async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit, opts?: KlaviyoFetchOpts): Promise<T> {
+  const key = readEnv("KLAVIYO_API_KEY");
   if (!key) {
     throw new Error("KLAVIYO_API_KEY is not set in .env.local. Add it and restart the dev server.");
   }
@@ -411,7 +413,7 @@ const DEFAULT_PLACED_ORDER_METRIC_ID = "JxF6bB";
 // explicitly disabled (both env var and default blank) do we fall back to the
 // name-based auto-resolution and its ambiguity flag.
 export async function resolvePlacedOrderMetric(): Promise<ResolvedMetric> {
-  const envId = process.env.KLAVIYO_PLACED_ORDER_METRIC_ID?.trim();
+  const envId = readEnv("KLAVIYO_PLACED_ORDER_METRIC_ID");
   const pinned = envId || DEFAULT_PLACED_ORDER_METRIC_ID;
   if (pinned) {
     const chosen: MetricCandidate = { id: pinned, integrationKey: "shopify", integrationName: "Shopify" };
