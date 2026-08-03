@@ -222,6 +222,96 @@ export interface SmsCampaign {
 /** The three SMS variant slots, in fixed order. Shared by prompt + UI labels. */
 export const SMS_VARIANT_LABELS = ["Direct", "Friendly", "Angle"] as const;
 
+// ---- Flows -----------------------------------------------------------------
+// A flow is a TRIGGERED, evergreen sequence (Welcome, Abandoned Cart, …) — a
+// distinct record type from campaigns/SMS. It's authored by the flow "brain"
+// (src/lib/prompts/flows.ts) and persisted via src/lib/flows.ts. Each email's
+// generated body reuses GeneratedCampaign so the existing canvas renders it
+// unchanged. GOTCHA: a new FlowType must ALSO be added to the zod enum in
+// src/lib/validation/schemas.ts (flowType), or every flow of that type is
+// dropped at the read boundary.
+export type FlowType =
+  | "welcome"
+  | "abandoned_cart"
+  | "abandoned_checkout"
+  | "browse_abandonment"
+  | "site_abandonment"
+  | "post_purchase"
+  | "winback"
+  | "sunset"
+  | "back_in_stock"
+  | "custom";
+
+export const FLOW_TYPES: FlowType[] = [
+  "welcome", "abandoned_cart", "abandoned_checkout", "browse_abandonment", "site_abandonment",
+  "post_purchase", "winback", "sunset", "back_in_stock", "custom",
+];
+
+/** User-facing label + one-line description per flow type (for the picker). */
+export const FLOW_TYPE_META: Record<FlowType, { label: string; hint: string }> = {
+  welcome: { label: "Welcome", hint: "First impression for a new subscriber — set the relationship, not a deadline." },
+  abandoned_cart: { label: "Abandoned Cart", hint: "Added to cart but didn't check out — recover the sale, urgency anchored to their own cart." },
+  abandoned_checkout: { label: "Abandoned Checkout", hint: "Reached checkout but didn't finish — high intent; remove the last bit of friction fast." },
+  browse_abandonment: { label: "Browse Abandonment", hint: "Viewed a product but didn't add it — nudge back to what caught their eye." },
+  site_abandonment: { label: "Site Abandonment", hint: "Visited the site without browsing a product — a light, welcoming nudge to explore." },
+  post_purchase: { label: "Post-Purchase", hint: "They just bought — onboard, reassure, and set up the next purchase." },
+  winback: { label: "Win-Back", hint: "Lapsed but recoverable — reactivate warmly with a reason to return. No guilt." },
+  sunset: { label: "Sunset", hint: "Highly unengaged for a long time — one honest last try, then let them go to protect deliverability." },
+  back_in_stock: { label: "Back in Stock", hint: "The item they wanted returned — tell them plainly before it goes again." },
+  custom: { label: "Custom", hint: "Build your own flow from scratch — set the trigger, emails, delays, and branches yourself." },
+};
+
+/** One email within a flow. `campaign` is absent until the email is written;
+ * `section_structure` is scaffolded from FLOW_PLAYBOOKS so the canvas has a
+ * shape to render into. `status` gains an "empty" state (unwritten) on top of
+ * the draft/final pattern used elsewhere. */
+export interface FlowEmail {
+  id: string;
+  /** 1-based position in the sequence. */
+  position: number;
+  /** This email's job in the arc (from the playbook; editable). */
+  job: string;
+  /** Human delay label before this email fires ("Immediately", "1 day later"). */
+  delay?: string;
+  /** What THIS specific email should emphasize (the writer's X/Y/Z). */
+  highlights?: string;
+  /** Generated body — reuses GeneratedCampaign so the canvas renders it as-is. */
+  campaign?: GeneratedCampaign;
+  section_structure: SectionSpec[];
+  status: "empty" | "draft" | "final";
+}
+
+/** A free-text conditional split between emails — no logic engine. `label` is
+ * the condition/question ("Opened Email 1?"); `yes_label`/`no_label` describe
+ * what happens on each branch (optional — a split with neither is a plain note).
+ * The node-map renders it as a fork and the canvas shows it in context. */
+export interface FlowSplit {
+  id: string;
+  after_email_position: number;
+  label: string;
+  yes_label?: string;
+  no_label?: string;
+}
+
+export interface Flow {
+  id: string; // date-slug, same shape as SavedCampaign ids
+  name: string;
+  type: FlowType;
+  channel: "email" | "sms";
+  /** What fires this flow. Optional override of the playbook's default trigger;
+   * primarily used by `custom` flows where the author defines it. */
+  trigger?: string;
+  /** Optional link to the real Klaviyo flow this authors copy for (reference only). */
+  klaviyo_flow_id?: string;
+  klaviyo_flow_name?: string;
+  /** The flow's overall goal, in the author's words (optional steering). */
+  goal?: string;
+  emails: FlowEmail[];
+  splits: FlowSplit[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BriefInput {
   campaign_name: string;
   campaign_type: CampaignType;

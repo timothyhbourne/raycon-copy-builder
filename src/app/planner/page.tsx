@@ -265,6 +265,7 @@ export default function PlannerPage() {
 
       {copyDoc && (
         <CopyDocModal copyId={copyDoc.id} status={copyDoc.status}
+          plannedSendAt={rows.find((r) => r.copy_campaign_id === copyDoc.id)?.planned_send_at}
           onClose={() => setCopyDoc(null)} onStale={fetchRows} />
       )}
     </div>

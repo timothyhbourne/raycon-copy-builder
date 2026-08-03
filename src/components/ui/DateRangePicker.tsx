@@ -26,6 +26,10 @@ function daysAgoKey(n: number): string {
   d.setDate(d.getDate() - n);
   return toKey(d);
 }
+function monthStartKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+}
 const fmt = (key: string) => {
   const d = keyToDate(key);
   return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
@@ -85,6 +89,32 @@ export default function DateRangePicker({
   const preset = (s: string, e: string) => { onChange(s, e); setOpen(false); };
   const clear = () => { onChange("", ""); setOpen(false); };
 
+  // Drag-to-select: pointer-down on a start day, move to preview the range under
+  // the cursor, commit on pointer-up. A press with no movement falls through to
+  // the click handler (click-start/click-end), and keyboard Enter still clicks —
+  // so mouse-drag, click, and keyboard all work. We only fire onChange on commit
+  // (never per hovered day), so a fetch happens once per committed range.
+  const [drag, setDrag] = useState<{ start: string; hover: string; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+
+  useEffect(() => {
+    if (!drag) return;
+    const onUp = () => {
+      if (drag.moved) {
+        const [s, e] = drag.start <= drag.hover ? [drag.start, drag.hover] : [drag.hover, drag.start];
+        onChange(s, e);
+        suppressClick.current = true; // the click that follows this drag is a no-op
+      }
+      setDrag(null);
+    };
+    window.addEventListener("pointerup", onUp);
+    return () => window.removeEventListener("pointerup", onUp);
+  }, [drag, onChange]);
+
+  // Highlight follows the live drag preview while dragging, else the committed range.
+  const hiStart = drag?.moved ? (drag.start <= drag.hover ? drag.start : drag.hover) : start;
+  const hiEnd = drag?.moved ? (drag.start <= drag.hover ? drag.hover : drag.start) : end;
+
   // Build the month grid.
   const { y, m } = cursor;
   const first = new Date(y, m, 1);
@@ -102,6 +132,7 @@ export default function DateRangePicker({
 
   const navBtn = "w-7 h-7 inline-flex items-center justify-center rounded-sm border border-line text-ink-secondary hover:bg-chrome transition-colors";
   const presets: { label: string; run: () => void }[] = [
+    { label: "Month to date", run: () => preset(monthStartKey(), tKey) },
     { label: "Today", run: () => preset(tKey, tKey) },
     { label: "Last 7 days", run: () => preset(daysAgoKey(6), tKey) },
     { label: "Last 30 days", run: () => preset(daysAgoKey(29), tKey) },
@@ -163,17 +194,20 @@ export default function DateRangePicker({
             <div className="grid grid-cols-7 mb-1">
               {WEEKDAYS.map((d) => <div key={d} className="t-label text-center py-1">{d}</div>)}
             </div>
-            <div className="grid grid-cols-7 gap-y-0.5">
+            <div className="grid grid-cols-7 gap-y-0.5 select-none" style={{ touchAction: "none" }}>
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;
                 const key = dayKey(d);
-                const isStart = key === start;
-                const isEnd = key === end;
-                const inRange = start && end && key > start && key < end;
+                const isStart = key === hiStart;
+                const isEnd = key === hiEnd;
+                const inRange = hiStart && hiEnd && key > hiStart && key < hiEnd;
                 const isToday = key === tKey;
                 const selected = isStart || isEnd;
                 return (
-                  <button key={key} type="button" onClick={() => pickDay(key)}
+                  <button key={key} type="button"
+                    onPointerDown={() => setDrag({ start: key, hover: key, moved: false })}
+                    onPointerEnter={() => setDrag((cur) => (cur && cur.hover !== key ? { ...cur, hover: key, moved: true } : cur))}
+                    onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } pickDay(key); }}
                     aria-label={fmt(key)} aria-pressed={selected}
                     className={`h-8 text-[13px] font-mono tabular-nums flex items-center justify-center transition-colors ${
                       selected ? "bg-accent text-white rounded-sm font-medium"

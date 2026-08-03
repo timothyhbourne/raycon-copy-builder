@@ -4,8 +4,8 @@ import { readEnv } from "@/lib/env";
 import { readCustomerFacts } from "@/lib/lifecycle/store";
 import { computeSnapshot, readSnapshot, writeSnapshot } from "@/lib/lifecycle/snapshot";
 
-// Daily lifecycle recompute (see lifecycle_inapp_build_brief.md §2), same
-// sync→store→read shape as /api/metrics/sync. Two callers:
+// Daily lifecycle recompute (see lifecycle_inapp_build_brief.md §2), a
+// sync→store→read shape. Two callers:
 //   - Vercel cron (no app cookie) → presents CRON_SECRET (Bearer or ?key=). Cron
 //     issues GET, so GET is exposed too.
 //   - In-app "Sync now" (logged-in team member) → the app auth cookie suffices.

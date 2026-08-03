@@ -51,9 +51,19 @@ function relativeTime(iso: string): string {
   return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function CopyDocModal({ copyId, status, onClose, onStale }: {
+// Planned launch date → a short pill like "Thu, Aug 14, 2026" so a designer
+// opening the copy sees at a glance when the campaign is for.
+function plannedLabel(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
+export default function CopyDocModal({ copyId, status, plannedSendAt, onClose, onStale }: {
   copyId: string;
   status?: "draft" | "final";
+  /** Planned send/launch datetime of the linked planner row (ISO), if known. */
+  plannedSendAt?: string;
   onClose: () => void;
   onStale?: () => void;
 }) {
@@ -97,6 +107,11 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
               {data?.campaign_name ?? (loading ? "Loading…" : "Copy")}
             </h2>
             {status && <Chip tone={status === "final" ? "success" : "warning"}>{status}</Chip>}
+            {plannedSendAt && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-accent-50 text-accent-700 px-3 py-1 text-xs font-medium whitespace-nowrap">
+                <span aria-hidden>📅</span> Planned send · {plannedLabel(plannedSendAt)}
+              </span>
+            )}
           </div>
           {data && <div className="text-xs text-ink-muted mt-1">Updated {relativeTime(data.updated_at)}</div>}
         </div>

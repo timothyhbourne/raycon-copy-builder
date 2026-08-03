@@ -1,12 +1,11 @@
 import type { ZodType } from "zod";
-import type { SavedCampaign, LibraryCampaign, SmsCampaign } from "../schemas";
+import type { SavedCampaign, LibraryCampaign, SmsCampaign, Flow } from "../schemas";
 import type { PlannerRow, AudienceRef } from "../planner-types";
-import type { DaySnapshot, Dimensions } from "../metrics/store";
 import type { WeeklyReport } from "../reports/weekly";
 import {
   SCHEMA_VERSION,
   plannerRowSchema, libraryCampaignSchema, savedCampaignSchema,
-  smsCampaignSchema, daySnapshotSchema, dimensionsSchema, weeklyReportSchema,
+  smsCampaignSchema, flowSchema, weeklyReportSchema,
 } from "./schemas";
 
 export { SCHEMA_VERSION } from "./schemas";
@@ -125,11 +124,11 @@ export const parseSmsCampaign = (raw: unknown): SmsCampaign | null =>
 export const parseSmsCampaigns = (raw: unknown): SmsCampaign[] =>
   parseList<SmsCampaign>(smsCampaignSchema, raw, "sms_campaign");
 
-export const parseDaySnapshot = (raw: unknown): DaySnapshot | null =>
-  parseOne<DaySnapshot>(daySnapshotSchema, raw, "day_snapshot");
+export const parseFlow = (raw: unknown): Flow | null =>
+  parseOne<Flow>(flowSchema, raw, "flow");
 
-export const parseDimensions = (raw: unknown): Dimensions | null =>
-  parseOne<Dimensions>(dimensionsSchema, raw, "dimensions");
+export const parseFlows = (raw: unknown): Flow[] =>
+  parseList<Flow>(flowSchema, raw, "flow");
 
 export const parseWeeklyReports = (raw: unknown): WeeklyReport[] =>
   parseList<WeeklyReport>(weeklyReportSchema, raw, "weekly_report");

@@ -9,7 +9,6 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "sync:metrics": "tsx scripts/sync-metrics.ts",
     "seed:planner": "tsx scripts/seed-planner-kv.ts",
     "seed:library": "tsx scripts/seed-library-kv.ts",
     "seed:lifecycle": "tsx scripts/seed-lifecycle-snapshot.ts",

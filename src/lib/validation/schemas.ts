@@ -1,14 +1,13 @@
 import { z } from "zod";
 import type {
-  SavedCampaign, LibraryCampaign, SmsCampaign,
+  SavedCampaign, LibraryCampaign, SmsCampaign, Flow,
 } from "../schemas";
 import type { PlannerRow } from "../planner-types";
-import type { DaySnapshot, Dimensions } from "../metrics/store";
 import type { WeeklyReport } from "../reports/weekly";
 
 // Zod schemas for the core PERSISTED entities, mirroring the hand-written TS
-// interfaces (src/lib/schemas.ts, planner-types.ts, metrics/store.ts,
-// reports/weekly.ts). They are used at storage READ boundaries to gate malformed
+// interfaces (src/lib/schemas.ts, planner-types.ts, reports/weekly.ts). They are
+// used at storage READ boundaries to gate malformed
 // records (log + skip/repair, never crash) and to migrate legacy shapes forward.
 //
 // Two deliberate choices:
@@ -202,39 +201,43 @@ export const smsCampaignSchema = z.looseObject({
   schema_version: schemaVersion,
 });
 
-// ---- Metrics --------------------------------------------------------------
-const dayFlowStat = z.looseObject({
-  flow_id: z.string(),
-  recipients: z.number(), opens: z.number(), clicks: z.number(), revenue: z.number(),
+// ---- Flows ----------------------------------------------------------------
+// GOTCHA (mirrors sectionType/campaignType): a new FlowType in src/lib/schemas.ts
+// must be added to this enum too, or flows of that type are dropped on read.
+const flowType = z.enum([
+  "welcome", "abandoned_cart", "abandoned_checkout", "browse_abandonment", "site_abandonment",
+  "post_purchase", "winback", "sunset", "back_in_stock", "custom",
+]);
+const flowEmail = z.looseObject({
+  id: z.string(),
+  position: z.number(),
+  job: z.string(),
+  delay: z.string().optional(),
+  highlights: z.string().optional(),
+  campaign: generatedCampaign.optional(),
+  section_structure: z.array(sectionSpec),
+  status: z.enum(["empty", "draft", "final"]),
 });
-const dayCampaignStat = z.looseObject({
-  campaign_id: z.string(),
-  recipients: z.number(), opens: z.number(), clicks: z.number(), revenue: z.number(),
+const flowSplit = z.looseObject({
+  id: z.string(),
+  after_email_position: z.number(),
+  label: z.string(),
+  yes_label: z.string().optional(),
+  no_label: z.string().optional(),
 });
-export const daySnapshotSchema = z.looseObject({
-  date: z.string(),
-  synced_at: z.string(),
-  frozen: z.boolean(),
-  revenue: z.looseObject({ total: z.number(), order_count: z.number() }),
-  flows: z.array(dayFlowStat),
-  campaigns: z.array(dayCampaignStat),
-  schema_version: schemaVersion,
-});
-
-const campaignDim = z.looseObject({
-  campaign_id: z.string(),
+export const flowSchema = z.looseObject({
+  id: z.string(),
   name: z.string(),
-  status: z.string(),
-  send_time: z.string().nullable(),
-  audience_count: z.number(),
-});
-export const dimensionsSchema = z.looseObject({
-  synced_at: z.string().nullable(),
-  timezone: z.string(),
-  flows: z.array(z.looseObject({ flow_id: z.string(), name: z.string(), status: z.string().optional() })),
-  campaigns: z.array(campaignDim),
-  draft: z.array(campaignDim),
-  scheduled: z.array(campaignDim),
+  type: flowType,
+  channel: z.enum(["email", "sms"]),
+  trigger: z.string().optional(),
+  klaviyo_flow_id: z.string().optional(),
+  klaviyo_flow_name: z.string().optional(),
+  goal: z.string().optional(),
+  emails: z.array(flowEmail),
+  splits: z.array(flowSplit),
+  created_at: z.string(),
+  updated_at: z.string(),
   schema_version: schemaVersion,
 });
 
@@ -261,8 +264,7 @@ type _P = Assignable<Omit<z.infer<typeof plannerRowSchema>, "schema_version">, P
 type _L = Assignable<Omit<z.infer<typeof libraryCampaignSchema>, "schema_version">, LibraryCampaign>;
 type _S = Assignable<Omit<z.infer<typeof savedCampaignSchema>, "schema_version">, SavedCampaign>;
 type _M = Assignable<Omit<z.infer<typeof smsCampaignSchema>, "schema_version">, SmsCampaign>;
-type _D = Assignable<Omit<z.infer<typeof daySnapshotSchema>, "schema_version">, DaySnapshot>;
-type _X = Assignable<Omit<z.infer<typeof dimensionsSchema>, "schema_version">, Dimensions>;
+type _F = Assignable<Omit<z.infer<typeof flowSchema>, "schema_version">, Flow>;
 type _W = Assignable<Pick<WeeklyReport, "week" | "generatedAt">, Pick<WeeklyReport, "week" | "generatedAt">>;
 // Reference the aliases so "noUnusedLocals" stays satisfied without side effects.
-export type _LockstepChecks = [_P, _L, _S, _M, _D, _X, _W];
+export type _LockstepChecks = [_P, _L, _S, _M, _F, _W];

@@ -5,7 +5,7 @@ import { campaignValuesReport, dayRangeISO, resolvePlacedOrderMetric, fetchCampa
 import { isNorthbeamConfigured, getCampaignRevenue, normalizeCampaignName, northbeamPlatformLabels } from "@/lib/northbeam";
 
 // Per-window cache for the Klaviyo campaign values report so repeated syncs of
-// the same window are cheap. In-process only — see klaviyo/overview/route.ts.
+// the same window are cheap. In-process only (not shared across instances).
 const REPORT_TTL_MS = 10 * 60 * 1000;
 interface CampaignStat { recipients: number; opens_unique: number; clicks_unique: number; conversion_value: number }
 const reportCache = new Map<string, { ts: number; byId: Map<string, CampaignStat> }>();

@@ -1,5 +1,6 @@
-// Shared dashboard types. The /api/klaviyo/overview payload is fetched once in
-// the dashboard layout and consumed by both the flows and campaigns child pages.
+// Shared dashboard types. The /api/klaviyo/measure payload is fetched live per
+// range in the dashboard layout, cached per session, and consumed by both the
+// flows and campaigns child pages.
 
 export interface RevenueData {
   total: number;
@@ -53,14 +54,7 @@ export interface OverviewData {
   campaign_status: CampaignStatus;
   warnings: string[];
   range: { start: string; end: string };
-  // Freshness (sync-then-read architecture). last_synced_at is the OLDEST
-  // synced_at across the returned days so the UI never overstates freshness.
-  last_synced_at?: string | null;
-  missing_days?: string[]; // days in range with no snapshot yet (syncing in background)
-  coverage?: { requested_days: number; found_days: number };
-  // Legacy cache fields — no longer emitted by the store-backed route, kept
-  // optional so any in-flight client build doesn't break.
-  served_from_cache?: string;
-  cache_age_seconds?: number;
-  stale?: boolean;
+  // Live-on-demand freshness: set client-side when a range is fetched/cached
+  // (there is no server sync timestamp anymore). ISO string.
+  fetched_at: string;
 }

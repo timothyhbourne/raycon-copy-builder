@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { safeIdSchema } from "./api";
-import { savedCampaignSchema, smsCampaignSchema } from "./schemas";
+import { savedCampaignSchema, smsCampaignSchema, flowSchema } from "./schemas";
 
 // Request-body schemas for the mutating API routes. Deliberately LOOSE: each one
 // validates the fields its handler actually reads (so malformed/missing input is
@@ -87,9 +87,24 @@ export const smsVariationsBody = looseObj({
   feedback: z.string().optional(),
 });
 
+// ---- flows ----------------------------------------------------------------
+// Generate ONE flow email. `context` carries the email's place in the sequence;
+// validate the fields the flow brain dereferences, stay loose on the rest.
+const flowContextLoose = looseObj({
+  flow_type: z.string(),
+  position: z.number(),
+  job: z.string(),
+});
+export const flowGenerateBody = looseObj({
+  context: flowContextLoose,
+  section_structure: z.array(z.unknown()),
+  products_featured: z.array(z.string()).optional(),
+});
+
 // ---- persistence: bodies that ARE an entity -------------------------------
 export const campaignPostBody = savedCampaignSchema;
 export const smsPostBody = smsCampaignSchema;
+export const flowPostBody = flowSchema;
 
 export const finalizeBody = looseObj({
   id: safeIdSchema,

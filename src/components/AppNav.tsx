@@ -65,7 +65,13 @@ type NavGroup = { title: string; items: NavItem[] };
 // Flows/Campaigns tabs now live here under MEASURE (per the revamp), alongside
 // Reports; there is no standalone /dashboard content (it redirects to Flows).
 const GROUPS: NavGroup[] = [
-  { title: "Create", items: [{ href: "/copy-builder", label: "Copy Builder", Icon: CopyIcon, badge: "AI" }] },
+  {
+    title: "Create",
+    items: [
+      { href: "/copy-builder", label: "Copy Builder", Icon: CopyIcon, badge: "AI" },
+      { href: "/flows", label: "Flow Builder", Icon: FlowsIcon, badge: "NEW" },
+    ],
+  },
   {
     title: "Plan",
     items: [

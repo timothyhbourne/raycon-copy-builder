@@ -72,18 +72,16 @@ Personality on. Playful headlines built from the four headline patterns, one pun
 Maximum personality within the bans, concentrated in the headline. Wordplay, light metaphor, an editorial turn where it earns its place; the tagline still answers the hook with the deal, plainly. The shipped reference set IS the register: match its wit level, no further. Clever that needs a second read is a fail, not a flex.`;
 }
 
-export function generateUserPrompt(
-  expandedBrief: ExpandedBrief,
-  chosenConceit: Conceit,
+// Render the ordered section list injected into a generation prompt: per section
+// its required elements, grid/product/review/bundle notes, and the user's focus.
+// Shared by the campaign brain (generateUserPrompt) and the flow brain
+// (src/lib/prompts/flows.ts) so both drive the SAME output shape — which is what
+// lets the client stream parser and the canvas render either unchanged.
+export function buildSectionList(
   sectionStructure: SectionSpec[],
-  examples: LibraryCampaign[],
-  avoidBlock = "",
-  /** Real reviews supplied per product SKU (best-first), used VERBATIM for the
-   * Review element of product_card_review cards. Populated by the generate route
-   * (see reviews service). Empty when none were found — never invent one. */
   reviewsBySlug: Record<string, string[]> = {}
 ): string {
-  const sectionList = sectionStructure.map((s, i) => {
+  return sectionStructure.map((s, i) => {
     const isBundle = s.type === "bundle";
     const bundleProducts = s.bundle_products ?? [];
     const bundleTemplate = s.bundle_template ?? "unified";
@@ -126,16 +124,13 @@ export function generateUserPrompt(
   elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}${bundleNote}
   focus (optional steering from user , may reference another section by number, e.g. "build on section 1"): ${s.focus || "none"}`;
   }).join("\n");
+}
 
-  const exampleBlocks = examples.map((e) => `---
-${e.title} (${e.date}, ${e.campaign_type})
-Conceit: ${e.conceit}
-
-${e.body}
----`).join("\n");
-
-  // Build per-section JSONL shape examples
-  const exampleLines = sectionStructure.map((s) => {
+// Per-section JSONL shape examples (one skeleton line per section, in order),
+// so the model returns exactly the lines the client parser expects. Shared by
+// both brains for the same reason as buildSectionList.
+export function buildSectionExampleLines(sectionStructure: SectionSpec[]): string {
+  return sectionStructure.map((s) => {
     if (s.type === "product_grid") {
       const cols = s.grid_cols ?? 2;
       const rows = s.grid_rows ?? 2;
@@ -157,6 +152,30 @@ ${e.body}
     ).join(",");
     return `{"type":"${s.type}","elements":{${elemPairs}}}`;
   }).join("\n");
+}
+
+export function generateUserPrompt(
+  expandedBrief: ExpandedBrief,
+  chosenConceit: Conceit,
+  sectionStructure: SectionSpec[],
+  examples: LibraryCampaign[],
+  avoidBlock = "",
+  /** Real reviews supplied per product SKU (best-first), used VERBATIM for the
+   * Review element of product_card_review cards. Populated by the generate route
+   * (see reviews service). Empty when none were found — never invent one. */
+  reviewsBySlug: Record<string, string[]> = {}
+): string {
+  const sectionList = buildSectionList(sectionStructure, reviewsBySlug);
+
+  const exampleBlocks = examples.map((e) => `---
+${e.title} (${e.date}, ${e.campaign_type})
+Conceit: ${e.conceit}
+
+${e.body}
+---`).join("\n");
+
+  // Build per-section JSONL shape examples
+  const exampleLines = buildSectionExampleLines(sectionStructure);
 
   const verbatimParts: string[] = [];
   if (expandedBrief.hero_angle_verbatim?.trim()) {
