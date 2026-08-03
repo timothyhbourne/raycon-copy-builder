@@ -101,6 +101,29 @@ export const flowGenerateBody = looseObj({
   products_featured: z.array(z.string()).optional(),
 });
 
+// ---- copy performance (analytics read) ------------------------------------
+// GET query params for /api/copy-performance. Strict (not loose): unknown params
+// are ignored by the route, and the four it reads are gated here. channel/basis
+// default so a bare ?start&end works.
+const YMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
+export const copyPerformanceQuery = z.object({
+  start: YMD,
+  end: YMD,
+  channel: z.enum(["email", "sms", "all"]).default("all"),
+  basis: z.enum(["platform", "northbeam"]).default("platform"),
+});
+
+// ---- dashboard briefing ----------------------------------------------------
+// The client posts the CURRENT range's OverviewData (from its session cache) so
+// the route only fetches the prior window. `current` is rich — validate the
+// range + that it's an object; the fact-pack builder reads its known fields.
+export const briefingBody = looseObj({
+  range: looseObj({ start: z.string(), end: z.string() }),
+  channel: z.enum(["email", "sms", "all"]).optional(),
+  current: looseObj({ revenue: z.unknown(), flows: z.array(z.unknown()), campaigns: z.array(z.unknown()) }),
+  includePrior: z.boolean().optional(),
+});
+
 // ---- persistence: bodies that ARE an entity -------------------------------
 export const campaignPostBody = savedCampaignSchema;
 export const smsPostBody = smsCampaignSchema;

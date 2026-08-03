@@ -9,6 +9,7 @@ import Card from "@/components/ui/Card";
 import PageHeader from "@/components/ui/PageHeader";
 import { StatCell } from "@/components/ui/Stat";
 import DateRangePicker from "@/components/ui/DateRangePicker";
+import DashboardBriefing from "@/components/DashboardBriefing";
 
 // Live-on-demand measurement (spec: MEASUREMENT_LIVE_FETCH_SPEC.md). The layout
 // owns the range + a per-SESSION cache and fetches each range live from
@@ -207,6 +208,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </>
         ) : hasData && revenue ? (
           <>
+            {/* On-demand plain-English readout of the range on screen. */}
+            {data && <DashboardBriefing current={data} range={{ start, end }} />}
+
             {/* Placed-order revenue is NOT channel-split in the Klaviyo payload, so
                 it lives here as ONE channel-neutral figure (all email, flows +
                 campaigns). The channel-specific attributed revenue is rendered per

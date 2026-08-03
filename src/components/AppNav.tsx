@@ -46,6 +46,9 @@ function SandboxIcon() {
 function LifecycleIcon() {
   return (<svg {...svgProps}><rect x="3" y="4" width="5" height="16" rx="1" /><rect x="10" y="4" width="5" height="11" rx="1" /><rect x="17" y="4" width="4" height="7" rx="1" /></svg>);
 }
+function WhatWorksIcon() {
+  return (<svg {...svgProps}><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></svg>);
+}
 function SignOutIcon() {
   return (<svg {...svgProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>);
 }
@@ -84,6 +87,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard/flows", label: "Flows", Icon: FlowsIcon },
       { href: "/dashboard/campaigns", label: "Campaigns", Icon: CampaignsIcon },
+      { href: "/copy-performance", label: "Copy Performance", Icon: WhatWorksIcon, badge: "NEW" },
       { href: "/reports", label: "Reports", Icon: ReportsIcon },
       { href: "/lifecycle", label: "Lifecycle", Icon: LifecycleIcon, badge: "NEW" },
     ],

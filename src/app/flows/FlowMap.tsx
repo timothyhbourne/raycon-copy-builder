@@ -170,7 +170,9 @@ export default function FlowMap({
       </div>
     ));
 
-  const AddBranch = ({ afterPosition }: { afterPosition: number }) => (
+  // A render helper (invoked, not instantiated as <Component/>) so it doesn't
+  // count as a component created during render.
+  const addBranch = (afterPosition: number) => (
     <button
       onClick={() => onAddSplit(afterPosition)}
       className="mt-1 text-[11px] font-medium text-ink-muted hover:text-accent transition-colors"
@@ -221,7 +223,7 @@ export default function FlowMap({
           </button>
         )}
         {renderSplits(0)}
-        <div className="flex flex-col items-start"><AddBranch afterPosition={0} /></div>
+        <div className="flex flex-col items-start">{addBranch(0)}</div>
 
         {flow.emails.map((email) => (
           <div key={email.id} className="flex flex-col items-stretch">
@@ -241,7 +243,7 @@ export default function FlowMap({
               <p className="text-xs text-ink-secondary mt-1 leading-snug line-clamp-2">{email.job || "No job set yet — open to define it."}</p>
             </button>
             {renderSplits(email.position)}
-            <div className="flex flex-col items-start"><AddBranch afterPosition={email.position} /></div>
+            <div className="flex flex-col items-start">{addBranch(email.position)}</div>
           </div>
         ))}
 
