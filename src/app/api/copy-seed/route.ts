@@ -4,6 +4,8 @@ import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { copySeedRoleInstruction, copySeedUserPrompt } from "@/lib/prompts/copy-seed";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { VALID_PRODUCT_IDS } from "@/lib/products";
+import { parseBody } from "@/lib/validation/api";
+import { copySeedBody } from "@/lib/validation/requests";
 import type { PlannerRow } from "@/lib/planner-types";
 import type { BriefInput, CampaignType, AudienceType } from "@/lib/schemas";
 
@@ -11,16 +13,9 @@ const CAMPAIGN_TYPES: CampaignType[] = ["promo", "launch", "restock", "story", "
 const AUDIENCES: AudienceType[] = ["all", "engaged", "lapsed", "post_purchase", "vip"];
 
 export async function POST(req: NextRequest) {
-  let row: PlannerRow | null = null;
-  try {
-    const body = (await req.json()) as { row?: PlannerRow };
-    row = body.row ?? null;
-    if (!row || !row.name) {
-      return NextResponse.json({ error: "row is required" }, { status: 400 });
-    }
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-  }
+  const parsed = await parseBody(req, copySeedBody);
+  if (parsed.error) return parsed.error;
+  const row = (parsed.data as unknown as { row: PlannerRow }).row;
 
   // Deterministic mapping first — this is what we return no matter what.
   const seed = plannerRowToBriefSeed(row);

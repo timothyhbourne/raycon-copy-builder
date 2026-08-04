@@ -1,0 +1,211 @@
+{
+  "generated_at": "2026-07-24T19:31:32.638598+00:00",
+  "source": "seed",
+  "model_version": "v1",
+  "currency": "USD",
+  "aov_basis": 85,
+  "assumptions": "modeled_revenue = size × assumed_response × aov. Sizes are REAL (24 months of Shopify orders); response rates are placeholders until measured. Cohorts overlap — do not sum.",
+  "total_audience": 911466,
+  "overview": {
+    "bands": [
+      {
+        "key": "active",
+        "label": "Active (≤90d)",
+        "count": 120922,
+        "pct": 13.3,
+        "color": "#16a34a"
+      },
+      {
+        "key": "reorder",
+        "label": "Reorder window (91–180d)",
+        "count": 132374,
+        "pct": 14.5,
+        "color": "#d99b00"
+      },
+      {
+        "key": "atrisk",
+        "label": "At-Risk / Win-Back (181–365d)",
+        "count": 303770,
+        "pct": 33.3,
+        "color": "#f97316"
+      },
+      {
+        "key": "dormant",
+        "label": "Dormant (>365d)",
+        "count": 354400,
+        "pct": 38.9,
+        "color": "#8b93a3"
+      }
+    ],
+    "tiles": [
+      {
+        "label": "New Customers",
+        "count": 41012,
+        "sub": "1st order ≤45d · win the 2nd",
+        "color": "#3b82f6"
+      },
+      {
+        "label": "Reorder-Due (Earbuds)",
+        "count": 98075,
+        "sub": "60–150d window",
+        "color": "#d99b00"
+      },
+      {
+        "label": "High-Value Repeat",
+        "count": 66624,
+        "sub": "2+ orders · ≥$173 spend",
+        "color": "#16a34a"
+      },
+      {
+        "label": "Suppression Watch",
+        "count": 354400,
+        "sub": ">365d · protect deliverability",
+        "color": "#b91c1c"
+      }
+    ]
+  },
+  "insight_next_best_product": {
+    "return_rate_pct": 17.5,
+    "items": [
+      {
+        "label": "Earbuds again",
+        "pct": 82.4
+      },
+      {
+        "label": "Headphones",
+        "pct": 15.4
+      },
+      {
+        "label": "Power Tech",
+        "pct": 13.5
+      },
+      {
+        "label": "Accessories",
+        "pct": 13.4
+      },
+      {
+        "label": "Audio",
+        "pct": 7.5
+      }
+    ]
+  },
+  "cohorts": [
+    {
+      "id": "reorder_due_earbuds",
+      "title": "Reorder-Due · Earbuds replenishment",
+      "color": "#d99b00",
+      "size": 98075,
+      "assumed_response": 0.08,
+      "rule": "owns 'Earbuds' AND days_since_last_order BETWEEN 60 AND 150",
+      "why": "Bought earbuds 60–150 days ago and haven't returned — entering the reorder window (median reorder = 94 days). Highest-intent, time-sensitive.",
+      "pills": [
+        "owns: Earbuds",
+        "no order 60–150d",
+        "peak reorder window"
+      ],
+      "recommendation": {
+        "message": "\"Time for a fresh pair\" — upgrade to the latest earbuds, or restock ear tips.",
+        "offer": "15% off next earbuds, or free Memory-Foam ear tips with purchase."
+      },
+      "klaviyo_segment": "[Lifecycle] Reorder-Due · Earbuds",
+      "aov": 85,
+      "modeled_revenue": 666910
+    },
+    {
+      "id": "atrisk_overdue_earbuds",
+      "title": "At-Risk · Earbuds reorder overdue",
+      "color": "#f97316",
+      "size": 147303,
+      "assumed_response": 0.04,
+      "rule": "owns 'Earbuds' AND days_since_last_order BETWEEN 151 AND 300",
+      "why": "Past their typical reorder point (151–300 days) with no return — slipping, but recoverable with a nudge now.",
+      "pills": [
+        "owns: Earbuds",
+        "overdue 151–300d"
+      ],
+      "recommendation": {
+        "message": "\"We saved your spot\" — reminder + social proof / reviews.",
+        "offer": "20% off to come back."
+      },
+      "klaviyo_segment": "[Lifecycle] At-Risk · Earbuds overdue",
+      "aov": 85,
+      "modeled_revenue": 500830
+    },
+    {
+      "id": "winback_lapsed",
+      "title": "Win-Back · lapsed 6–12 months",
+      "color": "#ef4444",
+      "size": 303770,
+      "assumed_response": 0.015,
+      "rule": "days_since_last_order BETWEEN 181 AND 365",
+      "why": "Last purchase 181–365 days ago. Reachable and brand-aware — classic escalating win-back.",
+      "pills": [
+        "last order 181–365d"
+      ],
+      "recommendation": {
+        "message": "\"We miss you\" win-back series (2–3 touches).",
+        "offer": "Escalating code: 25% → 30%."
+      },
+      "klaviyo_segment": "[Lifecycle] Win-Back · 6–12mo",
+      "aov": 85,
+      "modeled_revenue": 387307
+    },
+    {
+      "id": "crosssell_headphones",
+      "title": "Cross-Sell · Earbuds → Headphones",
+      "color": "#3b82f6",
+      "size": 103966,
+      "assumed_response": 0.03,
+      "rule": "owns 'Earbuds' AND NOT owns 'Headphones' AND days_since_last_order <= 120",
+      "why": "Recent earbuds buyers (≤120d) who don't own headphones — warm, with a clear next-best product.",
+      "pills": [
+        "owns: Earbuds",
+        "missing: Headphones",
+        "recent buyer"
+      ],
+      "recommendation": {
+        "message": "\"Complete your setup\" — headphones for home/travel.",
+        "offer": "Bundle discount on headphones."
+      },
+      "klaviyo_segment": "[Lifecycle] Cross-Sell · Earbuds→Headphones",
+      "aov": 85,
+      "modeled_revenue": 265113
+    },
+    {
+      "id": "new_customer_2nd",
+      "title": "New Customer · 2nd-order nudge",
+      "color": "#16a34a",
+      "size": 41012,
+      "assumed_response": 0.06,
+      "rule": "order_count = 1 AND days_since_first_order <= 45",
+      "why": "First order in the last 45 days. The biggest lever since 83% never buy twice — win the second order now.",
+      "pills": [
+        "1 order · ≤45d"
+      ],
+      "recommendation": {
+        "message": "Onboarding + \"made for your earbuds\" accessories.",
+        "offer": "Accessory bundle; low/no discount."
+      },
+      "klaviyo_segment": "[Lifecycle] New Customer · 2nd-order",
+      "aov": 85,
+      "modeled_revenue": 209161
+    }
+  ],
+  "secondary_segments": [
+    {
+      "label": "Cross-Sell · Earbuds→Power Tech",
+      "size": 100756,
+      "rule": "owns Earbuds AND NOT Power Tech AND recency<=120d"
+    },
+    {
+      "label": "High-Value Repeat (upsell)",
+      "size": 66624,
+      "rule": "order_count>=2 AND monetary>=173"
+    },
+    {
+      "label": "Suppression watch",
+      "size": 354400,
+      "rule": "engagement_recency>365d (or purchase recency>365d proxy)"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import path from "path";
 import { getAdapter } from "./storage";
-import type { PlannerRow, SyncedMetrics, AudienceRef } from "./planner-types";
+import { parsePlannerRows, stampAll } from "./validation";
+import type { PlannerRow, SyncedMetrics, ManualMetricsPatch } from "./planner-types";
 
 // Store for the Campaign Planner: a single JSON array behind the shared storage
 // adapter (lib/storage.ts). The adapter is file-backed today and swaps to a KV
@@ -18,59 +19,14 @@ function isSafeId(id: unknown): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
-// Read-time backfill so rows saved under older shapes keep working without a
-// manual data wipe: (1) audiences that were free-typed strings become
-// AudienceRef objects; (2) offer_type is inferred from whether a promo_code
-// exists.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function backfillAudience(raw: any): AudienceRef[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((a): AudienceRef | null => {
-      if (typeof a === "string") return a.trim() ? { id: "", name: a.trim(), type: "segment" } : null;
-      if (a && typeof a === "object" && typeof a.name === "string") {
-        return { id: typeof a.id === "string" ? a.id : "", name: a.name, type: a.type === "list" ? "list" : "segment" };
-      }
-      return null;
-    })
-    .filter((a): a is AudienceRef => a !== null);
-}
-
-// Migrate a legacy status literal to the current model. New values pass through;
-// anything unrecognised falls back to the first stage.
-//   idea → writing_brief, draft → planned, sent → scheduled,
-//   scheduled_in_klaviyo (prior model) → scheduled, cancelled → cancelled
-function backfillStatus(s: unknown): PlannerRow["status"] {
-  switch (s) {
-    case "writing_brief": case "planned": case "scheduled": case "cancelled":
-      return s;
-    case "idea": return "writing_brief";
-    case "draft": return "planned";
-    case "sent": case "scheduled_in_klaviyo": return "scheduled";
-    default: return "writing_brief";
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function backfillRow(r: any): PlannerRow {
-  const offer_type = r.offer_type === "evergreen" || r.offer_type === "promo"
-    ? r.offer_type
-    : (r.promo_code ? "promo" : "evergreen");
-  return {
-    ...r,
-    offer_type,
-    status: backfillStatus(r.status),
-    audience_included: backfillAudience(r.audience_included),
-    audience_excluded: backfillAudience(r.audience_excluded),
-  } as PlannerRow;
-}
-
 async function readAll(): Promise<PlannerRow[]> {
   const raw = await store.read(STORE_KEY);
   if (raw == null) return []; // absent store → empty planner
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(backfillRow) : [];
+    // Validate + migrate every row at the boundary (lib/validation): legacy
+    // shapes (free-typed audiences, old status/offer_type) are repaired, and a
+    // malformed row is logged and dropped instead of poisoning the list.
+    return parsePlannerRows(JSON.parse(raw));
   } catch {
     return [];
   }
@@ -79,8 +35,9 @@ async function readAll(): Promise<PlannerRow[]> {
 async function writeAll(rows: PlannerRow[]): Promise<void> {
   // On the file backend the adapter absorbs read-only-FS failures (logs, no-op),
   // so a save on a file-only deploy doesn't crash — it just isn't durable. The
-  // Redis backend makes it durable across serverless invocations.
-  await store.write(STORE_KEY, JSON.stringify(rows, null, 2));
+  // Redis backend makes it durable across serverless invocations. stampAll marks
+  // each row with the current schema_version for future migrations.
+  await store.write(STORE_KEY, JSON.stringify(stampAll(rows), null, 2));
 }
 
 export async function listPlannerRows(): Promise<PlannerRow[]> {
@@ -145,8 +102,11 @@ export async function deletePlannerRow(id: string): Promise<boolean> {
 }
 
 // Write back synced metrics onto a row (used by the sync route). Leaves plan
-// fields untouched.
-export async function writeSyncedMetrics(id: string, metrics: SyncedMetrics): Promise<PlannerRow | null> {
+// fields untouched. Accepts a Partial so the independent Northbeam pass can
+// write just { northbeam_revenue, northbeam_synced_at } without clobbering the
+// Klaviyo/Postscript metrics written earlier in the same sync (each call re-reads
+// the store, so a later partial write merges onto the earlier one).
+export async function writeSyncedMetrics(id: string, metrics: Partial<SyncedMetrics>): Promise<PlannerRow | null> {
   if (!isSafeId(id)) return null;
   const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === id);
@@ -154,6 +114,49 @@ export async function writeSyncedMetrics(id: string, metrics: SyncedMetrics): Pr
   rows[idx] = { ...rows[idx], ...metrics, updated_at: new Date().toISOString() };
   await writeAll(rows);
   return rows[idx];
+}
+
+// Manually-entered platform metrics (SMS rows: numbers typed in from the
+// Postscript dashboard — its public API has no analytics; see the SMS spec).
+// Rules:
+//   - Only the fields present in the patch change; `null` clears a value
+//     (empty ≠ 0 — zero is a real entered value).
+//   - revenue_per_recipient: a number in the patch is a manual OVERRIDE and
+//     sticks; `null` clears the override; while un-overridden it re-derives
+//     from revenue/recipients on every write (and clears when either is empty).
+//   - Every write stamps metrics_source: "manual" + metrics_entered_at, which
+//     structurally blocks the sync route from ever overwriting these fields.
+export async function writeManualMetrics(id: string, patch: ManualMetricsPatch): Promise<PlannerRow | null> {
+  if (!isSafeId(id)) return null;
+  const rows = await readAll();
+  const idx = rows.findIndex((r) => r.id === id);
+  if (idx === -1) return null;
+  const row = rows[idx];
+
+  const next: PlannerRow = { ...row };
+  if ("recipients" in patch) next.recipients = patch.recipients ?? null;
+  if ("click_rate" in patch) next.click_rate = patch.click_rate ?? null;
+  if ("revenue" in patch) next.revenue = patch.revenue ?? null;
+  if ("revenue_per_recipient" in patch) {
+    if (patch.revenue_per_recipient == null) {
+      next.rpr_override = false; // cleared → back to derived
+    } else {
+      next.rpr_override = true;
+      next.revenue_per_recipient = patch.revenue_per_recipient;
+    }
+  }
+  if (!next.rpr_override) {
+    next.revenue_per_recipient = next.revenue != null && next.recipients != null && next.recipients > 0
+      ? next.revenue / next.recipients
+      : null;
+  }
+  next.metrics_source = "manual";
+  next.metrics_entered_at = new Date().toISOString();
+  next.updated_at = next.metrics_entered_at;
+
+  rows[idx] = next;
+  await writeAll(rows);
+  return next;
 }
 
 // Attach a Copy Builder campaign to a row (used by the /api/planner/link route).
@@ -175,9 +178,9 @@ export async function linkCopyCampaign(
     copy_campaign_id: copyCampaignId,
     copy_status: copyStatus,
     copy_linked_at: now,
-    // Nudge the plan forward only from the initial "writing brief" stage. Never
-    // downgrade a row that's already scheduled in Klaviyo (or cancelled).
-    status: rows[idx].status === "writing_brief" ? "planned" : rows[idx].status,
+    // Status is left untouched: attaching copy no longer auto-advances the plan.
+    // The writer bumps it to "ready_for_design" explicitly (the design-handoff
+    // action), so linking a draft mid-write doesn't jump the stage.
     updated_at: now,
   };
   await writeAll(rows);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPlannerRows, getPlannerRow, upsertPlannerRow, deletePlannerRow } from "@/lib/planner";
-import { PLANNER_CHANNELS, PLANNER_STATUSES } from "@/lib/planner-types";
+import { parseBody } from "@/lib/validation/api";
+import { plannerUpsertBody } from "@/lib/validation/requests";
 import type { PlannerRow } from "@/lib/planner-types";
 
 export async function GET(req: NextRequest) {
@@ -22,16 +23,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Partial<PlannerRow>;
-    if (!body.name || typeof body.name !== "string") {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
-    }
-    if (!body.channel || !PLANNER_CHANNELS.includes(body.channel)) {
-      return NextResponse.json({ error: "channel must be 'email' or 'sms'" }, { status: 400 });
-    }
-    if (body.status && !PLANNER_STATUSES.includes(body.status)) {
-      return NextResponse.json({ error: `status must be one of ${PLANNER_STATUSES.join(", ")}` }, { status: 400 });
-    }
+    const parsed = await parseBody(req, plannerUpsertBody);
+    if (parsed.error) return parsed.error;
+    const body = parsed.data as Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"] };
     const row = await upsertPlannerRow({ ...body, name: body.name, channel: body.channel });
     return NextResponse.json({ row });
   } catch (e) {

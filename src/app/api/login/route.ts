@@ -7,23 +7,18 @@ import {
   credentialsValid,
   makeToken,
 } from "@/lib/auth";
+import { parseBody } from "@/lib/validation/api";
+import { loginBody } from "@/lib/validation/requests";
 
 export async function POST(request: NextRequest) {
   // Gate disabled → nothing to log into.
   if (!authEnabled) return NextResponse.json({ ok: true });
 
-  let username = "";
-  let password = "";
-  try {
-    const body = await request.json();
-    username = String(body?.username ?? "");
-    password = String(body?.password ?? "");
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid request" },
-      { status: 400 }
-    );
-  }
+  const parsed = await parseBody(request, loginBody);
+  if (parsed.error) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
+  const body = parsed.data as { username?: string; password?: string };
+  const username = String(body.username ?? "");
+  const password = String(body.password ?? "");
 
   if (!credentialsValid(username, password)) {
     return NextResponse.json(

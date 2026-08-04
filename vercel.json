@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/reports/weekly/run", "schedule": "0 13 * * 1" },
-    { "path": "/api/metrics/sync", "schedule": "0 6 * * *" }
+    { "path": "/api/reports/weekly/run", "schedule": "0 13 * * 1" }
   ]
 }

@@ -31,7 +31,7 @@ export default function DesignModal({ image, isGenerating, onRegenerate, onClose
       >
         {/* Toolbar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
-          <span className="font-mono text-xs text-slate-500 uppercase tracking-wide">Header Mockup</span>
+          <span className="t-label text-slate-500">Header Mockup</span>
           <div className="flex items-center gap-2">
             {image && (
               <button
@@ -63,7 +63,7 @@ export default function DesignModal({ image, isGenerating, onRegenerate, onClose
           {isFirstGeneration && (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
-              <span className="font-mono text-xs text-slate-400 uppercase tracking-wide">Generating design…</span>
+              <span className="t-label">Generating design…</span>
             </div>
           )}
 

@@ -39,7 +39,7 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <RayconIcon />
           <RayconWordmark className="mt-4 h-5 text-slate-900" />
-          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-slate-400">
+          <p className="mt-3 t-label text-slate-400">
             Copy Builder
           </p>
         </div>
@@ -87,7 +87,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-300">
+        <p className="mt-6 text-center t-label text-slate-300">
           Raycon Internal Tools
         </p>
       </div>

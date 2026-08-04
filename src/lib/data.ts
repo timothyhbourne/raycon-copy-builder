@@ -4,61 +4,82 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
+// Read-only loader for static content that ships in the deploy bundle
+// (brand-voice.md, products.md, copy-system.md, raw/...). Never written at
+// runtime, so reading it via fs on Vercel is correct — intentionally exempt
+// from the storage seam (see storage.ts / remediation §3.3).
 function readFile(filename: string): string {
   const p = path.join(DATA_DIR, filename);
   if (!fs.existsSync(p)) return "";
   return fs.readFileSync(p, "utf8");
 }
 
-export function getBrandVoice(): string { return readFile("brand-voice.md"); }
-export function getHardRules(): string { return readFile("hard-rules.md"); }
+export function getReferenceDesk(): string { return readFile("brand-voice.md"); }
 export function getProducts(): string { return readFile("products.md"); }
 export function getRawLibrary(): string { return readFile("raw/raycon_email_copywriting_library.md"); }
 
+// --- copy-system.md: the single source of truth for voice + rules ----------
+
+export function getCopySystem(): string { return readFile("copy-system.md"); }
+
+/**
+ * Extract one marked section from copy-system.md. Sections are delimited by
+ * `<!-- SECTION:NAME -->` ... `<!-- /SECTION:NAME -->`. Returns "" if missing.
+ */
+export function getCopySystemSection(name: "PRIORITY" | "VOICE" | "RULES" | "SELFCHECK"): string {
+  const doc = getCopySystem();
+  const re = new RegExp(`<!--\\s*SECTION:${name}\\s*-->([\\s\\S]*?)<!--\\s*/SECTION:${name}\\s*-->`);
+  const m = doc.match(re);
+  return m ? m[1].trim() : "";
+}
+
 export function getBrandContext() {
   return {
-    brandVoice: getBrandVoice(),
-    hardRules: getHardRules(),
+    priority: getCopySystemSection("PRIORITY"),
+    referenceDesk: getReferenceDesk(),
     products: getProducts(),
-    rawLibrary: getRawLibrary(),
   };
 }
 
 /**
  * Returns the system prompt as an array of content blocks.
- * The brand context block (large, static) is marked for caching.
- * The role-specific instruction (small, varies per call) is a separate block.
  *
- * Anthropic caches the prefix up to and including the last cache_control block,
- * so we put cache_control on the brand context and append the role instruction after.
+ * Layering (see data/copy-system.md for the priority order this implements):
+ *   1. Priority order — framed up top so every downstream instruction is read
+ *      through it.
+ *   2. Reference desk (brand-voice.md) — menus and examples only, no rules.
+ *   3. Product catalogue.
+ *   4. Role instruction (separate block) — carries the voice; the hard-rules
+ *      gate is injected LAST in the per-call user prompt for recency.
  *
- * The rawLibrary is included in the cached block — it is static reference material
- * and the single largest source of voice signal for imitation.
+ * The full campaign archive is intentionally NOT loaded here. The most relevant
+ * past campaigns for each brief are retrieved and injected into the user prompt
+ * instead (see the client's scored retrieval), so this static block stays small
+ * and fully cacheable. The large block is marked for caching; the role
+ * instruction varies per call and is appended after the cache boundary.
  */
 export function buildSystemBlocks(
-  ctx: { brandVoice: string; hardRules: string; products: string; rawLibrary: string },
+  ctx: { priority: string; referenceDesk: string; products: string },
   roleInstruction: string
 ): Anthropic.Messages.TextBlockParam[] {
-  const rawLibrarySection = ctx.rawLibrary
-    ? `\n\nApproved email copywriting reference library (complete archive — use as primary voice reference):\n<<<\n${ctx.rawLibrary}\n>>>`
-    : "";
+  const brandContextText = `You are a senior email copywriter for Raycon, a direct-to-consumer audio brand (earbuds, headphones, bone conduction). You write campaigns that sound unmistakably like Raycon: direct, confident, specific, occasionally playful. You write inside the existing voice rather than introducing a new one.
 
-  const brandContextText = `You are a senior email copywriter for Raycon, a direct-to-consumer audio brand (earbuds, headphones, bone conduction). You write email campaigns that sound like Raycon: direct, confident, specific, occasionally playful. You have studied every approved Raycon campaign and you write inside the existing voice rather than introducing a new one.
-
-Brand voice document:
+PRIORITY ORDER (read everything below through this):
 <<<
-${ctx.brandVoice}
+${ctx.priority}
 >>>
 
-Hard rules (never violate):
+Reference desk (menus and examples, NOT rules. The rules live in the hard-rules gate at the end of your instructions):
 <<<
-${ctx.hardRules}
+${ctx.referenceDesk}
 >>>
 
 Product catalogue:
 <<<
 ${ctx.products}
->>>${rawLibrarySection}`;
+>>>
+
+The most relevant past campaigns for this specific brief are provided as reference examples in the user message. Use those for register and rhythm only; they are the lowest authority and never override the hard rules.`;
 
   return [
     {

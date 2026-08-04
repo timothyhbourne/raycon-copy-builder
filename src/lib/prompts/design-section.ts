@@ -12,7 +12,7 @@ export interface DesignSectionContext {
 export function buildImagePromptRequest(ctx: DesignSectionContext): string {
   const specBlock = ctx.spec
     ? `DESIGN SPEC (extracted from approved Raycon reference headers):\n${JSON.stringify(ctx.spec, null, 2)}`
-    : `BRAND BASELINE: Raycon uses a thin black logo bar at top (white "RAYCON" wordmark), then a hero section — typically dark/black background with white text, product render on one side, copy and a CTA pill button on the other. Clean, modern, premium wireless audio aesthetic.`;
+    : `BRAND BASELINE: Raycon uses a thin black logo bar at top (white "RAYCON" wordmark), then a hero section , typically dark/black background with white text, product render on one side, copy and a CTA pill button on the other. Clean, modern, premium wireless audio aesthetic.`;
 
   const productLabel = ctx.heroImageDirection
     || (ctx.productFilename ? ctx.productFilename.replace(/-/g, " ").replace(".png", "") : "Raycon wireless earbuds");
@@ -21,14 +21,14 @@ export function buildImagePromptRequest(ctx: DesignSectionContext): string {
 
 ${specBlock}
 
-COPY — must appear in the generated image exactly as written:
+COPY , must appear in the generated image exactly as written:
 - Headline: "${ctx.headline}"
 - Tagline: "${ctx.tagline}"${ctx.subTagline ? `\n- Sub-tagline: "${ctx.subTagline}"` : ""}
 - CTA button label: "${ctx.cta}"${ctx.offer ? `\n- Offer context (use to inform the visual tone, not necessarily as text): ${ctx.offer}` : ""}
 
 PRODUCT: ${productLabel}
 
-Write a single precise image generation prompt (4–6 sentences) that:
+Write a single precise image generation prompt (4-6 sentences) that:
 1. Establishes this as an email marketing header banner, wide landscape format
 2. Describes the two-zone layout: thin top bar with the "RAYCON" wordmark, then the main hero section below
 3. Specifies where each piece of copy appears and its visual treatment (size, weight, color)

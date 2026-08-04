@@ -10,11 +10,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const week = new URL(req.url).searchParams.get("week");
-  const weeks = listWeeklyReports().map((r) => r.week.isoWeek);
+  const weeks = (await listWeeklyReports()).map((r) => r.week.isoWeek);
   if (week) {
-    const report = getWeeklyReport(week);
+    const report = await getWeeklyReport(week);
     if (!report) return NextResponse.json({ error: "Not found", weeks }, { status: 404 });
     return NextResponse.json({ report, weeks });
   }
-  return NextResponse.json({ report: getLatestWeeklyReport(), weeks });
+  return NextResponse.json({ report: await getLatestWeeklyReport(), weeks });
 }

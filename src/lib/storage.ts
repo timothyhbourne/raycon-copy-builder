@@ -15,7 +15,8 @@ import { Redis } from "@upstash/redis";
 export interface StorageAdapter {
   read(key: string): Promise<string | null>; // null when absent / unreadable
   write(key: string, contents: string): Promise<void>;
-  list(dirKey: string): Promise<string[]>; // immediate leaf names under a "directory" key
+  remove(key: string): Promise<void>; // delete a key; no-op if absent / read-only FS
+  list(dirKey: string): Promise<string[]>; // immediate leaf names under a "directory" key ("" = the whole store)
 }
 
 function msg(e: unknown): string {
@@ -43,6 +44,13 @@ export function fileAdapter(root: string): StorageAdapter {
         fs.writeFileSync(full, contents, "utf8");
       } catch (e) {
         console.warn(`[storage] file write failed for ${key} (read-only FS?): ${msg(e)}`);
+      }
+    },
+    async remove(key) {
+      try {
+        fs.unlinkSync(path.join(root, key));
+      } catch {
+        // Absent or read-only FS — nothing to remove / can't remove. Non-fatal.
       }
     },
     async list(dirKey) {
@@ -81,11 +89,16 @@ function redisAdapter(namespace: string): StorageAdapter {
     async write(key, contents) {
       await redis.set(k(key), contents);
     },
+    async remove(key) {
+      await redis.del(k(key));
+    },
     async list(dirKey) {
       // Leaf names under a "directory" prefix. keys() is O(N) over the keyspace
       // but the sets here are tiny (one blob for the planner; ~1 key/day for
       // metrics), so this stays cheap. Revisit with SCAN if a store grows large.
-      const prefix = `${namespace}:${dirKey}/`;
+      // An empty dirKey lists the whole namespace (flat stores like campaign
+      // drafts keep their keys at the store root, e.g. "<id>.md").
+      const prefix = dirKey ? `${namespace}:${dirKey}/` : `${namespace}:`;
       const found = await redis.keys(`${prefix}*`);
       return found.map((full) => full.slice(prefix.length));
     },

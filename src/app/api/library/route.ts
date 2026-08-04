@@ -29,7 +29,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const deleted = await deleteFromLibrary(id);
     if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    removeCampaign(id);
+    await removeCampaign(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);

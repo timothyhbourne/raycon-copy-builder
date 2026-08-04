@@ -26,7 +26,7 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
         className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Regenerate</div>
+        <div className="t-label text-slate-500 mb-1">Regenerate</div>
         <h3 className="font-semibold text-slate-900 mb-4">{sectionType} section</h3>
 
         <label className="block text-sm text-slate-600 mb-2">
@@ -43,8 +43,8 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
 
         <div className="mt-4">
           <div className="flex items-center justify-between mb-1">
-            <label className="font-mono text-xs text-slate-500 uppercase tracking-wide">Tone</label>
-            <span className={`font-mono text-xs px-2 py-0.5 rounded ${
+            <label className="t-label text-slate-500">Tone</label>
+            <span className={`text-xs px-2 py-0.5 rounded ${
               tone >= 4 ? "bg-amber-50 text-amber-600" :
               tone === 3 ? "bg-slate-100 text-slate-600" :
               "bg-slate-50 text-slate-400"
@@ -53,7 +53,7 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-400 shrink-0">Conservative</span>
+            <span className="text-xs text-slate-400 shrink-0">Conservative</span>
             <input
               type="range"
               min={1}
@@ -63,10 +63,10 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
               onChange={(e) => setTone(Number(e.target.value))}
               className="flex-1 accent-slate-900"
             />
-            <span className="font-mono text-xs text-slate-400 shrink-0">Experimental</span>
+            <span className="text-xs text-slate-400 shrink-0">Experimental</span>
           </div>
           {tone !== defaultTone && (
-            <div className="font-mono text-[11px] text-slate-400 mt-1">
+            <div className="text-[11px] text-slate-400 mt-1">
               Campaign default is {TONE_LABELS[defaultTone]}. This regeneration only affects this section.
             </div>
           )}

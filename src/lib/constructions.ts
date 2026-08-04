@@ -1,13 +1,29 @@
 import fs from "fs";
 import path from "path";
+import { getAdapter } from "./storage";
 import type { LibraryCampaign, ProductInGrid } from "./schemas";
 import { getProductSlugByName } from "./products";
+import { isProductCardType } from "./schemas";
 
 // Precomputed construction index: a compact record of every reusable
 // construction in the library, so generation can be told what NOT to echo
 // without ever re-reading full past campaigns. Updated incrementally on
 // finalize/delete, rebuildable from scratch via scripts/index-constructions.ts.
+//
+// STORAGE: the index is a hybrid. `data/constructions-index.json` ships in the
+// deploy bundle as the committed BASELINE (produced offline by the index
+// script). Runtime updates (updateCampaign / removeCampaign / recordSms) must
+// persist — on Vercel a plain fs write silently no-ops, so the index used to
+// drift out of sync with the Redis-backed library on every delete. So writes go
+// through the single canonical storage seam (Redis in prod). Reads go through
+// the seam too; when the seam has nothing yet (cold Redis) they fall back to the
+// committed baseline file (§3.3-exempt bundled read), and the first runtime
+// write then persists baseline+delta to Redis. Locally the seam's file adapter
+// IS this same file, so read/write behavior is unchanged.
 const INDEX_PATH = path.join(process.cwd(), "data", "constructions-index.json");
+const DATA_ROOT = path.join(process.cwd(), "data");
+const STORE_KEY = "constructions-index.json";
+const store = getAdapter(DATA_ROOT, "constructions");
 
 // Which construction family each element maps into. The fixed shape has eight
 // buckets; six element kinds are folded in so nothing is lost:
@@ -42,10 +58,22 @@ const EMPTY_INDEX: ConstructionsIndex = { version: 1, campaigns: {} };
 // Read / write (defensive per the repo's store idiom — a corrupt file is
 // treated as empty, then overwritten on the next update/backfill).
 // ---------------------------------------------------------------------------
-export function readIndex(): ConstructionsIndex {
+// Committed baseline shipped in the deploy bundle. This is the §3.3-exempt
+// bundled read: consulted only when the storage seam has no value yet (cold
+// Redis), or — in file mode — it IS the same file the seam reads.
+function readSeedFile(): string | null {
   try {
-    if (!fs.existsSync(INDEX_PATH)) return { ...EMPTY_INDEX, campaigns: {} };
-    const parsed = JSON.parse(fs.readFileSync(INDEX_PATH, "utf8"));
+    return fs.readFileSync(INDEX_PATH, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+export async function readIndex(): Promise<ConstructionsIndex> {
+  const raw = (await store.read(STORE_KEY)) ?? readSeedFile();
+  if (raw == null) return { ...EMPTY_INDEX, campaigns: {} };
+  try {
+    const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || typeof parsed.campaigns !== "object") {
       return { ...EMPTY_INDEX, campaigns: {} };
     }
@@ -55,18 +83,12 @@ export function readIndex(): ConstructionsIndex {
   }
 }
 
-function writeIndex(index: ConstructionsIndex): void {
-  // Degrade gracefully on a read-only filesystem (Vercel serverless: everything
-  // outside /tmp is read-only) — log and no-op instead of throwing, so a save
-  // that updates the index doesn't 500. The index is a rebuildable cache; losing
-  // an update there only softens repetition-avoidance, it never loses copy.
-  try {
-    const dir = path.dirname(INDEX_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
-  } catch (e) {
-    console.warn(`[constructions] index write failed (read-only FS?): ${e instanceof Error ? e.message : String(e)}`);
-  }
+async function writeIndex(index: ConstructionsIndex): Promise<void> {
+  // File backend degrades gracefully on a read-only FS (logs, no-op); Redis
+  // makes the update durable across serverless invocations. The index is a
+  // rebuildable cache — a lost update only softens repetition-avoidance, it
+  // never loses copy.
+  await store.write(STORE_KEY, JSON.stringify(index, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +132,7 @@ function extractFromStructured(entry: LibraryCampaign): CampaignConstructions | 
     const body = str(el["Body Copy"]) || str(el["Body"]);
     if (body) body_openers.push(firstSentence(body));
 
-    if (section.type === "product_card") {
+    if (isProductCardType(section.type)) {
       const oneLiner = str(el["One-Liner"]);
       if (oneLiner) {
         const spec = specById.get(section.id);
@@ -210,19 +232,19 @@ export function extractConstructions(entry: LibraryCampaign): CampaignConstructi
 // ---------------------------------------------------------------------------
 // Incremental maintenance
 // ---------------------------------------------------------------------------
-export function updateCampaign(entry: LibraryCampaign): void {
+export async function updateCampaign(entry: LibraryCampaign): Promise<void> {
   const extracted = extractConstructions(entry);
   if (!extracted) return;
-  const index = readIndex();
+  const index = await readIndex();
   index.campaigns[entry.id] = extracted;
-  writeIndex(index);
+  await writeIndex(index);
 }
 
-export function removeCampaign(id: string): void {
-  const index = readIndex();
+export async function removeCampaign(id: string): Promise<void> {
+  const index = await readIndex();
   if (index.campaigns[id]) {
     delete index.campaigns[id];
-    writeIndex(index);
+    await writeIndex(index);
   }
 }
 
@@ -248,8 +270,8 @@ function sortedCampaigns(index: ConstructionsIndex, excludeId?: string): [string
     .sort((a, b) => (b[1].date || "").localeCompare(a[1].date || ""));
 }
 
-export function buildAvoidBlock(opts: AvoidOpts = {}): string {
-  const index = readIndex();
+export async function buildAvoidBlock(opts: AvoidOpts = {}): Promise<string> {
+  const index = await readIndex();
   const campaigns = sortedCampaigns(index, opts.excludeId);
   if (!campaigns.length) return "";
 
@@ -319,16 +341,16 @@ export function buildAvoidBlock(opts: AvoidOpts = {}): string {
 // SMS constructions — recorded from finalized SMS campaigns (their own ids),
 // injected as a recency slice so SMS variants stop repeating too.
 // ---------------------------------------------------------------------------
-export function recordSms(entry: {
+export async function recordSms(entry: {
   id: string;
   date: string;
   campaign_type: string;
   title: string;
   lines: string[];
-}): void {
+}): Promise<void> {
   const lines = entry.lines.map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return;
-  const index = readIndex();
+  const index = await readIndex();
   const existing = index.campaigns[entry.id];
   if (existing) {
     existing.sms = lines;
@@ -347,7 +369,7 @@ export function recordSms(entry: {
       sms: lines,
     };
   }
-  writeIndex(index);
+  await writeIndex(index);
 }
 
 const SMS_AVOID_FRAMING =
@@ -355,8 +377,8 @@ const SMS_AVOID_FRAMING =
 
 // Bounded avoid block for SMS generation: SMS lines from the most recent
 // campaigns that have them, newest-first, capped for prompt size.
-export function buildSmsAvoidBlock(limit = 15, excludeId?: string): string {
-  const campaigns = sortedCampaigns(readIndex(), excludeId);
+export async function buildSmsAvoidBlock(limit = 15, excludeId?: string): Promise<string> {
+  const campaigns = sortedCampaigns(await readIndex(), excludeId);
   const lines: string[] = [];
   for (const [, c] of campaigns) {
     for (const s of c.sms ?? []) {
@@ -371,8 +393,8 @@ export function buildSmsAvoidBlock(limit = 15, excludeId?: string): string {
 
 // Past conceit names, newest-first, for the conceit step (conceits should also
 // stop repeating). Bounded to `limit`.
-export function recentConceits(limit = 12, excludeId?: string): { name: string; date: string; campaign_type: string }[] {
-  return sortedCampaigns(readIndex(), excludeId)
+export async function recentConceits(limit = 12, excludeId?: string): Promise<{ name: string; date: string; campaign_type: string }[]> {
+  return sortedCampaigns(await readIndex(), excludeId)
     .map(([, c]) => ({ name: c.conceit, date: c.date, campaign_type: c.campaign_type }))
     .filter((c) => c.name)
     .slice(0, limit);
@@ -462,8 +484,8 @@ function fieldFor(kind: CheckKind): keyof CampaignConstructions {
   }
 }
 
-export function checkRepetition(elements: CheckElement[], excludeId?: string): CheckMatch[] {
-  const index = readIndex();
+export async function checkRepetition(elements: CheckElement[], excludeId?: string): Promise<CheckMatch[]> {
+  const index = await readIndex();
   const campaigns = Object.entries(index.campaigns).filter(([id]) => id !== excludeId);
   const out: CheckMatch[] = [];
 

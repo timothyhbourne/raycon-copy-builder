@@ -1,26 +1,47 @@
 "use client";
 import { useDashboardData } from "../dashboard-context";
-import { formatMoney, formatInt } from "../format";
+import { formatMoney, formatInt, formatPct } from "../format";
+import Card from "@/components/ui/Card";
+import { KPIRow, StatCell } from "@/components/ui/Stat";
 
 export default function FlowsPage() {
   const { data } = useDashboardData();
   if (!data) return null;
   const flows = data.flows;
+  const revenue = data.revenue;
+  const flowRecipients = flows.reduce((a, f) => a + (f.recipients ?? 0), 0);
 
   return (
+    <>
+      {/* Channel-scoped revenue — flows only, over the selected range. */}
+      <Card className="mb-4" bodyClassName="p-6">
+        <KPIRow cols={2}>
+          <StatCell
+            label="Flow revenue (Klaviyo-attributed)"
+            value={formatMoney(revenue.attributed_from_flows)}
+            description={<>{formatPct(revenue.attributed_from_flows, revenue.total)} of placed-order revenue</>}
+          />
+          <StatCell
+            label="Flow recipients"
+            value={formatInt(flowRecipients)}
+            description={<>{flows.length} active flow{flows.length === 1 ? "" : "s"} in range</>}
+          />
+        </KPIRow>
+      </Card>
+
     <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
       <div className="px-6 py-4 border-b border-line flex items-center justify-between">
         <div>
-          <div className="font-mono text-xs text-ink-muted uppercase tracking-wide">Flows</div>
+          <div className="t-label">Flows</div>
           <div className="text-sm text-ink-secondary mt-0.5">Active flows over the selected range</div>
         </div>
-        <div className="text-xs text-ink-muted font-mono">{flows.length} flow{flows.length === 1 ? "" : "s"}</div>
+        <div className="text-xs text-ink-muted">{flows.length} flow{flows.length === 1 ? "" : "s"}</div>
       </div>
       {/* Own scroll region so the sticky header engages relative to this box */}
       <div className="overflow-auto max-h-[calc(100vh-24rem)]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-chrome">
-            <tr className="text-left text-ink-muted font-mono text-[10px] uppercase tracking-wide border-b border-line">
+            <tr className="text-left t-label border-b border-line">
               <th className="px-4 py-2.5 font-medium">Flow</th>
               <th className="px-4 py-2.5 font-medium text-right">Recipients</th>
               <th className="px-4 py-2.5 font-medium text-right">Opens</th>
@@ -35,7 +56,7 @@ export default function FlowsPage() {
                 <tr key={f.flow_id} className="hover:bg-chrome transition-colors">
                   <td className="px-4 py-2.5">
                     <div className="text-ink">{f.name}</div>
-                    {f.status && <div className="text-[10px] text-ink-muted font-mono uppercase">{f.status}</div>}
+                    {f.status && <div className="text-[10px] text-ink-muted uppercase">{f.status}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.recipients)}</td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.opens)}</td>
@@ -57,5 +78,6 @@ export default function FlowsPage() {
         </table>
       </div>
     </div>
+    </>
   );
 }

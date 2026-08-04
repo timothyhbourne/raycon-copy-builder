@@ -36,7 +36,7 @@ interface CopyFull {
   selected_variant?: number;
 }
 
-const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wider";
+const microLabel = "t-label";
 
 function relativeTime(iso: string): string {
   const t = new Date(iso).getTime();
@@ -51,9 +51,19 @@ function relativeTime(iso: string): string {
   return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function CopyDocModal({ copyId, status, onClose, onStale }: {
+// Planned launch date → a short pill like "Thu, Aug 14, 2026" so a designer
+// opening the copy sees at a glance when the campaign is for.
+function plannedLabel(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
+export default function CopyDocModal({ copyId, status, plannedSendAt, onClose, onStale }: {
   copyId: string;
   status?: "draft" | "final";
+  /** Planned send/launch datetime of the linked planner row (ISO), if known. */
+  plannedSendAt?: string;
   onClose: () => void;
   onStale?: () => void;
 }) {
@@ -97,6 +107,11 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
               {data?.campaign_name ?? (loading ? "Loading…" : "Copy")}
             </h2>
             {status && <Chip tone={status === "final" ? "success" : "warning"}>{status}</Chip>}
+            {plannedSendAt && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-accent-50 text-accent-700 px-3 py-1 text-xs font-medium whitespace-nowrap">
+                <span aria-hidden>📅</span> Planned send · {plannedLabel(plannedSendAt)}
+              </span>
+            )}
           </div>
           {data && <div className="text-xs text-ink-muted mt-1">Updated {relativeTime(data.updated_at)}</div>}
         </div>
@@ -139,7 +154,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
                     {selected && <Chip tone="accent">selected</Chip>}
                   </div>
                   <div className="text-[15px] text-ink leading-relaxed whitespace-pre-line">{v.text}</div>
-                  <div className="mt-2 pt-2 border-t border-line font-mono text-[11px] text-ink-muted">
+                  <div className="mt-2 pt-2 border-t border-line font-mono text-[11px] text-ink-muted tabular-nums">
                     {chars} · {encoding} · {segments} segment{segments === 1 ? "" : "s"}
                   </div>
                 </div>
@@ -152,7 +167,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
             {data.subject_lines.length > 0 && (
               <div className="mb-6">
                 <div className={microLabel}>Subject Lines</div>
-                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:font-mono marker:text-xs">
+                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:text-xs">
                   {data.subject_lines.map((s, i) => <li key={i} className="text-[15px] text-ink leading-relaxed">{s}</li>)}
                 </ol>
               </div>
@@ -160,7 +175,7 @@ export default function CopyDocModal({ copyId, status, onClose, onStale }: {
             {data.preview_texts.length > 0 && (
               <div className="mb-8">
                 <div className={microLabel}>Preview Texts</div>
-                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:font-mono marker:text-xs">
+                <ol className="mt-1.5 space-y-1 list-decimal list-inside marker:text-ink-muted marker:text-xs">
                   {data.preview_texts.map((p, i) => <li key={i} className="text-[15px] text-ink-secondary leading-relaxed">{p}</li>)}
                 </ol>
               </div>

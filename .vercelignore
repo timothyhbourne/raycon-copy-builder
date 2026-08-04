@@ -1,0 +1,9 @@
+# Large local data exports — exceed Vercel's 100MB/file limit and are not read
+# by the deployed Next.js app (they're raw exports / local analysis inputs).
+shopify_orders_l24m.csv
+data/lifecycle-customers.json
+
+# Not part of the Next.js runtime bundle.
+worker/
+docs/
+lifecycle_dashboard_mockup.html

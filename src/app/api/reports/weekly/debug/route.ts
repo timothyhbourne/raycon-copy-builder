@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listMetrics, listAttributionModels, runRawExport, isNorthbeamConfigured } from "@/lib/northbeam";
 import { previousCompletedWeek, weekWindowForIsoWeek } from "@/lib/reports/weekly";
+import { debugRoutesEnabled } from "@/lib/env";
 
 // Confirmation helper for the remaining live unknowns (cookie-gated by the proxy):
 //   ?what=metrics  → GET /metrics            (find the total_sales metric id)
@@ -13,6 +14,7 @@ import { previousCompletedWeek, weekWindowForIsoWeek } from "@/lib/reports/weekl
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  if (!debugRoutesEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!isNorthbeamConfigured()) {
     return NextResponse.json({ error: "Northbeam not configured — set NORTHBEAM_API_KEY / NORTHBEAM_CLIENT_ID." }, { status: 400 });
   }

@@ -1,20 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
-import fs from "fs";
-import path from "path";
-
-function getApiKey(): string {
-  // System env (e.g. Claude desktop) may set this to "" — fall back to .env.local
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  try {
-    const envFile = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
-    const match = envFile.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-    if (match) return match[1].trim();
-  } catch { /* */ }
-  return "";
-}
+import { readEnv } from "./env";
 
 export function getAnthropic(): Anthropic {
-  return new Anthropic({ apiKey: getApiKey() });
+  // readEnv handles the dev host that sets env vars to "" (falls back to .env.local).
+  return new Anthropic({ apiKey: readEnv("ANTHROPIC_API_KEY") });
 }
 
 /** Full-quality model — used for final copy generation */

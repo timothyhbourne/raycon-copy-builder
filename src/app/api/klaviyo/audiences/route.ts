@@ -3,7 +3,7 @@ import { listSegments, listLists, type AudienceItem } from "@/lib/klaviyo";
 
 // Combined Klaviyo segments + lists for the planner's audience picker. Audiences
 // change rarely, so we cache in-process for 10 minutes. Sequential calls (rate
-// limits). In-process only — see the note in klaviyo/overview/route.ts.
+// limits). In-process only (not shared across instances).
 const TTL_MS = 10 * 60 * 1000;
 let cache: { ts: number; audiences: AudienceItem[] } | null = null;
 

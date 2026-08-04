@@ -673,6 +673,121 @@
         "Say no to distractions this year at school, at work or the gym with our headphones and save 20% off today."
       ],
       "one_liners": {}
+    },
+    "2026-07-16-fs-o25-30-off-last-call-c3ei1q": {
+      "date": "2026-07-16",
+      "campaign_type": "sms",
+      "title": "FS O25 30% OFF - Last Call",
+      "conceit": "",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [],
+      "taglines": [],
+      "body_openers": [],
+      "one_liners": {},
+      "sms": [
+        "Raycon: 30% off Fitness Open Earbuds. Use code HOOKED30. Ends Monday. {link}",
+        "Raycon: Still thinking about the Fitness Open Earbuds? 30% off with code HOOKED30. Ends Monday. {link}",
+        "Raycon: Last call. The Fitness Open Earbuds are 30% off before Monday. Code HOOKED30. {link}"
+      ]
+    },
+    "2026-07-21-fs-30-off-e95-h20-h10": {
+      "date": "2026-07-21",
+      "campaign_type": "promo",
+      "title": "FS - 30% OFF E95 + H20 + H10",
+      "conceit": "Three for the Price",
+      "subject_lines": [
+        "30% off Pro Earbuds, Essential Headphones, and Everyday Headphones.",
+        "Three great pairs, one great deal — through Monday.",
+        "Thought you'd want to see what's on sale right now."
+      ],
+      "preview_texts": [
+        "Use code COMBO30 at checkout. Deal ends Monday.",
+        "30% off three of our best. Code COMBO30, good through Monday.",
+        "Pro Earbuds, Essential Headphones, Everyday Headphones — all 30% off with code COMBO30."
+      ],
+      "headlines": [
+        "30% Off, All 3"
+      ],
+      "taglines": [
+        "Pick the pair that fits your life."
+      ],
+      "body_openers": [],
+      "one_liners": {}
+    },
+    "2026-07-22-fs-30-off-e95-h20-h10-cre525": {
+      "date": "2026-07-22",
+      "campaign_type": "sms",
+      "title": "FS - 30% OFF E95 + H20 + H10",
+      "conceit": "",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [],
+      "taglines": [],
+      "body_openers": [],
+      "one_liners": {},
+      "sms": [
+        "Raycon: 30% off Pro Earbuds, Essential Headphones, and Everyday Headphones. Code COMBO30, ends Monday. {link}",
+        "Raycon: Three great pairs, one deal you'll actually use. Grab 30% off with code COMBO30 before Monday. {link}",
+        "Raycon: Good sound shouldn't wait, but this price will. 30% off Pro Earbuds, Essential, and Everyday Headphones with COMBO30. Ends Monday. {link}"
+      ]
+    },
+    "2026-07-22-fs-30-off-e95-h20-h10-last-call": {
+      "date": "2026-07-22",
+      "campaign_type": "promo",
+      "title": "FS - 30% OFF E95 + H20 + H10 - Last Call",
+      "conceit": "Flash Sale",
+      "subject_lines": [
+        "30% off Pro Earbuds, Essential, and Everyday Headphones.",
+        "Great sound at 30% off, ends tomorrow night.",
+        "Still on the fence? The deal closes tomorrow."
+      ],
+      "preview_texts": [
+        "Use code COMBO30 at checkout. Sale ends tomorrow night.",
+        "Three of our best, all 30% off. Code COMBO30, good through tomorrow night.",
+        "Pro Earbuds, Essential Headphones, Everyday Headphones, 30% off with code COMBO30."
+      ],
+      "headlines": [
+        "Last Day to Save",
+        "30% off ends tomorrow night",
+        "Quiet focus, all-day battery",
+        "ANC comfort built for long days",
+        "The one you reach for every day"
+      ],
+      "taglines": [
+        "Pro Earbuds, Essential Headphones, Everyday Headphones, 30% off through tomorrow night."
+      ],
+      "body_openers": [
+        "Three of our best are 30% off right now: the Pro Earbuds, the Essential Headphones, and the Everyday Headphones."
+      ],
+      "one_liners": {
+        "E95": [
+          "Hybrid ANC, 6 precision-tuned microphones for crystal-clear calls, and 40 hours of battery, built for focus and made for long days."
+        ],
+        "H10": [
+          "Hybrid ANC, cushioned earcups that spread weight without pressing hard, 5 microphones for clean calls, and 50 hours of battery, all-day comfortable at a price that makes it easy."
+        ],
+        "H20": [
+          "50 hours of battery, noise cancellation, and an over-ear fit that makes a full day of listening feel easy, the headphones you grab without thinking."
+        ]
+      }
+    },
+    "2026-07-22-fs-30-off-e95-h20-h10-iqlqu2": {
+      "date": "2026-07-22",
+      "campaign_type": "sms",
+      "title": "FS - 30% OFF E95 + H20 + H10",
+      "conceit": "",
+      "subject_lines": [],
+      "preview_texts": [],
+      "headlines": [],
+      "taglines": [],
+      "body_openers": [],
+      "one_liners": {},
+      "sms": [
+        "Raycon: 30% off three of our best. Code COMBO30, ends Monday. {link}",
+        "Ready for an upgrade? Save 30% on Pro Earbuds, Essential Headphones & Everyday Headphones through Monday. Code: COMBO30 is auto-applied. Shop now: {Link}",
+        "Raycon: One deal, three great listens. 30% off with code COMBO30 - ends Monday. {link}"
+      ]
     }
   }
 }

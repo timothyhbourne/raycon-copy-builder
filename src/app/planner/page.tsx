@@ -5,133 +5,26 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-p
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
 import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
 import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { SegmentedToggle } from "@/components/ui/FilterBar";
+import { StatCard } from "@/components/ui/Stat";
 import EmptyState from "@/components/ui/EmptyState";
-import Chip, { type ChipTone } from "@/components/ui/Chip";
+import Chip from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
 import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
+import PlatformBadge from "@/components/ui/PlatformBadge";
+import DateRangePicker from "@/components/ui/DateRangePicker";
 import CopyDocModal from "@/components/CopyDocModal";
 import { toast } from "@/components/ui/Toast";
+import { holidayName } from "@/lib/holidays";
 
-// Copy Builder link state for a row, resolved against the set of saved copy ids.
-type CopyEntry = "sms" | "unlinked" | "draft" | "final";
-
-// Normalized copy preview from /api/planner/copy.
-interface CopyPreview {
-  id: string;
-  source: "draft" | "library";
-  campaign_name: string;
-  updated_at: string;
-  subject_lines: string[];
-  preview_texts: string[];
-  sections: { type: string; fields: Record<string, string> }[];
-}
-
-// ---------- formatting ----------
-// Channel signal = an emoji glyph shown before the campaign name (the user asked
-// for emoji). Carries the channel on its own; there are no channel color dots.
-const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: string }> = {
-  email: { emoji: "✉️", label: "Email" },
-  sms: { emoji: "📱", label: "SMS" },
-};
-function ChannelGlyph({ channel, className = "" }: { channel: PlannerChannel; className?: string }) {
-  const g = CHANNEL_GLYPH[channel];
-  return <span role="img" aria-label={g.label} className={`text-[11px] leading-none ${className}`}>{g.emoji}</span>;
-}
-// Status-driven pill styling. Explicit palette classes so the exact colors render
-// regardless of the token layer. `check` prefixes a ✓ glyph; `strike` strikes the
-// name. The scheduled label is channel-dependent — see statusLabel().
-const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
-  writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
-  planned: { pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  scheduled: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
-  cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
-};
-
-// Small status pill, shape-matched to the Chip primitive. Scheduled names the
-// platform for the row's channel, so pass the channel.
-function StatusPill({ status, channel, className = "" }: { status: PlannerStatus; channel: PlannerChannel; className?: string }) {
-  const st = STATUS_STYLE[status];
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide leading-none ${st.pill} ${className}`}>
-      {st.check && <span aria-hidden>✓</span>}
-      <span className={st.strike ? "line-through" : ""}>{statusLabel(status, channel)}</span>
-    </span>
-  );
-}
-const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };
-
-// Inline copy affordance for a table row's Name cell. stopPropagation so the
-// links don't also open the row editor (the row onClick opens edit). Works for
-// both channels; SMS rows deep-link into the copy builder's SMS mode.
-function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; rowId: string; copyId?: string; channel: PlannerChannel }) {
-  if (entry === "sms") return null;
-  const writeHref = channel === "sms" ? `/copy-builder?planner=${rowId}&channel=sms` : `/copy-builder?planner=${rowId}`;
-  if (entry === "unlinked") {
-    return (
-      <Link href={writeHref} onClick={(e) => e.stopPropagation()}
-        className="mt-0.5 w-fit text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
-        Write copy
-      </Link>
-    );
-  }
-  return (
-    <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
-      <Chip tone={COPY_TONE[entry]}>Copy: {entry}</Chip>
-      <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
-        className="text-[10px] font-mono uppercase tracking-wide text-accent hover:underline">
-        Open copy
-      </Link>
-    </span>
-  );
-}
-const money = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n));
-const int = (n: number | null | undefined) => (n == null ? "—" : new Intl.NumberFormat("en-US").format(Math.round(n)));
-const pct = (f: number | null | undefined) => (f == null ? "—" : `${(f * 100).toFixed(1)}%`);
-const rpr = (n: number | null | undefined) => (n == null ? "—" : `$${n.toFixed(2)}`);
-const fmtDate = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
-const fmtDateTime = (iso: string | null) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
-function isoToLocalInput(iso: string): string { const d = new Date(iso); if (isNaN(d.getTime())) return ""; return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
-function localInputToIso(v: string): string { const d = new Date(v); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); }
-function ymdOf(iso: string): string { return (iso || "").slice(0, 10); }
-function offerLabel(r: PlannerRow): string {
-  if (r.offer_type === "evergreen") return `Evergreen · ${EVERGREEN_OFFER}`;
-  return `${r.promo_code ? r.promo_code + " · " : ""}${r.offer || "—"}`;
-}
-// Re-date an ISO to a new YMD, preserving time-of-day.
-function reDate(iso: string, newYmd: string): string {
-  const old = new Date(iso);
-  const [y, m, d] = newYmd.split("-").map(Number);
-  const nd = isNaN(old.getTime()) ? new Date() : new Date(old);
-  nd.setFullYear(y, m - 1, d);
-  return nd.toISOString();
-}
-
-// Small chevron for styled native <select>s (kept native under the hood for a11y).
-function Chevron() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden
-      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-// Small document glyph shown on calendar pills that have linked copy. Color/
-// position come from the wrapping element.
-function CopyGlyph() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
-    </svg>
-  );
-}
-const microLabel = "font-mono text-[10px] text-ink-muted uppercase tracking-wide";
-const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
-const dateCls = "text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";
-
-interface CampaignItem { id: string; name: string; status: string; send_time: string | null }
+import {
+  money, int, pct, rpr, fmtDate, fmtDateTime, isoToLocalInput, localInputToIso,
+  ymdOf, offerValue, discountCode, reDate, microLabel, selectCls, STATUS_STYLE,
+  type CopyEntry, type CopyPreview, type CampaignItem,
+} from "./format";
+import { ChannelGlyph, StatusPill, CopyLink, Chevron, CopyGlyph } from "./components";
 
 export default function PlannerPage() {
   const [rows, setRows] = useState<PlannerRow[]>([]);
@@ -185,6 +78,16 @@ export default function PlannerPage() {
   }, []);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+  // Deep link for design handoff: /planner?copy=<id>&as=<draft|final> opens the
+  // full-copy viewer straight away, so a link pasted in Slack lands the designer
+  // on the copy. Clean the query afterwards so a refresh doesn't reopen it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const copy = params.get("copy");
+    if (!copy) return;
+    openCopyDoc(copy, params.get("as") === "final" ? "final" : "draft");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [openCopyDoc]);
   useEffect(() => {
     fetch("/api/klaviyo/campaigns-list").then((r) => r.json()).then((j) => {
       if (j.campaigns) setCampaigns(j.campaigns);
@@ -242,13 +145,18 @@ export default function PlannerPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Sync failed");
       setRows(json.rows as PlannerRow[]);
-      const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched).length;
+      // sms_manual is informational (SMS platform metrics are manual entry by
+      // design — no Postscript analytics API), never counted as a failure.
+      const failed = (json.results ?? []).filter((r: SyncResult) => !r.matched && r.reason !== "sms_manual").length;
+      const smsManual = (json.results ?? []).filter((r: SyncResult) => r.reason === "sms_manual").length;
+      const nbUnmatched = (json.northbeam_results ?? []).filter((r: SyncResult) => !r.matched).length;
       const parts = [`Synced ${json.synced} campaign${json.synced === 1 ? "" : "s"}`];
       if (failed > 0) parts.push(`${failed} unmatched`);
-      if (!json.postscript_connected) parts.push("Postscript not connected");
+      if (json.northbeam_configured && nbUnmatched > 0) parts.push(`${nbUnmatched} no NB match`);
+      if (smsManual > 0) parts.push(`${smsManual} SMS manual-entry`);
       const msg = parts.join(" · ");
       // No dedicated warning tone in the toast manager — info carries the caveats.
-      if (json.postscript_connected && failed === 0) toast.success(msg);
+      if (failed === 0 && nbUnmatched === 0) toast.success(msg);
       else toast.info(msg);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sync failed");
@@ -288,24 +196,27 @@ export default function PlannerPage() {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <div className="font-mono text-xs text-ink-muted uppercase tracking-wide mb-1">Campaign Planner</div>
-          <h1 className="text-2xl font-semibold text-ink">Plan &amp; learnings</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
-          <Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-4"
+        eyebrow="Campaign Planner"
+        title="Plan &"
+        accent="learnings"
+        description="Schedule email & SMS campaigns, link the copy, and sync performance back onto each send."
+        meta={
+          <>
+            <Button variant="secondary" size="sm" loading={syncing} onClick={sync}>Sync metrics</Button>
+            <Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>
+          </>
+        }
+      />
 
-      <div className="inline-flex rounded-md border border-line bg-surface p-0.5 mb-4">
-        {(["calendar", "table"] as const).map((v) => (
-          <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 text-sm rounded-[6px] font-medium capitalize transition-colors duration-150 ease-out-soft ${
-              view === v ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"
-            }`}>{v}</button>
-        ))}
+      <div className="mb-4">
+        <SegmentedToggle
+          ariaLabel="Planner view"
+          options={[{ value: "calendar", label: "Calendar" }, { value: "table", label: "Table" }]}
+          value={view}
+          onChange={setView}
+        />
       </div>
 
       {error && (
@@ -338,6 +249,7 @@ export default function PlannerPage() {
           onReschedule={reschedule} copyEntry={copyEntry} onViewCopy={openCopyDoc} />
       ) : (
         <TableView rows={filtered} onEdit={(r) => setEditing(r)} onReschedule={reschedule}
+          onRowUpdated={(row) => setRows((prev) => prev.map((r) => (r.id === row.id ? row : r)))}
           fChannel={fChannel} setFChannel={setFChannel} fStatus={fStatus} setFStatus={setFStatus}
           fStart={fStart} setFStart={setFStart} fEnd={fEnd} setFEnd={setFEnd}
           sortBy={sortBy} setSortBy={setSortBy} copyEntry={copyEntry} />
@@ -353,6 +265,7 @@ export default function PlannerPage() {
 
       {copyDoc && (
         <CopyDocModal copyId={copyDoc.id} status={copyDoc.status}
+          plannedSendAt={rows.find((r) => r.copy_campaign_id === copyDoc.id)?.planned_send_at}
           onClose={() => setCopyDoc(null)} onStale={fetchRows} />
       )}
     </div>
@@ -396,7 +309,9 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
+      {/* Fill the full (wide) workspace width — the 7-column grid and day cells
+          stretch to fill, no dead gutter on the right. */}
+      <div className="w-full bg-surface border border-line rounded-md shadow-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="flex items-center gap-2">
             <button onClick={goPrev} aria-label="Previous month" title="Previous month" className={navBtn}>←</button>
@@ -404,13 +319,13 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
             <button onClick={goNext} aria-label="Next month" title="Next month" className={navBtn}>→</button>
             <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
           </div>
-          <div className="flex items-center gap-3 text-[10px] font-mono text-ink-muted">
-            <span className="flex items-center gap-1"><span aria-hidden>✉️</span> Email</span>
+          <div className="flex items-center gap-3 t-label">
+            <span className="flex items-center gap-1"><span aria-hidden>📧</span> Email</span>
             <span className="flex items-center gap-1"><span aria-hidden>📱</span> SMS</span>
           </div>
         </div>
         <div key={`${y}-${m}`} className="rc-animate-fade">
-          <div className="grid grid-cols-7 text-[10px] font-mono uppercase tracking-wide text-ink-muted border-b border-line">
+          <div className="grid grid-cols-7 t-label border-b border-line">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="px-2 py-1.5 text-center">{d}</div>)}
           </div>
           <div className="grid grid-cols-7">
@@ -420,6 +335,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
               const key = dayKey(d);
               const entries = byDay.get(key) ?? [];
               const isToday = key === todayYmd;
+              const holiday = holidayName(key);
               return (
                 <Droppable droppableId={`cal:${key}`} key={key}>
                   {(provided, snapshot) => (
@@ -428,9 +344,19 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                       className={`relative min-h-[96px] border-b border-r border-line p-1.5 cursor-pointer transition-colors ${
                         snapshot.isDraggingOver ? "bg-accent-50" : weekend ? "bg-chrome/60 hover:bg-chrome" : "hover:bg-chrome"
                       } ${isToday ? "ring-1 ring-inset ring-accent" : ""}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[11px] font-mono ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
-                        {isToday && <span className="font-mono text-[9px] uppercase tracking-wide text-accent">Today</span>}
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className={`text-[11px] font-mono tabular-nums ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
+                        {isToday ? (
+                          <span className="text-[9px] font-medium uppercase tracking-wide text-accent">Today</span>
+                        ) : holiday ? (
+                          // Quiet holiday hint — a muted dot + truncated name, full
+                          // name on hover. Informational only; it sits above the
+                          // cell's click-to-create and drop target, never blocking them.
+                          <span title={holiday} className="pointer-events-none flex items-center gap-1 min-w-0 text-ink-muted/80">
+                            <span aria-hidden className="w-1 h-1 rounded-full bg-current shrink-0" />
+                            <span className="truncate text-[9px] leading-none tracking-wide">{holiday}</span>
+                          </span>
+                        ) : null}
                       </div>
                       <div className="space-y-1">
                         {entries.map((r, idx) => (
@@ -451,6 +377,7 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
                                     snap.isDragging ? "shadow-pop" : "hover:shadow-card"
                                   }`}>
                                   <ChannelGlyph channel={r.channel} className="shrink-0" />
+                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
                                   {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                                   <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
                                   {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
@@ -482,23 +409,184 @@ function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, c
 }
 
 // ---------- table ----------
-const GRID = "minmax(160px,1.4fr) 74px 92px 108px 150px minmax(150px,1fr) 92px 68px 68px 96px 84px minmax(160px,1fr)";
-function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
+// One template drives the header and every body row. Layout: plan columns
+// (Campaign · Status · Planned · Offer) | a single hairline divider | the
+// performance cluster (Recipients · Open · Click · Rev/recip) | the emphasized
+// revenue pair (Revenue · NB rev). Sized to fit the planner's ~1088px content
+// column without a horizontal scrollbar — no hard minWidth. Totals live in the
+// KPI cards at the top, so there is no bottom summary row.
+const GRID = "minmax(200px,2fr) 132px 96px minmax(130px,1fr) 82px 60px 60px 78px 98px 98px";
+
+// One metric cell renderer so all six share weight/alignment and a uniformly
+// faint em-dash for blanks. `emphasize` marks the revenue pair (stronger ink +
+// weight); everything else is quiet. `fmt` runs only on non-null values.
+function Num({ v, fmt, emphasize = false }: { v: number | null | undefined; fmt: (n: number) => string; emphasize?: boolean }) {
+  if (v == null || Number.isNaN(v)) return <span className="text-ink-muted/50">—</span>;
+  return <span className={emphasize ? "text-ink font-medium" : "text-ink-muted"}>{fmt(v)}</span>;
+}
+
+// ---------- manual metrics (SMS rows) ----------
+// Postscript's public API has no analytics endpoints, so SMS platform metrics
+// are typed in from the Postscript dashboard. Parsing is forgiving ($ , % and
+// spaces stripped), storage is canonical (integers, 0..1 fractions, USD).
+type ManualField = "recipients" | "click_rate" | "revenue" | "revenue_per_recipient";
+
+// raw text → canonical value. "" → null (clear; empty ≠ 0). "invalid" keeps the
+// cell in its error state — never silently drop or coerce to 0.
+function parseManual(field: ManualField, raw: string): number | null | "invalid" {
+  const s = raw.replace(/[$,%\s]/g, "");
+  if (s === "") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return "invalid";
+  if (field === "recipients") return Math.round(n);
+  if (field === "click_rate") {
+    const f = n / 100; // percentage as typed: "2.4" or "2.4%" → 0.024
+    return f > 1 ? "invalid" : f;
+  }
+  return n;
+}
+// Canonical value → the text shown when a cell enters edit mode.
+function manualEditText(field: ManualField, v: number | null | undefined): string {
+  if (v == null) return "";
+  if (field === "recipients") return String(Math.round(v));
+  if (field === "click_rate") return `${(v * 100).toFixed(1)}`;
+  return v.toFixed(2);
+}
+
+// Click-to-edit metric cell for SMS rows. Commit on blur/Enter; Escape reverts;
+// an invalid entry keeps focus with an error outline. A commit PATCHes
+// /api/planner/manual-metrics and hands the updated row back to the table.
+function ManualCell({ row, field, fmt, emphasize = false, onRowUpdated }: {
+  row: PlannerRow; field: ManualField; fmt: (n: number) => string; emphasize?: boolean;
+  onRowUpdated: (r: PlannerRow) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [invalid, setInvalid] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const initial = useRef("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const v = row[field] as number | null | undefined;
+
+  const start = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    initial.current = manualEditText(field, v);
+    setText(initial.current);
+    setInvalid(false);
+    setEditing(true);
+  };
+  const close = () => { setEditing(false); setInvalid(false); };
+  const commit = async () => {
+    if (saving) return;
+    if (text.trim() === initial.current.trim()) { close(); return; } // untouched — never turns a derived rpr into an override
+    const parsed = parseManual(field, text);
+    if (parsed === "invalid") {
+      setInvalid(true);
+      inputRef.current?.focus(); // bad entry keeps focus, outlined
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/planner/manual-metrics", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, [field]: parsed }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      onRowUpdated(json.row as PlannerRow);
+      close();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the metric.");
+      setInvalid(true);
+      inputRef.current?.focus();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        value={text}
+        disabled={saving}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => { setText(e.target.value); setInvalid(false); }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { e.preventDefault(); close(); } // value unchanged
+        }}
+        className={`w-full min-w-0 text-right font-mono tabular-nums text-sm bg-surface border rounded-sm px-1 py-0.5 focus:outline-none ${
+          invalid ? "border-danger-600 ring-1 ring-danger-200" : "border-accent"
+        }`}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={start}
+      title="Manual entry — from Postscript dashboard"
+      className={`min-w-0 text-right underline-offset-2 decoration-dotted decoration-ink-muted/50 group-hover:underline focus-visible:underline ${
+        v == null || Number.isNaN(v) ? "text-ink-muted/50" : emphasize ? "text-ink font-medium" : "text-ink-muted"
+      }`}
+    >
+      {v == null || Number.isNaN(v) ? "—" : fmt(v)}
+    </button>
+  );
+}
+
+// Audience summary for a row's expanded detail line (+included / −excluded).
+function audienceSummary(r: PlannerRow): string {
+  const inc = r.audience_included.map((a) => a.name).join(", ");
+  const exc = r.audience_excluded.map((a) => a.name).join(", ");
+  if (!inc && !exc) return "—";
+  return [inc && `+ ${inc}`, exc && `− ${exc}`].filter(Boolean).join("  ");
+}
+
+// Row expand/collapse control. A distinct affordance (stopPropagation) so it
+// never triggers the row's onClick → editor.
+function ExpandToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" aria-label={open ? "Hide details" : "Show details"} aria-expanded={open}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      className="shrink-0 -ml-1 mr-0.5 w-5 h-5 inline-flex items-center justify-center rounded-sm text-ink-muted hover:bg-accent-50 hover:text-accent transition-colors">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden
+        className={`transition-transform duration-150 ease-out-soft ${open ? "rotate-90" : ""}`}>
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
+  );
+}
+
+function TableView({ rows, onEdit, onReschedule, onRowUpdated, fChannel, setFChannel, fStatus, setFStatus, fStart, setFStart, fEnd, setFEnd, sortBy, setSortBy, copyEntry }: {
   rows: PlannerRow[]; onEdit: (r: PlannerRow) => void; onReschedule: (id: string, ymd: string) => void;
+  onRowUpdated: (r: PlannerRow) => void;
   fChannel: "all" | PlannerChannel; setFChannel: (v: "all" | PlannerChannel) => void;
   fStatus: "all" | PlannerStatus | "sent"; setFStatus: (v: "all" | PlannerStatus | "sent") => void;
   fStart: string; setFStart: (v: string) => void; fEnd: string; setFEnd: (v: string) => void;
   sortBy: "date" | "revenue"; setSortBy: (v: "date" | "revenue") => void;
   copyEntry: (r: PlannerRow) => CopyEntry;
 }) {
+  // Audience + notes live behind per-row progressive disclosure.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = useCallback((id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  }), []);
   // Summary respects current filters.
   const summary = useMemo(() => {
     const recip = rows.reduce((a, r) => a + (r.recipients ?? 0), 0);
     const rev = rows.reduce((a, r) => a + (r.revenue ?? 0), 0);
+    const nbRev = rows.reduce((a, r) => a + (r.northbeam_revenue ?? 0), 0);
     const opens = rows.filter((r) => r.open_rate != null);
     const clicks = rows.filter((r) => r.click_rate != null);
     return {
-      count: rows.length, recipients: recip, revenue: rev,
+      count: rows.length, recipients: recip, revenue: rev, nbRevenue: nbRev,
       avgOpen: opens.length ? opens.reduce((a, r) => a + (r.open_rate ?? 0), 0) / opens.length : null,
       avgClick: clicks.length ? clicks.reduce((a, r) => a + (r.click_rate ?? 0), 0) / clicks.length : null,
     };
@@ -519,121 +607,175 @@ function TableView({ rows, onEdit, onReschedule, fChannel, setFChannel, fStatus,
     if (dest && dest !== src) onReschedule(res.draggableId, dest);
   };
 
-  const cell = "px-3 py-2.5 text-sm flex items-center min-w-0";
+  // Comfortable row rhythm; hairline separators do the dividing, not boxes or
+  // zebra fills — every row sits on white, color appears only on hover.
+  const cell = "px-3 py-3 text-sm flex items-center min-w-0";
+  const numCell = `${cell} justify-end font-mono tabular-nums`;
+  // Header cell for a right-aligned metric column.
+  const numHead = "px-3 py-2 text-right";
+
   return (
-    <div className="bg-surface border border-line rounded-md shadow-card overflow-hidden">
-      <div className="flex items-end gap-3 px-4 py-3 border-b border-line flex-wrap">
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Channel</span>
-          <div className="relative">
-            <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className={selectCls}>
-              <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select><Chevron />
-          </div>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Status</span>
-          <div className="relative">
-            <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus | "sent")} className={selectCls}>
-              <option value="all">All statuses</option>
-              {PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}
-              <option value="sent">Sent</option>
-            </select><Chevron />
-          </div>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>From</span>
-          <input type="date" value={fStart} onChange={(e) => setFStart(e.target.value)} className={dateCls} />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>To</span>
-          <input type="date" value={fEnd} onChange={(e) => setFEnd(e.target.value)} className={dateCls} />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={microLabel}>Sort</span>
-          <div className="relative">
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className={selectCls}>
-              <option value="date">Planned send</option><option value="revenue">Revenue</option>
-            </select><Chevron />
-          </div>
-        </label>
-        <div className="ml-auto self-end text-xs text-ink-muted font-mono pb-1.5">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
+    <div>
+      {/* KPI stat cards — totals for the current filter set, as singular rounded
+          boxes. They sit above the pinned filter/header block and scroll away. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <StatCard label="Campaigns" value={int(summary.count)} />
+        <StatCard label="Recipients" value={int(summary.recipients)} />
+        <StatCard label="Avg open" value={pct(summary.avgOpen)} />
+        <StatCard label="Avg click" value={pct(summary.avgClick)} />
+        <StatCard label="Revenue" value={money(summary.revenue)} />
+        <StatCard label={<>NB rev · <span className="normal-case tracking-normal">1d click</span></>} value={money(summary.nbRevenue)} />
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-20rem)]">
-        <div style={{ minWidth: 1360 }}>
-          {/* header — sticky within this scroll region */}
-          <div className="sticky top-0 z-20 grid bg-chrome border-b border-line text-ink-muted font-mono text-[10px] uppercase tracking-wide" style={{ gridTemplateColumns: GRID }}>
-            <div className="px-3 py-2">Name</div><div className="px-3 py-2">Channel</div><div className="px-3 py-2">Status</div>
-            <div className="px-3 py-2">Planned</div><div className="px-3 py-2">Offer</div><div className="px-3 py-2">Audience</div>
-            <div className="px-3 py-2 border-l border-line">Recipients</div><div className="px-3 py-2">Open</div>
-            <div className="px-3 py-2">Click</div><div className="px-3 py-2">Revenue</div>
-            <div className="px-3 py-2">Rev/recip</div><div className="px-3 py-2">Notes / learnings</div>
+      {/* Filter bar + column header pinned together to the top of the page
+          scroll (the planner layout's overflow-y-auto region). One solid
+          background so rows never bleed through while scrolling. */}
+      <div className="sticky top-0 z-20 bg-surface">
+        <div className="flex items-end gap-3 px-1 py-3 border-b border-line flex-wrap">
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Channel</span>
+            <div className="relative">
+              <select value={fChannel} onChange={(e) => setFChannel(e.target.value as "all" | PlannerChannel)} className={selectCls}>
+                <option value="all">All channels</option>{PLANNER_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select><Chevron />
+            </div>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Status</span>
+            <div className="relative">
+              <select value={fStatus} onChange={(e) => setFStatus(e.target.value as "all" | PlannerStatus | "sent")} className={selectCls}>
+                <option value="all">All statuses</option>
+                {PLANNER_STATUSES.map((s) => <option key={s} value={s}>{PLANNER_STATUS_LABELS[s]}</option>)}
+                <option value="sent">Sent</option>
+              </select><Chevron />
+            </div>
+          </label>
+          <div className="flex flex-col gap-1">
+            <span className={microLabel}>Date range</span>
+            <DateRangePicker start={fStart} end={fEnd}
+              onChange={(s, e) => { setFStart(s); setFEnd(e); }} />
           </div>
+          <label className="flex flex-col gap-1">
+            <span className={microLabel}>Sort</span>
+            <div className="relative">
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "revenue")} className={selectCls}>
+                <option value="date">Planned send</option><option value="revenue">Revenue</option>
+              </select><Chevron />
+            </div>
+          </label>
+          <div className="ml-auto self-end text-xs text-ink-muted pb-1.5">{rows.length} campaign{rows.length === 1 ? "" : "s"}</div>
+        </div>
 
-          <DragDropContext onDragEnd={onDragEnd}>
-            {groups.map((g) => (
-              <div key={g.day || "flat"}>
-                {sortBy === "date" && (
-                  <div className="px-3 py-1.5 bg-canvas border-b border-line text-[11px] font-mono text-ink-secondary">{g.day ? fmtDate(g.day + "T00:00:00") : ""}</div>
-                )}
-                <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
-                  {(provided, snap) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/50" : ""}>
-                      {g.rows.map((r, idx) => (
-                        <Draggable draggableId={r.id} index={idx} key={r.id} isDragDisabled={sortBy !== "date"}>
+        {/* column header — aligned to GRID */}
+        {/* Column header — white and quiet (a single bottom hairline), so it
+            blends into the surface instead of reading as a gray bar. */}
+        <div className="grid bg-surface border-b border-line t-label" style={{ gridTemplateColumns: GRID }}>
+          <div className="px-3 py-2">Campaign</div>
+          <div className="px-3 py-2">Status</div>
+          <div className="px-3 py-2">Planned</div>
+          <div className="px-3 py-2">Offer</div>
+          <div className={`${numHead} border-l border-line`}>Recipients</div>
+          <div className={numHead}>Open</div>
+          <div className={numHead}>Click</div>
+          <div className={numHead}>Rev/recip</div>
+          <div className={numHead}>Revenue</div>
+          <div className={numHead} title="Northbeam attributed revenue — Clicks only · 1-day · cash — reconciles with CRM Campaign (v2). Matched by linked campaign name; window ends yesterday (last fully processed day). Distinct from the platform-reported Revenue.">NB rev</div>
+        </div>
+      </div>
+
+      <DragDropContext onDragEnd={onDragEnd}>
+        {groups.map((g, gi) => (
+          <div key={g.day || "flat"}>
+            {sortBy === "date" && g.day && (
+              // Airy, quiet day label — no band, no fill; generous space above
+              // each group so days read as gentle sections that flow into the
+              // table. Left gutter so it feels like a margin note.
+              <div className={`px-1 ${gi === 0 ? "pt-3" : "pt-8"} pb-2 t-label`}>
+                {fmtDate(g.day + "T00:00:00")}
+              </div>
+            )}
+            <Droppable droppableId={`tbl:${g.day}`} isDropDisabled={sortBy !== "date"}>
+              {(provided, snap) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} className={snap.isDraggingOver ? "bg-accent-50/40 rounded-md" : ""}>
+                  {g.rows.map((r, idx) => {
+                    const isOpen = expanded.has(r.id);
+                    return (
+                      <div key={r.id}>
+                        <Draggable draggableId={r.id} index={idx} isDragDisabled={sortBy !== "date"}>
                           {(dp, snap2) => (
                             <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps}
                               onClick={() => onEdit(r)}
-                              className={`grid border-b border-line hover:bg-chrome cursor-pointer bg-surface transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`} style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
+                              className={`group grid bg-surface border-b border-line hover:bg-accent-50/50 cursor-pointer transition-colors ${snap2.isDragging ? "shadow-pop" : ""}`}
+                              style={{ gridTemplateColumns: GRID, ...dp.draggableProps.style }}>
                               <div className={cell}>
+                                <ExpandToggle open={isOpen} onToggle={() => toggle(r.id)} />
+                                <ChannelGlyph channel={r.channel} className="shrink-0 mr-1.5" />
                                 <div className="min-w-0 flex flex-col">
                                   <span className={`truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}`}>{r.name}</span>
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} channel={r.channel} />
                                 </div>
                               </div>
-                              <div className={`${cell} gap-1.5 text-ink-secondary`}><ChannelGlyph channel={r.channel} /> {CHANNEL_GLYPH[r.channel].label}</div>
-                              <div className={cell}><StatusPill status={r.status} channel={r.channel} /></div>
-                              <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
-                              <div className={`${cell} text-ink-secondary`}><span className="truncate">{offerLabel(r)}</span></div>
-                              <div className={`${cell} text-[11px] text-ink-muted`}>
-                                <span className="truncate">
-                                  {r.audience_included.length > 0 && `+ ${r.audience_included.map((a) => a.name).join(", ")}`}
-                                  {r.audience_excluded.length > 0 && ` − ${r.audience_excluded.map((a) => a.name).join(", ")}`}
-                                  {r.audience_included.length === 0 && r.audience_excluded.length === 0 && "—"}
-                                </span>
+                              <div className={cell}>
+                                <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+                                  <StatusPill status={r.status} />
+                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
+                                </div>
                               </div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary border-l border-line`}>{int(r.recipients)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{r.channel === "sms" ? "—" : pct(r.open_rate)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{pct(r.click_rate)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink font-medium`}>{money(r.revenue)}</div>
-                              <div className={`${cell} justify-end font-mono tabular-nums text-ink-secondary`}>{rpr(r.revenue_per_recipient)}</div>
-                              <div className={`${cell} text-[11px] text-ink-muted`}><span className="truncate">{r.notes || "—"}</span></div>
+                              <div className={`${cell} text-ink-secondary whitespace-nowrap`}>{fmtDate(r.planned_send_at)}</div>
+                              <div className={cell}>
+                                <div className="min-w-0 flex flex-col gap-0.5">
+                                  <span className="truncate text-ink-secondary">{offerValue(r)}</span>
+                                  {discountCode(r) && (
+                                    <span className="w-fit max-w-full truncate whitespace-nowrap font-mono text-[10px] tracking-tight text-ink-muted border border-line rounded-sm px-1 py-px">
+                                      {discountCode(r)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* SMS platform metrics are click-to-edit manual entry (no
+                                  Postscript analytics API); email cells stay synced/read-only.
+                                  NB rev keeps syncing for both channels. */}
+                              <div className={`${numCell} border-l border-line`}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="recipients" fmt={int} onRowUpdated={onRowUpdated} /> : <Num v={r.recipients} fmt={int} />}
+                              </div>
+                              <div className={numCell}>{r.channel === "sms" ? <span className="text-ink-muted/50">—</span> : <Num v={r.open_rate} fmt={pct} />}</div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="click_rate" fmt={pct} onRowUpdated={onRowUpdated} /> : <Num v={r.click_rate} fmt={pct} />}
+                              </div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="revenue_per_recipient" fmt={rpr} onRowUpdated={onRowUpdated} /> : <Num v={r.revenue_per_recipient} fmt={rpr} />}
+                              </div>
+                              <div className={numCell}>
+                                {r.channel === "sms" ? <ManualCell row={r} field="revenue" fmt={money} emphasize onRowUpdated={onRowUpdated} /> : <Num v={r.revenue} fmt={money} emphasize />}
+                              </div>
+                              <div className={numCell}><Num v={r.northbeam_revenue} fmt={money} emphasize /></div>
                             </div>
                           )}
                         </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
-            ))}
-          </DragDropContext>
-
-          {/* summary */}
-          <div className="grid border-t-2 border-line bg-chrome text-sm font-medium" style={{ gridTemplateColumns: GRID }}>
-            <div className="px-3 py-2.5 text-ink-secondary">{summary.count} total</div>
-            <div /><div /><div /><div /><div />
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-secondary border-l border-line">{int(summary.recipients)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgOpen)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink-muted">{pct(summary.avgClick)}</div>
-            <div className="px-3 py-2.5 text-right font-mono tabular-nums text-ink">{money(summary.revenue)}</div>
-            <div /><div className="px-3 py-2.5 text-[10px] text-ink-muted font-mono self-center">avg open/click</div>
+                        {isOpen && (
+                          <div className="border-b border-line bg-accent-50/30 pl-10 pr-4 py-3 grid gap-1.5 text-[11px] text-ink-secondary rc-animate-fade">
+                            <div className="flex gap-2">
+                              <span className="shrink-0 w-16 t-label">Audience</span>
+                              <span className="min-w-0">{audienceSummary(r)}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <span className="shrink-0 w-16 t-label">Notes</span>
+                              <span className="min-w-0">{r.notes || "—"}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
           </div>
-        </div>
-      </div>
-      {sortBy === "revenue" && <div className="px-4 py-2 text-[11px] text-ink-muted border-t border-line">Switch sort to “Planned send” to drag-reschedule.</div>}
+        ))}
+      </DragDropContext>
+
+      {sortBy === "revenue" && <div className="px-1 py-2 text-[11px] text-ink-muted">Switch sort to “Planned send” to drag-reschedule.</div>}
     </div>
   );
 }
@@ -657,8 +799,44 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [excluded, setExcluded] = useState<AudienceRef[]>(row?.audience_excluded ?? []);
   const [klaviyoId, setKlaviyoId] = useState(row?.klaviyo_campaign_id ?? "");
   const [klaviyoSendTime, setKlaviyoSendTime] = useState<string | null>(row?.klaviyo_send_time ?? null);
-  const [postscriptId, setPostscriptId] = useState(row?.postscript_campaign_id ?? "");
+  // Northbeam campaign name — the join key for the NB rev match on SMS rows.
+  // (postscript_campaign_id is deprecated: it linked to endpoints that don't
+  // exist. The field is preserved on saved rows but has no UI.)
+  const [nbName, setNbName] = useState(row?.northbeam_campaign_name ?? "");
+  const [nbOpen, setNbOpen] = useState(false);
+  const [nbCandidates, setNbCandidates] = useState<{ name: string; revenue: number }[]>([]);
+  const [nbLoading, setNbLoading] = useState(false);
+  const nbFetched = useRef(false);
   const [notes, setNotes] = useState(row?.notes ?? "");
+  // Manual platform metrics (SMS): same four fields as the table's inline
+  // entry, here for completeness. Strings, parsed on Save; initial strings are
+  // kept so only touched fields get PATCHed (an untouched derived rev/recip
+  // must never become an override).
+  const manualInitial = useRef({
+    recipients: manualEditText("recipients", row?.recipients),
+    click_rate: manualEditText("click_rate", row?.click_rate),
+    revenue: manualEditText("revenue", row?.revenue),
+    revenue_per_recipient: manualEditText("revenue_per_recipient", row?.revenue_per_recipient),
+  });
+  const [manual, setManual] = useState(manualInitial.current);
+
+  // Lazily load the Northbeam-reported Postscript campaign names (cached ~1h
+  // server-side; the export takes minutes on a cold cache, hence on-demand).
+  const loadNbCandidates = useCallback(async () => {
+    if (nbFetched.current) return;
+    nbFetched.current = true;
+    setNbLoading(true);
+    try {
+      const res = await fetch("/api/planner/northbeam-campaigns?platform=postscript");
+      const j = await res.json();
+      if (res.ok && Array.isArray(j.names)) setNbCandidates(j.names);
+      else if (j.error) toast.info(`Northbeam names unavailable — type the campaign name manually. (${j.error})`);
+    } catch {
+      toast.info("Northbeam names unavailable — type the campaign name manually.");
+    } finally {
+      setNbLoading(false);
+    }
+  }, []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -674,11 +852,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [copyStatus, setCopyStatus] = useState<"draft" | "final" | undefined>(row?.copy_status);
   const [copyPreview, setCopyPreview] = useState<CopyPreview | null>(null);
   const [copyLoading, setCopyLoading] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
 
   // Minimal editor styling: sparse mono micro-labels, hairline section rules.
-  const label = "block font-mono text-[11px] text-ink-muted uppercase tracking-wider mb-1.5";
+  const label = "block t-label mb-1.5";
   const input = "w-full border border-line rounded-sm px-2 py-1.5 text-sm bg-surface focus:outline-none focus:border-accent transition-colors";
   const section = "border-t border-line pt-5 mt-5";
 
@@ -769,7 +948,11 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     audience_included: included, audience_excluded: excluded,
     klaviyo_campaign_id: channel === "email" ? (klaviyoId.trim() || undefined) : undefined,
     klaviyo_send_time: channel === "email" ? klaviyoSendTime : undefined,
-    postscript_campaign_id: channel === "sms" ? (postscriptId.trim() || undefined) : undefined,
+    // deprecated postscript_campaign_id is intentionally NOT sent — the upsert
+    // preserves whatever a legacy row already carries.
+    // SMS: "" clears the join key; email rows keep theirs untouched (undefined
+    // keys are dropped by JSON.stringify, so the upsert preserves them).
+    northbeam_campaign_name: channel === "sms" ? nbName.trim() : undefined,
     notes, ...overrides,
   });
 
@@ -778,16 +961,75 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || "Save failed");
   };
+  // Manual-metric strings → a PATCH containing only the touched fields.
+  // Returns "invalid" (with the offending field) rather than silently coercing.
+  const buildManualPatch = (): Record<string, number | null> | { invalid: string } => {
+    const patch: Record<string, number | null> = {};
+    for (const f of ["recipients", "click_rate", "revenue", "revenue_per_recipient"] as const) {
+      if (manual[f].trim() === manualInitial.current[f].trim()) continue; // untouched
+      const parsed = parseManual(f, manual[f]);
+      if (parsed === "invalid") return { invalid: f };
+      patch[f] = parsed;
+    }
+    return patch;
+  };
+
   const save = async () => {
     if (!name.trim()) { setErr("Name is required"); return; }
+    // Validate manual metrics BEFORE saving the row so a bad entry never half-saves.
+    let manualPatch: Record<string, number | null> = {};
+    if (row && channel === "sms") {
+      const p = buildManualPatch();
+      if ("invalid" in p && typeof p.invalid === "string") {
+        setErr(`Invalid ${String(p.invalid).replace(/_/g, " ")} — numbers only (e.g. 41,250 · 2.4% · $1,842.50).`);
+        return;
+      }
+      manualPatch = p as Record<string, number | null>;
+    }
     setSaving(true); setErr(null);
-    try { await post(build()); toast.success(row ? "Campaign updated" : "Campaign created"); onSaved(); } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
+    try {
+      await post(build());
+      if (row && channel === "sms" && Object.keys(manualPatch).length > 0) {
+        const res = await fetch("/api/planner/manual-metrics", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: row.id, ...manualPatch }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Metrics save failed");
+      }
+      toast.success(row ? "Campaign updated" : "Campaign created");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); setSaving(false); }
   };
+  // Design handoff: mark the row "ready for design" (persisted immediately, like
+  // the copy link) and copy a Slack-ready message — title, planned send, and a
+  // deep link that opens the full copy — to the clipboard in one click.
+  const copyDesignHandoff = async () => {
+    if (!row || !copyId) return;
+    setHandoffBusy(true);
+    try {
+      if (status !== "ready_for_design") {
+        await post(build({ status: "ready_for_design" }));
+        setStatus("ready_for_design");
+        onLinkChanged();
+      }
+      const link = `${window.location.origin}/planner?copy=${encodeURIComponent(copyId)}&as=${copyStatus ?? "draft"}`;
+      const sendLabel = fmtDateTime(localInputToIso(plannedSendAt));
+      const message = `Hi there 👋\n\nThis campaign, "${name.trim()}", is ready for design.\nPlanned send: ${sendLabel}\n\nView the copy: ${link}`;
+      await navigator.clipboard.writeText(message);
+      toast.success("Handoff copied — paste into Slack");
+    } catch {
+      toast.error("Couldn't copy the handoff message");
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+
   const duplicate = async () => {
     setSaving(true); setErr(null);
     try {
-      // Clone plan fields; clear link + metrics so the copy is a fresh plan.
-      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, postscript_campaign_id: undefined }));
+      // Clone plan fields; clear links + metrics so the copy is a fresh plan
+      // (the NB join name belongs to the ORIGINAL send, so it clears too).
+      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, northbeam_campaign_name: undefined }));
       toast.success("Campaign duplicated");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Duplicate failed"); setSaving(false); }
@@ -827,7 +1069,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     </div>
   );
   const audBlocked = (text: string) => <div className="text-sm text-ink-muted">{text}</div>;
-  const audMicro = (text: string) => <div className="mt-1.5 font-mono text-[10px] text-ink-muted uppercase tracking-wider">{text}</div>;
+  const audMicro = (text: string) => <div className="mt-1.5 t-label">{text}</div>;
   const renderAudiences = () => {
     if (audLoading) return <SkeletonBlock className="h-6 w-2/3" />;
     if (channel === "sms") return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Audiences sync from linked Klaviyo email campaigns.");
@@ -862,7 +1104,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
         <div className="inline-flex rounded-md border border-line p-0.5 shrink-0 mt-0.5">
           {PLANNER_CHANNELS.map((c) => (
             <button key={c} type="button" onClick={() => setChannel(c)}
-              className={`px-2.5 py-1 text-[11px] font-mono uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
+              className={`px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
               {c}
             </button>
           ))}
@@ -878,7 +1120,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             const st = STATUS_STYLE[s];
             return (
               <button key={s} type="button" onClick={() => setStatus(s)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-mono uppercase tracking-wide transition-colors ${
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-medium uppercase tracking-wide transition-colors ${
                   active ? `${st.pill} font-semibold` : "border-line text-ink-muted hover:bg-chrome"
                 }`}>
                 {st.check && active && <span aria-hidden>✓</span>}
@@ -922,7 +1164,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             {klaviyoId ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-ink truncate">{linkedName}</span>
-                {klaviyoStatus && <span className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{klaviyoStatus}</span>}
+                {klaviyoStatus && <span className="t-label">{klaviyoStatus}</span>}
                 <a href={`https://www.klaviyo.com/campaign/${klaviyoId}`} target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline shrink-0">Open in Klaviyo ↗</a>
                 <Button variant="ghost" size="sm" onClick={unlink} className="ml-auto">Unlink</Button>
               </div>
@@ -937,7 +1179,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                       <button key={c.id} type="button" onMouseDown={(e) => { e.preventDefault(); pickCampaign(c); }}
                         className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
                         <div className="text-ink truncate">{c.name}</div>
-                        <div className="text-[10px] font-mono text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
+                        <div className="text-[10px] text-ink-muted">{c.status}{c.send_time ? ` · ${fmtDate(c.send_time)}` : ""}</div>
                       </button>
                     ))}
                   </div>
@@ -947,11 +1189,65 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
           </>
         ) : (
           <>
-            <label className={label}>Postscript campaign id</label>
-            <input className={input} value={postscriptId} onChange={(e) => setPostscriptId(e.target.value)} placeholder="Postscript campaign id" />
+            {/* Postscript's public API has no campaign endpoints — SMS revenue is
+                matched through Northbeam by the send's utm_campaign name. Picking
+                from the reported names makes the join key typo-proof; free text
+                stays available as the fallback. */}
+            <label className={label}>Northbeam campaign (SMS revenue match)</label>
+            <div className="relative">
+              <input className={input} value={nbName}
+                onFocus={() => { setNbOpen(true); loadNbCandidates(); }}
+                onBlur={() => setTimeout(() => setNbOpen(false), 150)}
+                onChange={(e) => { setNbName(e.target.value); setNbOpen(true); }}
+                placeholder="Search Northbeam campaign names… (or type the utm_campaign)" />
+              {nbOpen && (nbLoading || nbCandidates.length > 0) && (
+                <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-md shadow-pop max-h-56 overflow-y-auto">
+                  {nbLoading && <div className="px-2 py-1.5 text-xs text-ink-muted">Loading Northbeam campaign names…</div>}
+                  {nbCandidates
+                    .filter((c) => !nbName.trim() || c.name.toLowerCase().includes(nbName.trim().toLowerCase()))
+                    .slice(0, 12)
+                    .map((c) => (
+                      <button key={c.name} type="button" onMouseDown={(e) => { e.preventDefault(); setNbName(c.name); setNbOpen(false); }}
+                        className="w-full text-left px-2 py-1.5 text-sm hover:bg-chrome transition-colors">
+                        <div className="text-ink truncate">{c.name}</div>
+                        <div className="text-[10px] text-ink-muted">{money(c.revenue)} · last 30 days</div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
+              Names come from Northbeam&apos;s Postscript-platform rows (last 30 days, cached ~1h). NB rev syncs by this name.
+            </p>
           </>
         )}
       </div>
+
+      {/* 5b. Manual platform metrics (SMS, saved rows) — Postscript's API has no
+          analytics, so these four come from the Postscript dashboard. Same
+          fields as the table's click-to-edit cells; parsed on Save. */}
+      {row && channel === "sms" && (
+        <div className={section}>
+          <label className={label}>Metrics (manual — from Postscript dashboard)</label>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              ["recipients", "Recipients", "41,250"],
+              ["click_rate", "Click rate", "2.4%"],
+              ["revenue", "Revenue", "$1,842.50"],
+              ["revenue_per_recipient", "Revenue / recipient", "$0.04"],
+            ] as const).map(([f, lbl, ph]) => (
+              <label key={f} className="flex flex-col gap-1">
+                <span className="t-label">{lbl}{f === "revenue_per_recipient" && !row.rpr_override ? " (auto)" : ""}</span>
+                <input className={`${input} font-mono tabular-nums`} inputMode="decimal" value={manual[f]}
+                  onChange={(e) => setManual((m) => ({ ...m, [f]: e.target.value }))} placeholder={ph} />
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
+            Revenue / recipient derives from revenue ÷ recipients; typing a value overrides it, clearing re-derives. The sync never overwrites these.
+          </p>
+        </div>
+      )}
 
       {/* 6. Audiences — auto-fetched from the linked campaign, read-only */}
       <div className={section}>
@@ -963,7 +1259,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       {row && (
         <div className={section}>
           <div className="flex items-center gap-2 mb-2">
-            <span className="font-mono text-[11px] text-ink-muted uppercase tracking-wider">Copy</span>
+            <span className="t-label">Copy</span>
             {copyId && copyStatus && <Chip tone={copyStatus === "final" ? "success" : "warning"}>{copyStatus}</Chip>}
             {copyId && (
               <button type="button" onClick={() => setUnlinkConfirm(true)} className="ml-auto text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
@@ -979,8 +1275,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                   {copyPreview?.subject_lines?.[0] || copyPreview?.campaign_name
                     || (copyPreview ? `${copyPreview.sections.length} section${copyPreview.sections.length === 1 ? "" : "s"}` : "Linked copy")}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <Button variant="secondary" size="sm" onClick={() => onViewCopy(copyId, copyStatus ?? "draft")}>View copy</Button>
+                  <Button variant="primary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
+                    title="Mark ready for design and copy a Slack message with a link to the copy">
+                    📋 Copy design handoff
+                  </Button>
                   <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
                 </div>
               </>
@@ -1005,7 +1305,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
 
       {/* Read-only synced metrics — quiet line under everything. */}
       {row && (row.recipients != null || row.revenue != null) && (
-        <div className="border-t border-line pt-4 mt-5 font-mono text-[11px] text-ink-muted">
+        <div className="border-t border-line pt-4 mt-5 text-[11px] text-ink-muted">
           Synced: {int(row.recipients)} recipients · open {channel === "sms" ? "—" : pct(row.open_rate)} · click {pct(row.click_rate)} · {money(row.revenue)}
           {row.metrics_synced_at ? ` · ${fmtDateTime(row.metrics_synced_at)}` : ""}
         </div>
@@ -1029,7 +1329,7 @@ interface CopyListEntry { id: string; name: string; date: string; type: string; 
 
 function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   rowId: string; allRows: PlannerRow[]; channel: PlannerChannel;
-  onPick: (copyId: string, status: "draft" | "final") => void; onClose: () => void;
+  onPick: (copyId: string, status: "draft" | "final") => void | Promise<void>; onClose: () => void;
 }) {
   const isSms = channel === "sms";
   const [tab, setTab] = useState<"drafts" | "library">("drafts");
@@ -1039,6 +1339,9 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   const [sms, setSms] = useState<CopyListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [move, setMove] = useState<{ copyId: string; status: "draft" | "final"; otherRow: string } | null>(null);
+  // Id of the copy currently being attached — drives the row's "Attaching…"
+  // spinner and disables the list so the click doesn't feel like a hang.
+  const [attachingId, setAttachingId] = useState<string | null>(null);
 
   useEffect(() => {
     // SMS rows attach SMS campaigns; email rows attach email drafts/library.
@@ -1072,14 +1375,18 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
   const rowNameById = (id: string) => allRows.find((r) => r.id === id)?.name;
   const entries = isSms ? sms : tab === "drafts" ? drafts : library;
   const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
-  const choose = (e: CopyListEntry) => {
+  const choose = async (e: CopyListEntry) => {
+    if (attachingId) return;
     const status: "draft" | "final" = isSms
       ? (e.status === "final" ? "final" : "draft")
       : (tab === "drafts" ? "draft" : "final");
     if (e.planner_row_id && e.planner_row_id !== rowId) {
       setMove({ copyId: e.id, status, otherRow: rowNameById(e.planner_row_id) ?? "another campaign" });
     } else {
-      onPick(e.id, status);
+      setAttachingId(e.id);
+      // onPick resolves once the attach + refetch settle (it closes the picker on
+      // success). Clear either way so a failure re-enables the list.
+      try { await onPick(e.id, status); } finally { setAttachingId(null); }
     }
   };
 
@@ -1105,15 +1412,26 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
             <div className="py-8 text-center text-sm text-ink-muted">No {isSms ? "SMS campaigns" : tab} found.</div>
           ) : filtered.map((e) => {
             const linkedElsewhere = e.planner_row_id && e.planner_row_id !== rowId;
+            const isAttaching = attachingId === e.id;
             return (
-              <button key={e.id} type="button" onClick={() => choose(e)}
-                className="w-full text-left px-1 py-2.5 flex items-center gap-3 hover:bg-chrome transition-colors">
+              <button key={e.id} type="button" disabled={!!attachingId} onClick={() => choose(e)}
+                className={`w-full text-left px-1 py-2.5 flex items-center gap-3 transition-colors ${
+                  attachingId ? "opacity-60 cursor-default" : "hover:bg-chrome"
+                }`}>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-ink truncate">{e.name}</div>
-                  <div className="font-mono text-[10px] text-ink-muted uppercase tracking-wide">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
+                  <div className="t-label">{e.type}{e.date ? ` · ${e.date}` : ""}</div>
                 </div>
-                {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
-                <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>
+                {isAttaching ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-accent shrink-0">
+                    <span className="animate-spin inline-block">↻</span> Attaching…
+                  </span>
+                ) : (
+                  <>
+                    {linkedElsewhere && <span className="text-[10px] text-ink-muted italic shrink-0">linked to {rowNameById(e.planner_row_id!) ?? "another"}</span>}
+                    <Chip tone={e.status === "final" ? "success" : "warning"}>{e.status}</Chip>
+                  </>
+                )}
               </button>
             );
           })}
@@ -1121,7 +1439,13 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
       </Modal>
 
       <ConfirmModal open={!!move} onClose={() => setMove(null)}
-        onConfirm={() => { if (move) { onPick(move.copyId, move.status); setMove(null); } }}
+        onConfirm={async () => {
+          if (!move) return;
+          const m = move;
+          setMove(null);
+          setAttachingId(m.copyId);
+          try { await onPick(m.copyId, m.status); } finally { setAttachingId(null); }
+        }}
         title="Move this copy?" body={move ? `This copy is linked to ${move.otherRow}. Move it here instead?` : ""}
         confirmLabel="Move it here" />
     </>

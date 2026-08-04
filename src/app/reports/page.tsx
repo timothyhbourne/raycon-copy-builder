@@ -1,6 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import type { WeeklyReport, ChannelBlock, Deltas } from "@/lib/reports/weekly";
+import PageHeader from "@/components/ui/PageHeader";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import { DeltaPill } from "@/components/ui/Stat";
 
 // --- formatters (consistent with planner/dashboard) ---
 const money = (n: number | null | undefined) =>
@@ -24,22 +28,20 @@ const fmtDateTime = (iso: string) => {
 
 // A week-over-week badge. `kind` picks the formatting: fractional % change, or
 // percentage-POINT change for pctOfStore. Green up / red down / neutral —.
+// Week-over-week badge → the shared DeltaPill. `pp` = percentage-POINT change
+// (pctOfStore), `pct` = fractional % change; both come in as fractions, so scale
+// to display units. Green up / red down / muted flat, higher-is-good.
 function Delta({ value, kind }: { value: number | null; kind: "pct" | "pp" }) {
-  if (value == null) return <span className="text-slate-300">—</span>;
-  const up = value > 0;
-  const down = value < 0;
-  const cls = up ? "text-emerald-600" : down ? "text-rose-600" : "text-slate-400";
-  const arrow = up ? "▲" : down ? "▼" : "•";
-  const mag = kind === "pp" ? `${(value * 100).toFixed(1)} pp` : `${Math.abs(value * 100).toFixed(1)}%`;
-  return <span className={`font-mono text-[11px] ${cls}`}>{arrow} {mag}</span>;
+  if (value == null) return <span className="text-ink-muted">—</span>;
+  return <DeltaPill value={value * 100} unit={kind === "pp" ? "pp" : "%"} />;
 }
 
 function Metric({ label, value, delta }: { label: string; value: string; delta?: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between py-1.5 border-b border-slate-100 last:border-0">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-slate-400">{label}</span>
+    <div className="flex items-baseline justify-between py-1.5 border-b border-line last:border-0">
+      <span className="t-label">{label}</span>
       <span className="flex items-baseline gap-2">
-        <span className="tabular-nums text-slate-900">{value}</span>
+        <span className="tabular-nums text-ink">{value}</span>
         {delta}
       </span>
     </div>
@@ -48,17 +50,17 @@ function Metric({ label, value, delta }: { label: string; value: string; delta?:
 
 function ChannelCard({ title, block, deltas, rprLabel }: { title: string; block: ChannelBlock; deltas?: Deltas; rprLabel: string }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-5">
+    <Card bodyClassName="p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="font-mono text-xs uppercase tracking-wide text-slate-500">{title}</div>
-        <div className="text-2xl font-semibold text-slate-900 tabular-nums">{money(block.revenue)}</div>
+        <div className="t-label">{title}</div>
+        <div className="text-2xl font-semibold text-ink tabular-nums">{money(block.revenue)}</div>
       </div>
       <Metric label="% of store revenue" value={pct(block.pctOfStore)} delta={deltas ? <Delta value={deltas.pctOfStorePointChange} kind="pp" /> : undefined} />
       <Metric label="Revenue (WoW)" value={money(block.revenue)} delta={deltas ? <Delta value={deltas.revenuePctChange} kind="pct" /> : undefined} />
       <Metric label={rprLabel} value={perSend(block.revenuePerRecipient)} delta={deltas ? <Delta value={deltas.rprPctChange} kind="pct" /> : undefined} />
       <Metric label="Per 1,000 sends" value={per1k(block.revenuePer1kSends)} />
       <Metric label="Recipients (sends)" value={int(block.recipients)} />
-    </div>
+    </Card>
   );
 }
 
@@ -109,61 +111,53 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <div className="font-mono text-xs text-slate-500 uppercase tracking-wide mb-1">Weekly Report</div>
-          <h1 className="text-2xl font-semibold text-slate-900">Email &amp; SMS performance</h1>
-          {report && (
-            <div className="text-sm text-slate-500 mt-1">
-              {fmtWeek(report.week)} · <span className="font-mono text-[11px] uppercase">1-day click</span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {weeks.length > 0 && (
-            <select
-              value={selWeek}
-              onChange={(e) => { setSelWeek(e.target.value); load(e.target.value || undefined); }}
-              className="text-sm border border-slate-300 rounded px-2 py-1.5 bg-white"
-              title="View a past week"
-            >
-              <option value="">Latest</option>
-              {[...weeks].reverse().map((w) => <option key={w} value={w}>{w}</option>)}
-            </select>
-          )}
-          <button
-            onClick={runNow}
-            disabled={running}
-            className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50"
-          >
-            {running ? "Running…" : "Run now"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6"
+        eyebrow="Weekly Report"
+        title="Email & SMS"
+        accent="performance"
+        description={report
+          ? <>{fmtWeek(report.week)} · <span className="t-label align-middle">1-day click</span></>
+          : "Northbeam-attributed email & SMS revenue, week over week."}
+        meta={
+          <>
+            {weeks.length > 0 && (
+              <select
+                value={selWeek}
+                onChange={(e) => { setSelWeek(e.target.value); load(e.target.value || undefined); }}
+                className="self-end text-sm border border-line rounded-sm px-2 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors"
+                title="View a past week"
+              >
+                <option value="">Latest</option>
+                {[...weeks].reverse().map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+            )}
+            <Button variant="primary" size="sm" loading={running} onClick={runNow}>Run now</Button>
+          </>
+        }
+      />
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-900 flex items-center justify-between">
+        <div className="bg-danger-50 border border-danger-200 rounded-md p-3 mb-4 text-sm text-danger-600 flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500">✕</button>
+          <button onClick={() => setError(null)} className="text-danger-600 hover:opacity-70" aria-label="Dismiss error">✕</button>
         </div>
       )}
 
       {loading ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-slate-100 rounded animate-pulse" />)}
+        <div className="bg-surface border border-line rounded-md shadow-card p-4 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 rc-skeleton rounded-md" />)}
         </div>
       ) : !report ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
-          <div className="font-mono text-xs text-slate-400 uppercase tracking-wide mb-2">No report yet</div>
-          <p className="text-slate-600 text-sm mb-4">Run the first weekly capture to see Northbeam-attributed email &amp; SMS performance.</p>
-          <button onClick={runNow} disabled={running} className="px-4 py-1.5 bg-slate-900 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50">
-            {running ? "Running…" : "Run now"}
-          </button>
-        </div>
+        <Card className="text-center" bodyClassName="p-12">
+          <div className="t-label mb-2">No report yet</div>
+          <p className="text-ink-secondary text-sm mb-4">Run the first weekly capture to see Northbeam-attributed email &amp; SMS performance.</p>
+          <Button variant="primary" size="sm" loading={running} onClick={runNow}>Run now</Button>
+        </Card>
       ) : (
         <>
           {report.warnings.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-800 space-y-0.5">
+            <div className="bg-warning-50 border border-warning-200 rounded-md p-3 mb-4 text-xs text-warning-600 space-y-0.5">
               {report.warnings.map((w, i) => <div key={i}>· {w}</div>)}
             </div>
           )}
@@ -173,12 +167,12 @@ export default function ReportsPage() {
             <ChannelCard title="SMS · Postscript" block={report.sms} deltas={report.wow?.sms} rprLabel={rprLabel} />
           </div>
 
-          <div className="mt-4 bg-white border border-slate-200 rounded-lg px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-slate-500">
-            <span>Total store revenue: <span className="text-slate-800 tabular-nums">{money(report.totalStoreRevenue)}</span></span>
-            <span>Denominator: <span className="font-mono">{report.denominatorSource}</span></span>
-            <span>RPR mode: <span className="font-mono">{report.rprMode}</span></span>
+          <div className="mt-4 bg-surface border border-line rounded-md shadow-card px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-ink-muted">
+            <span>Total store revenue: <span className="text-ink-secondary tabular-nums">{money(report.totalStoreRevenue)}</span></span>
+            <span>Denominator: <span>{report.denominatorSource}</span></span>
+            <span>RPR mode: <span>{report.rprMode}</span></span>
             <span>Generated: {fmtDateTime(report.generatedAt)}</span>
-            {!report.wow && <span className="text-slate-400">no prior week — WoW omitted</span>}
+            {!report.wow && <span className="text-ink-muted">no prior week — WoW omitted</span>}
           </div>
         </>
       )}

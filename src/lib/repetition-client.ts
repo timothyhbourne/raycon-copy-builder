@@ -4,6 +4,7 @@
 // (no fs) — CheckElement is imported as a type only, so nothing server-side is
 // pulled into the bundle.
 import type { GeneratedCampaign, GeneratedSection, SectionSpec, CampaignMeta, ProductInGrid } from "./schemas";
+import { isProductCardType } from "./schemas";
 import type { CheckElement } from "./constructions";
 import { getProductSlugByName } from "./products";
 
@@ -67,9 +68,11 @@ export function collectSectionElements(
     out.push({ id: elementKey(section.id, bodyKey), kind: "opener", text: firstSentence(body) });
   }
 
-  if (section.type === "product_card" && str("One-Liner").trim()) {
+  if (isProductCardType(section.type) && str("One-Liner").trim()) {
     out.push({ id: elementKey(section.id, "One-Liner"), kind: "one_liner", text: str("One-Liner"), product: slugForCard(section, spec) });
   }
+  // NOTE: the Review element is intentionally NOT collected here — it is real
+  // customer text and must be exempt from the repetition/similarity check.
 
   const products = el["Products"];
   if (Array.isArray(products)) {
