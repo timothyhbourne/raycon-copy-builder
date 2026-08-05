@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GeneratedCampaign, GeneratedSection, ExpandedBrief, Conceit, SectionSpec, LibraryCampaign, SectionType } from "@/lib/schemas";
 import { SECTION_CATALOGUE } from "@/lib/schemas";
+import type { ProductReview } from "@/lib/reviews/fetch";
 import { nanoid } from "@/lib/nanoid";
 import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
@@ -38,6 +39,9 @@ interface Props {
   toneDial: number;
   isGenerating?: boolean;
   offer?: string;
+  /** The campaign's highlighted product SKU (hero / first featured). Drives the
+   * standalone `reviews` section's automatic 3-review fill and its refresh. */
+  featuredProduct?: string;
   /** Similarity flags keyed by element key (see repetition-client). */
   repetitionFlags?: Record<string, RepetitionFlag>;
   onDismissFlag?: (key: string) => void;
@@ -55,6 +59,7 @@ export default function CampaignCanvas({
   toneDial,
   isGenerating = false,
   offer,
+  featuredProduct,
   repetitionFlags,
   onDismissFlag,
   onRegenerated,
@@ -152,6 +157,51 @@ export default function CampaignCanvas({
     }
   };
 
+  // Standalone `reviews` sections auto-fill their Review 1/2/3 slots with REAL
+  // reviews for the campaign's highlighted product — the model never writes them
+  // (never-fabricate rule leaves them empty), so we fetch and place them here.
+  // Only empty slots are filled (edits are never clobbered); each (product,
+  // section-set) is attempted once so onChange can't spin the effect.
+  const REVIEW_KEYS = ["Review 1", "Review 2", "Review 3"];
+  const reviewFillRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (isGenerating || !featuredProduct) return;
+    const emptySlot = (s: GeneratedSection, k: string) =>
+      String((s.elements as Record<string, unknown>)[k] ?? "").trim() === "";
+    const needsFill = (s: GeneratedSection) =>
+      s.type === "reviews" && REVIEW_KEYS.some((k) => emptySlot(s, k));
+    const targets = campaign.sections.filter(needsFill);
+    if (!targets.length) return;
+    const attemptKey = `${featuredProduct}:${targets.map((t) => t.id).join(",")}`;
+    if (reviewFillRef.current.has(attemptKey)) return;
+    reviewFillRef.current.add(attemptKey);
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/reviews?product=${encodeURIComponent(featuredProduct)}&limit=3`);
+        if (!res.ok || cancelled) return;
+        const list = ((await res.json())?.reviews ?? []) as ProductReview[];
+        if (!list.length || cancelled) return;
+        const fmt = (r: ProductReview) => (r.author ? `${r.text} — ${r.author}` : r.text);
+        const sections = campaign.sections.map((s) => {
+          if (!needsFill(s)) return s;
+          const elements = { ...s.elements };
+          let ri = 0;
+          for (const k of REVIEW_KEYS) {
+            if (emptySlot(s, k) && ri < list.length) elements[k] = fmt(list[ri++]);
+          }
+          return { ...s, elements };
+        });
+        if (!cancelled) onChange({ ...campaign, sections });
+      } catch {
+        /* network hiccup — slots stay empty, user can retry via regenerate */
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaign, featuredProduct, isGenerating]);
+
   return (
     <div className="space-y-4">
       {/* Brief bar — the deterministically compiled angle/thesis (read-only). */}
@@ -195,7 +245,7 @@ export default function CampaignCanvas({
           const reviewSlug = section.type === "product_card_review"
             ? spec?.product_slug
             : section.type === "reviews"
-              ? expandedBrief?.products_featured?.[0]
+              ? (featuredProduct ?? expandedBrief?.products_featured?.[0])
               : undefined;
           const isNewest = isGenerating && i === campaign.sections.length - 1;
           return (

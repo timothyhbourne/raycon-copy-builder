@@ -191,6 +191,7 @@ export default function Home() {
   const softResetToForm = () => {
     flushAutosaveRef.current();   // persist any pending library edit before leaving
     setStage("form");
+    setChannel("email");   // returning to the email brief form
     setCampaign(null);
     setExpandedBrief(null);
     setChosenConceit(null);
@@ -332,6 +333,7 @@ export default function Home() {
       setSectionStructure, setCurrentBriefInput,
       setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
     });
+    setChannel("email");   // "New" always returns to a fresh email brief
     setPlannerLink(null);
     setFormSeed(null);
     setFormSeedLabel(null);
@@ -731,7 +733,9 @@ export default function Home() {
           conceit: chosenConceit,
           campaign,
           section_structure: sectionStructure,
-          draft_id: currentDraftId,
+          // Omit when there's no draft — the schema's optional id rejects null,
+          // which is what forced a "Save Draft first" before Save Final worked.
+          draft_id: currentDraftId ?? undefined,
         }),
       });
       if (!res.ok) {
@@ -937,6 +941,7 @@ export default function Home() {
         setCurrentDraftId(id);
         setCurrentLibraryId(null);
         setCanvasSource("draft");
+        setChannel("email");   // email draft — canvas render is gated on channel
         setStage("canvas");
         return;
       }
@@ -1039,6 +1044,7 @@ export default function Home() {
     setCurrentLibraryId(id);
     setCurrentDraftId(null);
     setCanvasSource("library");
+    setChannel("email");   // this is email copy — the canvas is gated on channel
     setStage("canvas");
   };
 
@@ -1548,6 +1554,11 @@ export default function Home() {
                 toneDial={currentBriefInput?.tone_dial ?? 1}
                 isGenerating={loadingPhase === "generating"}
                 offer={currentBriefInput?.offer ?? ""}
+                featuredProduct={
+                  expandedBrief?.products_featured?.[0] ??
+                  currentBriefInput?.products_featured?.[0] ??
+                  currentBriefInput?.hero_product_slug
+                }
                 repetitionFlags={repetitionFlags}
                 onDismissFlag={(key) => setRepetitionFlags((prev) => { const next = { ...prev }; delete next[key]; return next; })}
                 onRegenerated={(updated) => void runRepetitionCheck(updated)}

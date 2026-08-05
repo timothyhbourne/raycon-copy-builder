@@ -133,7 +133,9 @@ export const finalizeBody = looseObj({
   id: safeIdSchema,
   brief_input: z.unknown(),
   campaign: z.unknown(),
-  draft_id: safeIdSchema.optional(),
+  // nullish, not just optional: the client may send null (no draft yet) and that
+  // must not 400 the finalize — it simply means "no draft to clean up".
+  draft_id: safeIdSchema.nullish(),
 });
 
 // ---- metrics sync: optional supplementary body (query params also allowed) --
