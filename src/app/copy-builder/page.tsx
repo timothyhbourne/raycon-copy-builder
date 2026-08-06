@@ -9,6 +9,7 @@ import type { PlannerRow } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
+import { compileBrief } from "@/lib/brief/compile";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
 import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
@@ -922,10 +923,8 @@ export default function Home() {
         const c = data.campaign as SavedCampaign;
         setCampaign(c.campaign);
         setRepetitionFlags({});
-        setExpandedBrief(c.expanded_brief ?? null);
-        setChosenConceit(c.chosen_conceit ?? null);
         setSectionStructure(c.section_structure ?? []);
-        setCurrentBriefInput({
+        const savedBriefInput: BriefInput = {
           campaign_name: c.campaign_name,
           campaign_type: c.campaign_type,
           offer: c.offer,
@@ -942,7 +941,16 @@ export default function Home() {
           products_featured: c.products_featured,
           section_structure: c.section_structure ?? [],
           planner_row_id: c.planner_row_id,
-        });
+        };
+        setCurrentBriefInput(savedBriefInput);
+        // Saves from before the selection-driven brief carry no expanded_brief /
+        // chosen_conceit. Recompile deterministically rather than leaving them
+        // null, which silently disabled regenerate + variations on the canvas.
+        const savedCompiled = (!c.expanded_brief || !c.chosen_conceit)
+          ? compileBrief(savedBriefInput)
+          : null;
+        setExpandedBrief(c.expanded_brief ?? savedCompiled?.expanded_brief ?? null);
+        setChosenConceit(c.chosen_conceit ?? savedCompiled?.conceit ?? null);
         setPlannerLink(c.planner_row_id ? { rowId: c.planner_row_id, name: c.campaign_name, channel: "email" } : null);
         setCurrentDraftId(id);
         setCurrentLibraryId(null);
@@ -1032,7 +1040,7 @@ export default function Home() {
     setSectionStructure(sectionStructureForView);
     setRepetitionFlags({});
 
-    setCurrentBriefInput({
+    const libBriefInput: BriefInput = {
       campaign_name: lib.title,
       campaign_type: lib.campaign_type,
       offer: lib.offer,
@@ -1043,10 +1051,18 @@ export default function Home() {
       products_featured: lib.products_featured,
       section_structure: sectionStructureForView,
       planner_row_id: lib.planner_row_id,
-    });
+    };
+    setCurrentBriefInput(libBriefInput);
     setPlannerLink(lib.planner_row_id ? { rowId: lib.planner_row_id, name: lib.title, channel: "email" } : null);
-    setChosenConceit(lib.conceit ? { id: "lib", name: lib.conceit, description: "" } : null);
-    setExpandedBrief(null);
+    // Library entries predate the selection-driven brief and store no
+    // expanded_brief. Leaving it null made regenerate/variations bail out with
+    // "No alternatives came back" before any request was sent, because the
+    // canvas guards on `expandedBrief && chosenConceit`. compileBrief is pure and
+    // deterministic, so we rebuild a serviceable brief from the fields the
+    // library DOES carry rather than blocking the feature.
+    const libCompiled = compileBrief(libBriefInput);
+    setChosenConceit(lib.conceit ? { id: "lib", name: lib.conceit, description: "" } : libCompiled.conceit);
+    setExpandedBrief(libCompiled.expanded_brief);
     setCurrentLibraryId(id);
     setCurrentDraftId(null);
     setCanvasSource("library");
