@@ -10,7 +10,8 @@
 //   - campaign mode: denominator = campaigns only (use once Northbeam is
 //     confirmed to break revenue out campaign-vs-flow for this account).
 
-import { campaignValuesReport, flowValuesReport, dayRangeISO, resolvePlacedOrderMetric } from "@/lib/klaviyo";
+import { dayRangeISO, resolvePlacedOrderMetric } from "@/lib/klaviyo";
+import { getCampaignValuesCached, getFlowValuesCached } from "@/lib/klaviyo-cache";
 
 export interface EmailRecipients {
   campaignRecipients: number; // delivered recipients of campaigns that sent in-week
@@ -25,7 +26,7 @@ export async function captureEmailRecipients(weekStartYMD: string, weekEndYMD: s
   const metric = await resolvePlacedOrderMetric();
   const { start, end } = dayRangeISO(weekStartYMD, weekEndYMD);
 
-  const campaignReport = await campaignValuesReport({ start, end, conversionMetricId: metric.id });
+  const campaignReport = await getCampaignValuesCached(start, end, metric.id);
   const byCampaign = new Map<string, number>();
   for (const r of campaignReport.results) {
     const id = r.groupings.campaign_id;
@@ -38,7 +39,7 @@ export async function captureEmailRecipients(weekStartYMD: string, weekEndYMD: s
     if (n > 0) { campaignRecipients += n; campaignCount++; }
   }
 
-  const flowReport = await flowValuesReport({ start, end, conversionMetricId: metric.id });
+  const flowReport = await getFlowValuesCached(start, end, metric.id);
   let flowRecipients = 0;
   for (const r of flowReport.results) flowRecipients += r.statistics.recipients ?? 0;
 

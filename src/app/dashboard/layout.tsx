@@ -85,7 +85,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const res = await fetch(`/api/klaviyo/measure?start=${s}&end=${e}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load this range");
-      const stamped: OverviewData = { ...(json as OverviewData), fetched_at: new Date().toISOString() };
+      // Prefer the SERVER's fetched_at (the shared cache's real fetch time) so
+      // staleness is honest; only stamp client time if the server omitted it.
+      const j = json as OverviewData;
+      const stamped: OverviewData = { ...j, fetched_at: j.fetched_at ?? new Date().toISOString() };
       cacheRef.current.set(key, stamped);
       persistCache();
       setData(stamped);
@@ -137,10 +140,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           meta={
             <>
               {hasData && (
-                <div className="self-end pb-1.5 text-xs flex items-center gap-1.5 text-ink-muted"
+                <div className={`self-end pb-1.5 text-xs flex items-center gap-1.5 ${data?.stale ? "text-warning-600" : "text-ink-muted"}`}
                   title={data?.fetched_at ? `Fetched ${new Date(data.fetched_at).toLocaleString()}` : undefined}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-success-600" aria-hidden />
-                  Live data · fetched {fetchedLabel(data?.fetched_at)}
+                  <span className={`w-1.5 h-1.5 rounded-full ${data?.stale ? "bg-warning-600" : "bg-success-600"}`} aria-hidden />
+                  {data?.stale
+                    ? <>Last known figures · as of {fetchedLabel(data?.fetched_at)} (Klaviyo rate-limited)</>
+                    : <>Live data · fetched {fetchedLabel(data?.fetched_at)}</>}
                 </div>
               )}
               <DateRangePicker start={start} end={end} onChange={onRangeChange} />
@@ -171,14 +176,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        {/* Loading state: clear the content and show a calm live-fetch message
-            over skeletons (a live pull can take a few seconds). */}
+        {/* Loading state: clear the content and show an engaging, explicit
+            live-fetch panel over skeletons (a fresh range can take a few seconds). */}
         {showLoading ? (
           <>
-            <div className="mb-4 flex items-center gap-2 text-sm text-ink-secondary">
-              <RefreshIcon className="animate-spin text-ink-muted" />
-              Pulling this range from Klaviyo — this can take a few seconds.
-            </div>
+            <MeasureLoading />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               {[0, 1].map((i) => (
                 <div key={i} className="bg-surface border border-line rounded-md shadow-card p-6">
@@ -227,6 +229,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </DashboardDataProvider>
           </>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// Engaging, explicit loading panel for a genuine cache miss. Cycles a few status
+// lines and runs an indeterminate bar so a multi-second live pull reads as
+// "working", not "stuck", and states plainly that a fresh range takes a moment.
+const LOADING_MESSAGES = [
+  "Pulling this range live from Klaviyo…",
+  "Adding up every campaign and flow…",
+  "Fetching complete numbers — not partial ones…",
+  "Almost there — caching this so it's instant next time…",
+];
+function MeasureLoading() {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((x) => (x + 1) % LOADING_MESSAGES.length), 2200);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="mb-6 rounded-md border border-accent-200 bg-accent-50/50 p-5">
+      <div className="flex items-center gap-3">
+        <span className="relative flex h-6 w-6 shrink-0" aria-hidden>
+          <span className="absolute inline-flex h-full w-full rounded-full bg-accent-200 opacity-60 animate-ping" />
+          <span className="relative inline-flex h-6 w-6 items-center justify-center rounded-full bg-surface text-accent">
+            <RefreshIcon className="animate-spin" />
+          </span>
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink transition-opacity" aria-live="polite">{LOADING_MESSAGES[i]}</div>
+          <div className="text-xs text-ink-secondary mt-0.5">
+            A range you haven&apos;t viewed can take <strong>a few seconds</strong> — Klaviyo rate-limits analytics, so we pull it once and cache it for everyone. Hang tight.
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-accent-200/50">
+        <div className="h-full w-1/3 rounded-full bg-accent rc-indeterminate" />
       </div>
     </div>
   );

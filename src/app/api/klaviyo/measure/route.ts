@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchRangeOverview, isRateLimited } from "@/lib/measure";
+import { isRateLimited } from "@/lib/measure";
+import { getRangeOverview } from "@/lib/measure-cache";
 
-// LIVE, on-demand measurement (spec: MEASUREMENT_LIVE_FETCH_SPEC.md). Thin route
-// over the shared aggregation in src/lib/measure.ts (fetchRangeOverview) — the
-// same function the dashboard-briefing route uses for prior-period comparison,
-// so a range is computed one way. Makes live Klaviyo calls for EXACTLY the
-// requested range and returns the fully aggregated dashboard payload, or a clear
-// error. Completeness or nothing — never a partial total.
+// LIVE, on-demand measurement (spec: MEASUREMENT_LIVE_FETCH_SPEC + ANALYTICS_RATE_
+// LIMIT_SPEC). Thin route over the SHARED, Redis-cached accessor getRangeOverview
+// (measure-cache.ts): an identical range is fetched from Klaviyo once per TTL and
+// served from cache to every user/tab/instance thereafter, and a throttle serves
+// the last known figures (labeled `stale`) instead of erroring. Returns the
+// aggregated payload plus `fetched_at` + `stale` so the UI can show freshness.
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // headroom for patient rate-limit back-off
@@ -26,8 +27,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const overview = await fetchRangeOverview(startYMD, endYMD);
-    return NextResponse.json(overview);
+    const { overview, fetched_at, stale } = await getRangeOverview(startYMD, endYMD);
+    return NextResponse.json({ ...overview, fetched_at, stale });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[klaviyo/measure]", msg);

@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { listPlannerRows, writeSyncedMetrics } from "@/lib/planner";
 import type { PlannerRow, SyncedMetrics, SyncResult } from "@/lib/planner-types";
-import { campaignValuesReport, dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
+import { dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
+import { getCampaignValuesCached } from "@/lib/klaviyo-cache";
 import { isNorthbeamConfigured, getCampaignRevenue, normalizeCampaignName, northbeamPlatformLabels } from "@/lib/northbeam";
 
-// Per-window cache for the Klaviyo campaign values report so repeated syncs of
-// the same window are cheap. In-process only (not shared across instances).
-const REPORT_TTL_MS = 10 * 60 * 1000;
+// Campaign report stats folded per campaign id. The window fetch goes through
+// the SHARED Redis report cache (klaviyo-cache.ts) — replacing the old in-process
+// 10-min cache that was ineffective on serverless (reset every cold start) and
+// duplicated reporting calls the dashboard already made (ANALYTICS_RATE_LIMIT_SPEC §2.5).
 interface CampaignStat { recipients: number; opens_unique: number; clicks_unique: number; conversion_value: number }
-const reportCache = new Map<string, { ts: number; byId: Map<string, CampaignStat> }>();
 
 function ymd(iso: string): string {
   return (iso || "").slice(0, 10);
@@ -53,33 +54,26 @@ export async function POST() {
     // ---- Email → Klaviyo ----
     if (emailRows.length > 0) {
       const eligible = emailRows.filter((r) => isPast(emailSendBasis(r)));
-      let byId = new Map<string, CampaignStat>();
+      const byId = new Map<string, CampaignStat>();
 
       if (eligible.length > 0) {
         // Window: (earliest real send date − 1 day) → today, so post-send
         // conversion accrual is captured and the window can't miss the send.
         const startYMD = addDaysYMD(eligible.map((r) => ymd(emailSendBasis(r)!)).sort()[0], -1);
         const endYMD = ymd(now);
-        const cacheKey = `${startYMD}_${endYMD}`;
-        const cached = reportCache.get(cacheKey);
-        if (cached && Date.now() - cached.ts < REPORT_TTL_MS) {
-          byId = cached.byId;
-        } else {
-          const metric = await resolvePlacedOrderMetric();
-          const { start, end } = dayRangeISO(startYMD, endYMD);
-          const report = await campaignValuesReport({ start, end, conversionMetricId: metric.id });
-          if (report.truncated) warnings.push("Klaviyo campaign report was truncated — some campaigns may be missing.");
-          for (const r of report.results) {
-            const id = r.groupings.campaign_id;
-            if (!id) continue;
-            const cur = byId.get(id) ?? { recipients: 0, opens_unique: 0, clicks_unique: 0, conversion_value: 0 };
-            cur.recipients += r.statistics.recipients ?? 0;
-            cur.opens_unique += r.statistics.opens_unique ?? 0;
-            cur.clicks_unique += r.statistics.clicks_unique ?? 0;
-            cur.conversion_value += r.statistics.conversion_value ?? 0;
-            byId.set(id, cur);
-          }
-          reportCache.set(cacheKey, { ts: Date.now(), byId });
+        const metric = await resolvePlacedOrderMetric();
+        const { start, end } = dayRangeISO(startYMD, endYMD);
+        const report = await getCampaignValuesCached(start, end, metric.id);
+        if (report.truncated) warnings.push("Klaviyo campaign report was truncated — some campaigns may be missing.");
+        for (const r of report.results) {
+          const id = r.groupings.campaign_id;
+          if (!id) continue;
+          const cur = byId.get(id) ?? { recipients: 0, opens_unique: 0, clicks_unique: 0, conversion_value: 0 };
+          cur.recipients += r.statistics.recipients ?? 0;
+          cur.opens_unique += r.statistics.opens_unique ?? 0;
+          cur.clicks_unique += r.statistics.clicks_unique ?? 0;
+          cur.conversion_value += r.statistics.conversion_value ?? 0;
+          byId.set(id, cur);
         }
       }
 

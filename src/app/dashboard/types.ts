@@ -54,7 +54,10 @@ export interface OverviewData {
   campaign_status: CampaignStatus;
   warnings: string[];
   range: { start: string; end: string };
-  // Live-on-demand freshness: set client-side when a range is fetched/cached
-  // (there is no server sync timestamp anymore). ISO string.
+  // Live-on-demand freshness: the server-side cache's fetch time (ANALYTICS_RATE_
+  // LIMIT_SPEC §6 — always show staleness). ISO string.
   fetched_at: string;
+  // True when served past TTL or from cache during a Klaviyo throttle — the
+  // numbers are the last known figures, not a fresh pull.
+  stale?: boolean;
 }

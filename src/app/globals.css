@@ -229,6 +229,13 @@ details[open] > summary .rc-chevron { transform: rotate(180deg); }
   to { opacity: 1; }
 }
 
+/* Indeterminate progress: a segment slides across its track (analytics loading). */
+@keyframes rc-indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
+}
+.rc-indeterminate { animation: rc-indeterminate 1.4s var(--ease-out-soft) infinite; }
+
 .rc-animate-toast-in { animation: rc-toast-in 0.25s var(--ease-out-soft); }
 .rc-animate-overlay-in { animation: rc-overlay-in 0.15s var(--ease-out-soft); }
 .rc-animate-modal-in { animation: rc-modal-in 0.25s var(--ease-out-soft); }

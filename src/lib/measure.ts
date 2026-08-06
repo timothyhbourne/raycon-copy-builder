@@ -3,16 +3,16 @@ import {
   campaignValuesReport,
   dayRangeISO,
   fetchCampaignsByIds,
-  fetchCampaignsByStatus,
   flowValuesReport,
-  getAccountTimezone,
-  listFlows,
   resolvePlacedOrderMetric,
   sumArray,
   type CampaignValuesResult,
   type FlowValuesResult,
   type KlaviyoCampaign,
 } from "./klaviyo";
+import {
+  getAccountTimezoneCached, getFlowListCached, getDraftCampaignsCached, getScheduledCampaignsCached,
+} from "./klaviyo-cache";
 import type { OverviewData, FlowRow, CampaignRow, CampaignMeta } from "@/app/dashboard/types";
 
 // Shared LIVE range aggregation (spec: MEASUREMENT_LIVE_FETCH_SPEC / DASHBOARD_
@@ -50,7 +50,7 @@ export function isRateLimited(msg: string): boolean {
 export async function fetchRangeOverview(startYMD: string, endYMD: string): Promise<RangeOverview> {
   const warnings: string[] = [];
 
-  const timezone = await getAccountTimezone();
+  const timezone = await getAccountTimezoneCached();
   const { id: placedId } = await resolvePlacedOrderMetric();
   const { start, end } = dayRangeISO(startYMD, endYMD);
 
@@ -83,15 +83,15 @@ export async function fetchRangeOverview(startYMD: string, endYMD: string): Prom
     send_time: c.send_time ?? c.strategy_datetime ?? null, audience_count: c.audience_count,
   });
   try {
-    const flowList = await listFlows();
+    const flowList = await getFlowListCached();
     flowMeta = new Map(flowList.map((f) => [f.id, f]));
 
     const campaignIds = [...campaignTotals.keys()];
     const fetched = campaignIds.length ? await fetchCampaignsByIds(campaignIds) : [];
     campaignMeta = new Map<string, KlaviyoCampaign>(fetched.map((c) => [c.id, c]));
 
-    const draftRes = await fetchCampaignsByStatus("Draft");
-    const scheduledRes = await fetchCampaignsByStatus("Scheduled");
+    const draftRes = await getDraftCampaignsCached();
+    const scheduledRes = await getScheduledCampaignsCached();
     if (draftRes.truncated) warnings.push("More draft campaigns exist than shown (showing the 100 most recent).");
     if (scheduledRes.truncated) warnings.push("More scheduled campaigns exist than shown (showing the 100 most recent).");
     draft = draftRes.campaigns.map(toMeta);

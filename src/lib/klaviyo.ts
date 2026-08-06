@@ -1,4 +1,5 @@
 import { readEnv } from "./env";
+import { recordReportingCall } from "./klaviyo-budget";
 
 export const BASE = "https://a.klaviyo.com/api";
 const REVISION = "2026-04-15";
@@ -344,6 +345,7 @@ export async function flowValuesReport(opts: ValuesReportOpts): Promise<{ result
       },
     },
   };
+  await recordReportingCall(); // tight-tier (2/min · 225/day) — count every call
   return fetchAllPages<FlowValuesResult>("/flow-values-reports/", body);
 }
 
@@ -477,6 +479,7 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ re
       },
     },
   };
+  await recordReportingCall(); // tight-tier (2/min · 225/day) — count every call
   return fetchAllPages<CampaignValuesResult>("/campaign-values-reports/", body);
 }
 

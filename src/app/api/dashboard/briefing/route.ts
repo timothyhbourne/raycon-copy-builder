@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAnthropic, FAST_MODEL } from "@/lib/anthropic";
-import { fetchRangeOverview, type RangeOverview } from "@/lib/measure";
+import type { RangeOverview } from "@/lib/measure";
+import { getRangeOverview } from "@/lib/measure-cache";
 import { buildBriefingFacts, priorWindow, type ChannelScope } from "@/lib/briefing";
 import { briefingSystemInstruction, buildBriefingUserPrompt } from "@/lib/prompts/briefing";
 import { parseBody } from "@/lib/validation/api";
@@ -65,7 +66,9 @@ export async function POST(req: NextRequest) {
     if (body.includePrior !== false) {
       const pw = priorWindow(range.start, range.end);
       try {
-        prior = await fetchRangeOverview(pw.start, pw.end);
+        // Cached accessor: the prior window is almost always a PAST range (long
+        // TTL), so this is normally a warm Redis hit — zero Klaviyo calls.
+        prior = (await getRangeOverview(pw.start, pw.end)).overview;
       } catch (e) {
         console.warn("[dashboard/briefing] prior window fetch failed:", e instanceof Error ? e.message : e);
         prior = null;
