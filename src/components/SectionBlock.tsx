@@ -21,6 +21,10 @@ interface Props {
   total: number;
   /** Number of columns for product_grid sections */
   gridCols?: number;
+  /** The elements this section should have, derived from its SectionSpec by the
+   * canvas (USP slot count, optional elements, switched-off removable ones).
+   * Falls back to the raw type catalogue when no spec matched the section. */
+  catalogueElements?: string[];
   /** Similarity flags keyed by element key (see repetition-client). */
   flags?: Record<string, RepetitionFlag>;
   onDismissFlag?: (key: string) => void;
@@ -43,6 +47,7 @@ export default function SectionBlock({
   index,
   total,
   gridCols,
+  catalogueElements,
   flags,
   onDismissFlag,
   onChange,
@@ -262,7 +267,9 @@ export default function SectionBlock({
   // then any catalogue elements still missing. Appending the missing catalogue
   // keys , even when empty , is what lets a freshly INSERTED blank section be
   // filled in; otherwise it renders as an empty box with nothing to type into.
-  const catalogue = SECTION_CATALOGUE[section.type] ?? [];
+  // Prefer the spec-derived list (variable USP count, switched-off Subheader/CTA)
+  // and fall back to the raw type catalogue for a section with no matching spec.
+  const catalogue = catalogueElements ?? SECTION_CATALOGUE[section.type] ?? [];
   const presentKeys = Object.keys(section.elements);
   const missingCatalogue = catalogue.filter((k) => !presentKeys.includes(k));
   const elementKeys = [...presentKeys, ...missingCatalogue];

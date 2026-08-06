@@ -32,12 +32,41 @@ export function isProductCardType(t: SectionType): boolean {
   return t === "product_card" || t === "product_card_review";
 }
 
+/** Where a single USP's material comes from. */
+export type UspSource = "product" | "company";
+
+/**
+ * One USP slot in a `usps` section. The slot list is what makes the section
+ * modular: its LENGTH is the USP count, and each entry decides independently
+ * whether that USP sells a product or the brand.
+ */
+export interface UspSlot {
+  source: UspSource;
+  /** Product-sourced slots only. Undefined = Auto (hero product, else first featured). */
+  product_slug?: string;
+  /** Optional steering for this single USP, e.g. "lead on battery". */
+  focus?: string;
+}
+
+/** A usps section must keep at least 2 slots and at most 5. */
+export const USP_SLOT_MIN = 2;
+export const USP_SLOT_MAX = 5;
+/** The USP count a section falls back to when `usp_slots` is absent (legacy shape). */
+export const USP_SLOT_DEFAULT = 3;
+
 export interface SectionSpec {
   id: string;
   type: SectionType;
   focus?: string;
   /** User-opted-in optional elements (e.g. Sub-Tagline for header) */
   optional_elements?: string[];
+  /** Otherwise-required elements the user switched OFF for this section (e.g. a
+   * usps section with no Subheader). Only names listed in REMOVABLE_ELEMENTS for
+   * this section type take effect. Absent = every catalogue element is present. */
+  removed_elements?: string[];
+  /** `usps` sections only: the per-USP plan. Its length is the USP count.
+   * Absent = the legacy shape (3 product-sourced USPs, product auto-resolved). */
+  usp_slots?: UspSlot[];
   /** Product grid layout — only meaningful for product_grid sections */
   grid_cols?: number;
   grid_rows?: number;
@@ -406,6 +435,69 @@ export function bundleElements(template: BundleTemplate, productCount: number): 
 export const OPTIONAL_ELEMENTS: Partial<Record<SectionType, string[]>> = {
   header: ["Sub-Tagline"],
 };
+
+/**
+ * Required elements that MAY be switched off per section — the mirror of
+ * OPTIONAL_ELEMENTS. This is what lets a USPs section run directly after a
+ * product card with no subheader of its own.
+ */
+export const REMOVABLE_ELEMENTS: Partial<Record<SectionType, string[]>> = {
+  usps: ["Subheader", "CTA"],
+  body: ["Subheader"],
+  cta_bridge: ["Subheader"],
+};
+
+/**
+ * The effective USP slot plan for a section. A section saved before the USP
+ * system (no `usp_slots`) yields USP_SLOT_DEFAULT product-sourced Auto slots,
+ * i.e. exactly today's behaviour. Length is clamped to [MIN, MAX].
+ */
+export function uspSlotsOf(s: Pick<SectionSpec, "usp_slots">): UspSlot[] {
+  const productSlot = (): UspSlot => ({ source: "product" });
+  const slots = s.usp_slots?.length
+    ? s.usp_slots.slice(0, USP_SLOT_MAX)
+    : Array.from({ length: USP_SLOT_DEFAULT }, productSlot);
+  // Pad a too-short list up to the minimum rather than rejecting it, so a
+  // hand-edited or partially-migrated spec still renders a usable section.
+  while (slots.length < USP_SLOT_MIN) slots.push(productSlot());
+  return slots;
+}
+
+/** The base elements of a `usps` section with `n` USP slots: Subheader, USP 1…N, CTA. */
+export function uspsElements(n: number): string[] {
+  const count = Math.max(USP_SLOT_MIN, Math.min(USP_SLOT_MAX, n || USP_SLOT_DEFAULT));
+  return ["Subheader", ...Array.from({ length: count }, (_, i) => `USP ${i + 1}`), "CTA"];
+}
+
+/**
+ * THE single source of truth for which copy elements a section produces.
+ *
+ * Every consumer derives its element list from here — the generation prompt, its
+ * JSONL skeleton, regeneration, section variations, and the canvas — so a section
+ * with 5 USPs and no Subheader is described identically everywhere. Order:
+ * base elements (type / bundle template / USP slot count), then opted-in
+ * optional elements, minus anything the user removed.
+ *
+ * A removal only applies if the name is listed in REMOVABLE_ELEMENTS for the
+ * type, and a removal is never allowed to empty a section.
+ */
+export function sectionElementNames(
+  s: Pick<SectionSpec, "type" | "bundle_template" | "bundle_products" | "usp_slots" | "optional_elements" | "removed_elements">
+): string[] {
+  const base =
+    s.type === "bundle" ? bundleElements(s.bundle_template ?? "unified", (s.bundle_products ?? []).length)
+    : s.type === "usps" ? uspsElements(uspSlotsOf(s).length)
+    : (SECTION_CATALOGUE[s.type] ?? []);
+
+  const withOptional = [...base, ...(s.optional_elements ?? [])];
+
+  const removable = new Set(REMOVABLE_ELEMENTS[s.type] ?? []);
+  const removed = new Set((s.removed_elements ?? []).filter((e) => removable.has(e)));
+  if (!removed.size) return withOptional;
+
+  const kept = withOptional.filter((e) => !removed.has(e));
+  return kept.length ? kept : withOptional;
+}
 
 export const DEFAULT_SECTION_STRUCTURE: SectionSpec[] = [
   { id: "s1", type: "header" },

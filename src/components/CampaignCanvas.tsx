@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { GeneratedCampaign, GeneratedSection, ExpandedBrief, Conceit, SectionSpec, LibraryCampaign, SectionType } from "@/lib/schemas";
-import { SECTION_CATALOGUE } from "@/lib/schemas";
+import { SECTION_CATALOGUE, sectionElementNames } from "@/lib/schemas";
 import type { ProductReview } from "@/lib/reviews/fetch";
 import { nanoid } from "@/lib/nanoid";
 import SectionBlock from "./SectionBlock";
@@ -247,6 +247,11 @@ export default function CampaignCanvas({
             : section.type === "reviews"
               ? (featuredProduct ?? expandedBrief?.products_featured?.[0])
               : undefined;
+          // The elements this section is SUPPOSED to have, per its spec: N USP
+          // slots, plus/minus optional and switched-off elements. Without this the
+          // renderer falls back to the raw catalogue and would resurrect a
+          // Subheader the user removed, or show only 3 slots on a 5-USP section.
+          const catalogueElements = spec ? sectionElementNames(spec) : undefined;
           const isNewest = isGenerating && i === campaign.sections.length - 1;
           return (
             <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
@@ -255,6 +260,7 @@ export default function CampaignCanvas({
                 index={i}
                 total={campaign.sections.length}
                 gridCols={gridCols}
+                catalogueElements={catalogueElements}
                 flags={repetitionFlags}
                 onDismissFlag={onDismissFlag}
                 onChange={(s) => updateSection(section.id, s)}

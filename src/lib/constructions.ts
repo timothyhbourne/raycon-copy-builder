@@ -45,6 +45,11 @@ export interface CampaignConstructions {
   // Finalized SMS variant texts (from the SMS copy builder), so SMS generation
   // can be told what NOT to echo. Absent on email-only campaign entries.
   sms?: string[];
+  // USP lines already shipped, keyed by the SKU the slot was bound to (or
+  // "company" for a company-sourced slot). Feeds the soft "prefer a bank entry
+  // these did not cover" preference so the same three USPs stop appearing in
+  // every email. Optional: index entries written before the USP system lack it.
+  usps?: Record<string, string[]>;
 }
 
 export interface ConstructionsIndex {
@@ -119,11 +124,25 @@ function extractFromStructured(entry: LibraryCampaign): CampaignConstructions | 
   const taglines: string[] = [];
   const body_openers: string[] = [];
   const one_liners: Record<string, string[]> = {};
+  const usps: Record<string, string[]> = {};
 
   const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 
   for (const section of cam.sections ?? []) {
     const el = section.elements ?? {};
+    // USP lines, keyed by the slot's bound product (or "company"). The spec's
+    // slot plan is what tells us which product each numbered USP was about.
+    if (section.type === "usps") {
+      const slots = specById.get(section.id)?.usp_slots ?? [];
+      for (const [key, value] of Object.entries(el)) {
+        const m = key.match(/^USP (\d+)$/);
+        const text = str(value);
+        if (!m || !text) continue;
+        const slot = slots[Number(m[1]) - 1];
+        const bucket = slot?.source === "company" ? "company" : (slot?.product_slug ?? "");
+        if (bucket) (usps[bucket] ??= []).push(text);
+      }
+    }
     if (str(el["Headline"])) headlines.push(str(el["Headline"]));
     // Selected Subheader variant (elements.Subheader already mirrors it).
     if (str(el["Subheader"])) headlines.push(str(el["Subheader"]));
@@ -166,6 +185,7 @@ function extractFromStructured(entry: LibraryCampaign): CampaignConstructions | 
     taglines,
     body_openers,
     one_liners,
+    ...(Object.keys(usps).length ? { usps } : {}),
   };
 }
 
@@ -335,6 +355,36 @@ export async function buildAvoidBlock(opts: AvoidOpts = {}): Promise<string> {
   if (!lines.length) return "";
 
   return `${header}\n${lines.join("\n")}`;
+}
+
+/**
+ * USP lines already shipped, newest-first, for each of `keys` (a SKU, or the
+ * literal "company"). Feeds the per-slot "prefer a bank entry these did not
+ * cover" line in the generation prompt — a SOFT preference, never a block: with
+ * an 8 to 12 entry bank and a 3 USP section, hard-excluding used entries would
+ * exhaust the bank in three sends.
+ */
+export async function recentUspsBySlug(
+  keys: string[],
+  limit = 6,
+  excludeId?: string
+): Promise<Record<string, string[]>> {
+  const wanted = keys.filter(Boolean);
+  if (!wanted.length) return {};
+  const campaigns = sortedCampaigns(await readIndex(), excludeId);
+  const out: Record<string, string[]> = {};
+  for (const key of wanted) {
+    const collected: string[] = [];
+    for (const [, c] of campaigns) {
+      for (const line of c.usps?.[key] ?? []) {
+        collected.push(line);
+        if (collected.length >= limit) break;
+      }
+      if (collected.length >= limit) break;
+    }
+    if (collected.length) out[key] = collected;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

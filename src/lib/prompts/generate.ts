@@ -1,6 +1,7 @@
 import type { ExpandedBrief, Conceit, SectionSpec, LibraryCampaign } from "../schemas";
-import { SECTION_CATALOGUE, isProductCardType, bundleElements } from "../schemas";
+import { isProductCardType, sectionElementNames, uspSlotsOf } from "../schemas";
 import { getProductName } from "../products";
+import { getProductUsps, getCompanyUsps, formatUsp } from "../usps";
 import { getBundle } from "../bundles";
 import { rayconVoice, hardRulesGate } from "./voice";
 import { playbookBlock } from "./playbooks";
@@ -27,7 +28,7 @@ Element craft. LENGTH CAPS ARE NOT RESTATED HERE , every cap lives once, in the 
 - Tagline: ONE line, within the Tagline cap. The plain PAYOFF of the headline's hook: it states the offer and what it covers, naming products per the count rule in the HARD RULES gate (1 → name it; 2 → both exact names; 3+ → characterful category or "sitewide"). A light wink at most; never a code, an urgency tag, or a counting construction.
 - Headline and Tagline are a PAIR, not two independent elements. The headline carries the play, the tagline answers it with the deal, and the two read as ONE thought said out loud: "Summer Just Got Louder" + "20% off sitewide" is one thought; two playful lines in a row is two hooks and no payoff.
 - Never list two or more product names in a Headline, Tagline, or Subheader. In a multi-product sale (combo, bundle, sitewide) the hero leads with the OFFER or the OCCASION; the individual products get their own cards below the fold. A single-product send may name that one product.
-- Subheader: a benefit FRAGMENT within the Subheader cap, per the shipped reference #8 register ("A battery that keeps you going") , the spec proof belongs in the supporting line below, never inside the subheader. This element is an array of EXACTLY 3 distinct options (see output shape) , each a genuinely different angle (one benefit-led, one product/feature-led, one occasion/emotion-led), each within the cap and clean of every hard ban, ordered strongest-first. Offer mechanics ("30% off. Closes tonight.") are never a subheader , the offer already lives in the tagline, CTA, and body. All other elements are single strings.
+- Subheader: a benefit FRAGMENT within the Subheader cap, per the shipped reference #8 register ("A battery that keeps you going") , the spec proof belongs in the supporting line below, never inside the subheader. Where a section's required-elements list includes a Subheader, this element is an array of EXACTLY 3 distinct options (see output shape) , each a genuinely different angle (one benefit-led, one product/feature-led, one occasion/emotion-led), each within the cap and clean of every hard ban, ordered strongest-first. Offer mechanics ("30% off. Closes tonight.") are never a subheader , the offer already lives in the tagline, CTA, and body. All other elements are single strings.
 - Body copy per module: 2-4 short sentences in the voice. May restate the offer or code at the end.
 - One-liners: 5-12 words, benefit-led and plain, per the voice rules. Never any offer mechanics.
 - Review (product_card_review only): a REAL customer review supplied to you below. Use it VERBATIM (you may trim length only), never reword, summarize, or invent one. It may end with an attribution like "… — Jordan M." — KEEP that reviewer name exactly; never add, change, or invent a name. If no review was supplied for the card's product, leave the Review element empty (empty string). Never fabricate a review.
@@ -77,19 +78,102 @@ Maximum personality within the bans, concentrated in the headline. Wordplay, lig
 // Shared by the campaign brain (generateUserPrompt) and the flow brain
 // (src/lib/prompts/flows.ts) so both drive the SAME output shape — which is what
 // lets the client stream parser and the canvas render either unchanged.
+/** Optional per-call context for the USPs section. */
+export interface SectionListOpts {
+  /** The live promotion, as one line ("30% off sitewide, code GOALS, ends Thursday
+   * night"). Injected into COMPANY-sourced USP slots only, so the offer can be
+   * expressed as a benefit there and never gets tacked onto a product spec. */
+  offerContext?: string;
+  /** USP lines already sent for a product SKU (and under the "company" key), from
+   * the constructions recency index. A soft preference to draw on a bank entry
+   * these did not already cover — never a hard block. */
+  recentUspsBySlug?: Record<string, string[]>;
+}
+
+/**
+ * Per-slot instructions for a `usps` section, with each slot's bank injected and
+ * NOTHING else. This is the fix for the core bug: a usps section previously had no
+ * product binding at all, so the model picked features out of whichever product it
+ * had last seen in the wholesale catalogue blob.
+ */
+function uspSectionNote(s: SectionSpec, opts: SectionListOpts): string {
+  const slots = uspSlotsOf(s);
+  const companyBank = getCompanyUsps();
+  // Two slots bound to the same product (or two company slots) share one bank —
+  // print it once and point later slots at it rather than repeating hundreds of
+  // tokens. Maps a bank key to the USP number that already carries it.
+  const emittedAt = new Map<string, number>();
+
+  const slotLines = slots.map((slot, idx) => {
+    const n = idx + 1;
+    const focus = slot.focus?.trim() ? `\n    focus for this USP (from the user): ${slot.focus.trim()}` : "";
+
+    if (slot.source === "company") {
+      const seenAt = emittedAt.get("company");
+      const bank = !companyBank.length
+        ? `\n    (No company USP bank is available. Do NOT claim any shipping, returns, or warranty term.)`
+        : seenAt
+          ? `\n    Company USP bank: the same one listed under USP ${seenAt} above. Pick a DIFFERENT entry from it.`
+          : `\n    Verified company USP bank , the ONLY sanctioned source for shipping, returns, warranty, and brand-proof claims:\n${companyBank.map((u) => `      ${formatUsp(u)}`).join("\n")}`;
+      if (companyBank.length && !seenAt) emittedAt.set("company", n);
+      const offer = opts.offerContext?.trim()
+        ? `\n    Live offer for this campaign: ${opts.offerContext.trim()}`
+        : "";
+      const recent = seenAt ? [] : (opts.recentUspsBySlug?.company ?? []).slice(0, 6);
+      const recentLine = recent.length
+        ? `\n    Company USPs used in recent sends (prefer a different entry): ${recent.map((r) => `"${r}"`).join("; ")}`
+        : "";
+      return `  USP ${n} , COMPANY USP. Draw from the verified company bank below and/or express the live offer as a benefit. Never invent shipping terms, returns terms, warranty length, or certifications that are not listed here.${focus}${bank}${offer}${recentLine}`;
+    }
+
+    if (!slot.product_slug) {
+      return `  USP ${n} , PRODUCT USP, but no product is bound to this slot and no featured product was selected. Write a benefit that is true of the campaign's subject without naming a specific product spec.${focus}`;
+    }
+    const name = getProductName(slot.product_slug);
+    const bank = getProductUsps(slot.product_slug);
+    if (!bank.length) {
+      return `  USP ${n} , PRODUCT USP for ${name} (SKU ${slot.product_slug}). No USP bank is recorded for this product, so write a benefit drawn ONLY from this product's entry in the product catalogue. Invent nothing.${focus}`;
+    }
+    const seenAt = emittedAt.get(slot.product_slug);
+    if (seenAt) {
+      return `  USP ${n} , PRODUCT USP for ${name} (SKU ${slot.product_slug}). Same bank as USP ${seenAt} above , choose a DIFFERENT entry from it. This USP must be about this product and no other.${focus}`;
+    }
+    emittedAt.set(slot.product_slug, n);
+    const recent = (opts.recentUspsBySlug?.[slot.product_slug] ?? []).slice(0, 6);
+    const recentLine = recent.length
+      ? `\n    USPs already sent for this product (prefer a bank entry these did not cover): ${recent.map((r) => `"${r}"`).join("; ")}`
+      : "";
+    return `  USP ${n} , PRODUCT USP for ${name} (SKU ${slot.product_slug}). Choose the single strongest unused benefit from this product's USP bank below and write it in Raycon voice. This USP must be about this product and no other.${focus}
+    Available USPs for ${slot.product_slug} (draw from these only):
+${bank.map((u) => `      ${formatUsp(u)}`).join("\n")}${recentLine}`;
+  });
+
+  return `\n${slotLines.join("\n")}
+  USP rules for this section:
+    - Each USP must draw from a DIFFERENT bank entry. No two USPs may restate the same benefit.
+    - A product USP must not reference any product other than the one bound to its slot.
+    - Offer mechanics belong ONLY in a company USP, woven INTO the benefit. Never tack a discount or code onto the end of a product spec.
+    - The bank entries are source material, not finished copy. Rewrite each in the voice; never paste a bank line verbatim.`;
+}
+
 export function buildSectionList(
   sectionStructure: SectionSpec[],
-  reviewsBySlug: Record<string, string[]> = {}
+  reviewsBySlug: Record<string, string[]> = {},
+  opts: SectionListOpts = {}
 ): string {
   return sectionStructure.map((s, i) => {
     const isBundle = s.type === "bundle";
     const bundleProducts = s.bundle_products ?? [];
     const bundleTemplate = s.bundle_template ?? "unified";
-    const baseElements = isBundle
-      ? bundleElements(bundleTemplate, bundleProducts.length)
-      : (SECTION_CATALOGUE[s.type] ?? []);
-    const optionalAdded = s.optional_elements ?? [];
-    const allElements = [...baseElements, ...optionalAdded];
+    // Single source of truth: honours the bundle template, the USP slot count,
+    // opted-in optional elements, and switched-off removable elements.
+    const allElements = sectionElementNames(s);
+    // Only sections carrying an explicit slot plan get per-slot instructions.
+    // Campaigns always do (expandUspSections writes one before generation); FLOWS
+    // never run through that expansion and have no featured products, so they keep
+    // the original free-form USPs behaviour rather than being told "no product is
+    // bound to this slot" three times.
+    const uspNote = s.type === "usps" && s.usp_slots?.length ? uspSectionNote(s, opts) : "";
     const bundleNote = isBundle ? (() => {
       const names = bundleProducts.map(getProductName);
       const existing = s.bundle_mode === "existing" ? getBundle(s.bundle_id) : undefined;
@@ -121,7 +205,7 @@ export function buildSectionList(
           : `\n  Review element: no real review was supplied for this product , leave "Review" as an empty string. Never write or invent a review.`)
       : "";
     return `- section ${i + 1} , type: ${s.type}
-  elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}${bundleNote}
+  elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}${bundleNote}${uspNote}
   focus (optional steering from user , may reference another section by number, e.g. "build on section 1"): ${s.focus || "none"}`;
   }).join("\n");
 }
@@ -140,12 +224,9 @@ export function buildSectionExampleLines(sectionStructure: SectionSpec[]): strin
       ).join(",");
       return `{"type":"product_grid","elements":{"Subheader":"...","Products":[${products}]}}`;
     }
-    const baseElements = s.type === "bundle"
-      ? bundleElements(s.bundle_template ?? "unified", (s.bundle_products ?? []).length)
-      : (SECTION_CATALOGUE[s.type] ?? []);
-    const optionalAdded = s.optional_elements ?? [];
-    const allElements = [...baseElements, ...optionalAdded];
-    const elemPairs = allElements.map((el) =>
+    // Same derivation as buildSectionList, so the skeleton can never disagree with
+    // the required-elements list (a removed Subheader is absent from BOTH).
+    const elemPairs = sectionElementNames(s).map((el) =>
       el === "Subheader"
         ? `"Subheader":["option 1","option 2","option 3"]`
         : `"${el}":"..."`
@@ -163,9 +244,11 @@ export function generateUserPrompt(
   /** Real reviews supplied per product SKU (best-first), used VERBATIM for the
    * Review element of product_card_review cards. Populated by the generate route
    * (see reviews service). Empty when none were found — never invent one. */
-  reviewsBySlug: Record<string, string[]> = {}
+  reviewsBySlug: Record<string, string[]> = {},
+  /** Offer + USP-recency context for `usps` sections (see SectionListOpts). */
+  uspOpts: SectionListOpts = {}
 ): string {
-  const sectionList = buildSectionList(sectionStructure, reviewsBySlug);
+  const sectionList = buildSectionList(sectionStructure, reviewsBySlug, uspOpts);
 
   const exampleBlocks = examples.map((e) => `---
 ${e.title} (${e.date}, ${e.campaign_type})
@@ -221,7 +304,7 @@ Line 1 must be the meta block:
 Lines 2+ are sections in order, one per line:
 ${exampleLines}
 
-Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. If Sub-Tagline was not in the elements required list above, do not include it. The "Subheader" element, wherever it appears, must be a JSON array of EXACTLY 3 distinct option strings (see the Subheader variants rule) , never a single string. All other elements are single strings.
+Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match that section's "elements required" list above EXACTLY , produce every element listed there and NO element that is absent from it. A section whose list omits "Subheader" or "CTA" must not contain that key at all; do not helpfully add one back. If Sub-Tagline was not in the elements required list above, do not include it. Wherever "Subheader" IS in a section's required list it must be a JSON array of EXACTLY 3 distinct option strings (see the Subheader variants rule) , never a single string. All other elements are single strings.
 
 COMPLETENESS REQUIREMENT , read carefully. The section structure above lists ${sectionStructure.length} section${sectionStructure.length === 1 ? "" : "s"}. Your output must contain exactly ${sectionStructure.length + 1} JSON lines in total: the meta block, then one line per section, in the order listed, every section included. If the same section type appears multiple times (e.g. three product_card sections in a row), you must produce a separate JSON line for EACH one , do not collapse, merge, or skip any of them, even when their content looks similar. Do not stop early because the email "feels done." The output is incomplete unless every section in the list above has its own line. Before you finish, count your output lines and confirm there are ${sectionStructure.length + 1}.`;
 }

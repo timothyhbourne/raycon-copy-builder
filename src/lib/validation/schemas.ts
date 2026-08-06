@@ -46,11 +46,22 @@ const productInGrid = z.looseObject({
   cta: z.string(),
 });
 
+// A USPs section's per-slot config. All fields optional on SectionSpec, so a
+// campaign saved before the USP system (no usp_slots, no removed_elements) still
+// validates untouched and falls back to the legacy 3-product-USP behaviour.
+const uspSlot = z.looseObject({
+  source: z.enum(["product", "company"]),
+  product_slug: z.string().optional(),
+  focus: z.string().optional(),
+});
+
 const sectionSpec = z.looseObject({
   id: z.string(),
   type: sectionType,
   focus: z.string().optional(),
   optional_elements: z.array(z.string()).optional(),
+  removed_elements: z.array(z.string()).optional(),
+  usp_slots: z.array(uspSlot).optional(),
   grid_cols: z.number().optional(),
   grid_rows: z.number().optional(),
   product_slug: z.string().optional(),
@@ -58,6 +69,29 @@ const sectionSpec = z.looseObject({
   bundle_template: z.enum(["unified", "checklist", "pairing", "hero_addons"]).optional(),
   bundle_products: z.array(z.string()).optional(),
   bundle_id: z.string().optional(),
+});
+
+// ---- USP banks (data/product-usps.md, data/company-usps.md) ----------------
+// Bundled static content, parsed at load time. Validated at the parse boundary
+// so a malformed hand-edited block is logged and skipped rather than reaching a
+// prompt half-formed.
+export const productUspSchema = z.object({
+  label: z.string().min(1),
+  benefit: z.string().min(1),
+  tags: z.array(z.string()),
+  unverified: z.boolean().optional(),
+});
+
+export const companyUspSchema = productUspSchema.extend({
+  theme: z.string().min(1),
+});
+
+export const uspBankSchema = z.object({
+  sku: z.string().min(1),
+  name: z.string(),
+  source: z.string(),
+  verified: z.string(),
+  usps: z.array(productUspSchema),
 });
 
 // Rich generated content is validated structurally but kept permissive — the

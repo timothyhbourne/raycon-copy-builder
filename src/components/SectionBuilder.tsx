@@ -1,8 +1,12 @@
 "use client";
 import { useState } from "react";
-import type { SectionSpec, SectionType, BundleMode } from "@/lib/schemas";
-import { OPTIONAL_ELEMENTS, isProductCardType, BUNDLE_TEMPLATES } from "@/lib/schemas";
+import type { SectionSpec, SectionType, BundleMode, UspSlot, UspSource } from "@/lib/schemas";
+import {
+  OPTIONAL_ELEMENTS, REMOVABLE_ELEMENTS, isProductCardType, BUNDLE_TEMPLATES,
+  uspSlotsOf, USP_SLOT_MIN, USP_SLOT_MAX,
+} from "@/lib/schemas";
 import { PRODUCT_CATEGORIES, getProductName } from "@/lib/products";
+import { hasUspBank } from "@/lib/usps-coverage";
 import { RAYCON_BUNDLES, getBundle, bundleContentsLabel } from "@/lib/bundles";
 import { nanoid } from "@/lib/nanoid";
 
@@ -25,6 +29,17 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  // Per-slot focus inputs are collapsed by default so the slot list stays compact.
+  const [openFocus, setOpenFocus] = useState<Set<string>>(new Set());
+  const focusKey = (id: string, idx: number) => `${id}:${idx}`;
+  const toggleFocusOpen = (id: string, idx: number) => {
+    setOpenFocus((prev) => {
+      const next = new Set(prev);
+      const k = focusKey(id, idx);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
 
   const updateFocus = (id: string, focus: string) => {
     onChange(sections.map((s) => (s.id === id ? { ...s, focus } : s)));
@@ -63,6 +78,49 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
     patchSection(id, {
       bundle_products: cur.includes(slug) ? cur.filter((p) => p !== slug) : [...cur, slug],
     });
+  };
+
+  // ---- USP slots ----------------------------------------------------------
+  // Editing always writes an EXPLICIT usp_slots array (uspSlotsOf materialises
+  // the legacy 3-slot default first), so a touched section stops depending on
+  // the fallback and round-trips exactly as configured.
+  const setSlots = (id: string, next: UspSlot[]) => patchSection(id, { usp_slots: next });
+  const updateSlot = (id: string, idx: number, patch: Partial<UspSlot>) => {
+    const s = sections.find((x) => x.id === id);
+    if (!s) return;
+    setSlots(id, uspSlotsOf(s).map((slot, i) => (i === idx ? { ...slot, ...patch } : slot)));
+  };
+  const setSlotSource = (id: string, idx: number, source: UspSource) => {
+    // Switching to Company drops the product binding rather than leaving it stale.
+    updateSlot(id, idx, source === "company" ? { source, product_slug: undefined } : { source });
+  };
+  const addSlot = (id: string) => {
+    const s = sections.find((x) => x.id === id);
+    if (!s) return;
+    const cur = uspSlotsOf(s);
+    if (cur.length >= USP_SLOT_MAX) return;
+    setSlots(id, [...cur, { source: "product" }]);
+  };
+  const removeSlot = (id: string, idx: number) => {
+    const s = sections.find((x) => x.id === id);
+    if (!s) return;
+    const cur = uspSlotsOf(s);
+    if (cur.length <= USP_SLOT_MIN) return; // a usps section keeps at least 2
+    setSlots(id, cur.filter((_, i) => i !== idx));
+  };
+
+  // Removable elements are the inverse of optional ones: active by default,
+  // clicked OFF. That is what lets a USPs section sit under a product card with
+  // no subheader of its own.
+  const toggleRemovedElement = (id: string, element: string) => {
+    onChange(sections.map((s) => {
+      if (s.id !== id) return s;
+      const current = s.removed_elements ?? [];
+      const updated = current.includes(element)
+        ? current.filter((e) => e !== element)
+        : [...current, element];
+      return { ...s, removed_elements: updated.length ? updated : undefined };
+    }));
   };
 
   const toggleOptionalElement = (id: string, element: string) => {
@@ -106,6 +164,8 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
       {sections.map((s) => {
         const optionalAvailable = OPTIONAL_ELEMENTS[s.type] ?? [];
         const optionalActive = s.optional_elements ?? [];
+        const removableAvailable = REMOVABLE_ELEMENTS[s.type] ?? [];
+        const removedActive = s.removed_elements ?? [];
         return (
           <div
             key={s.id}
@@ -131,7 +191,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                 placeholder="Focus for this section (optional)"
                 className="w-full text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-slate-400 bg-slate-50"
               />
-              {optionalAvailable.length > 0 && (
+              {(optionalAvailable.length > 0 || removableAvailable.length > 0) && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {optionalAvailable.map((el) => {
                     const active = optionalActive.includes(el);
@@ -150,8 +210,117 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                       </button>
                     );
                   })}
+                  {/* Inverse chips: ON by default, click to switch the element off. */}
+                  {removableAvailable.map((el) => {
+                    const on = !removedActive.includes(el);
+                    return (
+                      <button
+                        key={`rm-${el}`}
+                        type="button"
+                        onClick={() => toggleRemovedElement(s.id, el)}
+                        title={on ? `Remove ${el} from this section` : `Add ${el} back`}
+                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                          on
+                            ? "bg-slate-700 text-white border-slate-700"
+                            : "bg-white text-slate-300 border-slate-200 line-through hover:border-slate-400 hover:text-slate-500"
+                        }`}
+                      >
+                        {on ? "✓ " : "✕ "}{el}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
+              {s.type === "usps" && (() => {
+                const slots = uspSlotsOf(s);
+                return (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">USPs</span>
+                      <span className="text-xs text-slate-300">{slots.length} of {USP_SLOT_MAX}</span>
+                    </div>
+                    {slots.map((slot, idx) => {
+                      const showFocus = openFocus.has(focusKey(s.id, idx)) || !!slot.focus;
+                      const noBank = slot.source === "product" && !!slot.product_slug && !hasUspBank(slot.product_slug);
+                      return (
+                        <div key={idx} className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-slate-400 w-3 shrink-0">{idx + 1}</span>
+                            <select
+                              value={slot.source}
+                              onChange={(e) => setSlotSource(s.id, idx, e.target.value as UspSource)}
+                              className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                            >
+                              <option value="product">Product</option>
+                              <option value="company">Company</option>
+                            </select>
+                            {slot.source === "product" && (
+                              <select
+                                value={slot.product_slug ?? ""}
+                                onChange={(e) => updateSlot(s.id, idx, { product_slug: e.target.value || undefined })}
+                                className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400 min-w-0 flex-1"
+                              >
+                                <option value="">Auto (hero product)</option>
+                                {selectedProducts.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => toggleFocusOpen(s.id, idx)}
+                              title="Steer this one USP"
+                              className={`text-xs px-1.5 py-0.5 rounded border transition-colors ml-auto ${
+                                slot.focus
+                                  ? "border-slate-300 text-slate-600"
+                                  : "border-transparent text-slate-300 hover:text-slate-500"
+                              }`}
+                            >
+                              focus
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeSlot(s.id, idx)}
+                              disabled={slots.length <= USP_SLOT_MIN}
+                              title={slots.length <= USP_SLOT_MIN ? `A USPs section keeps at least ${USP_SLOT_MIN}` : "Remove this USP"}
+                              className="text-xs text-slate-300 hover:text-red-400 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {showFocus && (
+                            <input
+                              type="text"
+                              value={slot.focus ?? ""}
+                              onChange={(e) => updateSlot(s.id, idx, { focus: e.target.value || undefined })}
+                              placeholder="Steer this USP (e.g. lead on battery)"
+                              className="w-full text-xs border border-slate-200 rounded px-2 py-1 ml-4 focus:outline-none focus:border-slate-400 bg-slate-50"
+                            />
+                          )}
+                          {noBank && (
+                            <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 ml-4">
+                              No USPs recorded for {getProductName(slot.product_slug as string)} — add them in data/product-usps.md.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => addSlot(s.id)}
+                      disabled={slots.length >= USP_SLOT_MAX}
+                      className="text-xs text-slate-400 hover:text-slate-700 disabled:opacity-40 disabled:hover:text-slate-400 transition-colors"
+                    >
+                      + Add USP
+                    </button>
+                    {slots.some((x) => x.source === "product") && selectedProducts.length === 0 && (
+                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        Select featured products first — a product USP needs a product to draw from.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {s.type === "product_grid" && (() => {
                 const cols = s.grid_cols ?? 2;
                 const rows = s.grid_rows ?? 2;

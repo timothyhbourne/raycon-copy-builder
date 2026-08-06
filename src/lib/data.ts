@@ -18,6 +18,12 @@ export function getReferenceDesk(): string { return readFile("brand-voice.md"); 
 export function getProducts(): string { return readFile("products.md"); }
 export function getRawLibrary(): string { return readFile("raw/raycon_email_copywriting_library.md"); }
 
+// USP banks. Deliberately NOT part of getBrandContext(): unlike products.md these
+// are never injected wholesale into the system prompt — src/lib/usps.ts parses
+// them and the generator injects only the bound product's bank per section.
+export function getProductUspsDoc(): string { return readFile("product-usps.md"); }
+export function getCompanyUspsDoc(): string { return readFile("company-usps.md"); }
+
 // --- copy-system.md: the single source of truth for voice + rules ----------
 
 export function getCopySystem(): string { return readFile("copy-system.md"); }

@@ -16,6 +16,7 @@
     "ingest:designs": "tsx scripts/ingest-designs.ts",
     "ingest:design-spec": "tsx scripts/extract-design-spec.ts",
     "index:constructions": "tsx scripts/index-constructions.ts",
+    "verify:usps": "tsx scripts/verify-usps.ts",
     "ingest:orders": "tsx scripts/ingest-orders.ts",
     "backtest:lifecycle": "tsx scripts/backtest-lifecycle.ts"
   },

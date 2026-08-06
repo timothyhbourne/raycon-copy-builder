@@ -2,6 +2,8 @@
 
 The complete reference for all active Raycon products. Use product slugs (lowercase, hyphenated) as the canonical identifier in campaign briefs. SKU codes (E25, E45, B42, etc.) are how the products are referenced inside past campaign copy. Both are listed here so the AI can map between them.
 
+**Related files.** This document is the narrative catalogue and is injected into every prompt. The per-product USP banks live in `data/product-usps.md` and the brand-level bank in `data/company-usps.md`; those are injected per section, scoped to the bound product, and are the only sanctioned source for shipping, returns, and warranty claims. Key features below were reconciled against the live product pages on 2026-08-06; where the two disagreed, the live page won.
+
 ---
 
 ## Open Audio
@@ -38,8 +40,9 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Price:** $79.99 (regular $99.98)
 - **Official tagline:** Total awareness with bud-free listening.
 - **One-liner:** Sits beside the ear and transmits audio as vibrations to the inner ear. Leaves the ear canal fully open. The most open way to listen.
-- **Key features:** Bone conduction technology, IP68 Waterproof, 13 Hour Battery Life, Adjustable speaker arms, No ear canal seal
-- **Colours:** Gray, Blush Violet, Royal Blue, Cool Mint
+- **Key features:** Bone conduction technology, IP68 Waterproof, 13 Hour Battery Life, Adjustable speaker arms, No ear canal seal, Featherlight frame
+- **Colours:** Gray, Blush Violet, Royal Blue, Cool Mint, Jolly Rancher Watermelon
+- **Sizes:** Standard and Small (verified live 2026-08-06)
 - **Positioning:** Premium, understated, category-of-one. Wear all day and forget they're there.
 
 ### Everyday Clip Earbuds
@@ -66,7 +69,8 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Price:** $63.99 (regular $79.98)
 - **Official tagline:** Pocket-sized buds, marathon-sized battery.
 - **One-liner:** Timeless, confident, familiar. Fits just right, goes all day, comes in colours worth choosing.
-- **Key features:** Ergonomic and secure fit, Physical button controls (reliable, no fidget), ANC / Awareness mode, 32 Hour Battery Life
+- **Key features:** Ergonomic gel-tip fit, ANC / Awareness mode, IPX4 Water Resistant (rain, snow, sweat), 2 Microphones for calls, 32 Hour Battery Life
+- **Live-page note (2026-08-06):** IPX4 and the 2-microphone count are confirmed on the product page and were missing here. "Physical button controls" and multipoint are NOT stated on the live page — do not claim either for the E25.
 - **Colours:** Carbon Black, Electric Blue, Rose Gold, Cool Mint, Blush Violet
 - **Positioning:** The flagship. Most popular earbud. The default Raycon recommendation.
 - **NAMING:** Call this "Everyday Earbuds" (or "the Everyday Earbuds"). The "Classic" name is retired in all new copy. The slug `everyday-earbuds-classic` stays unchanged internally and is never shown to readers. Full rule in `copy-system.md`.
@@ -75,7 +79,7 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 ### Everyday Earbuds Plus
 - **Slug:** `everyday-earbuds-plus`
 - **SKU code:** E26
-- **URL:** *not in canonical product list, but actively sold. Check store URL.*
+- **URL:** *NONE. Verified 2026-08-06: there is no live product page. `/products/everyday-earbuds-plus` returns 404, and the Plus does not appear in `/collections/earbuds` or `/collections/all`. Every spec below is internal-only and unverifiable against the storefront.*
 - **Official tagline:** Feels like nothing, sounds like everything.
 - **One-liner:** Fits like a glove and delivers great sound. Ready if life gets a little wild.
 - **Key features:** Ergonomic and comfortable fit, IP66 Dust and Waterproof, 32 Hour Battery Life
@@ -103,7 +107,8 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Price:** $119.99 (regular $149.98)
 - **Official tagline:** Ultra-durable earbuds built for any adventure.
 - **One-liner:** MIL-SPEC certified, IP67 waterproof, 90 hours total battery. Built to take a hit and keep playing.
-- **Key features:** MIL-STD-810 impact resistant certification, IP67 Waterproof (1m immersion), ANC / Awareness Mode, 90 Hour Total Battery (12h per charge), Multipoint connectivity, 800mAh power bank capability (charges other devices), Bluetooth 5.3, includes carabiner and lanyard
+- **Key features:** MIL-STD-810 impact resistant materials, IP67 Water and Dust Resistant, Drop resistant, ANC / Awareness Mode, 90 Hour Total Battery (12h per charge plus 78h in the capsule), Multipoint connectivity, 800mAh power bank capability (charges other devices), Bluetooth 5.3, Touch controls, 4 sets of stabilizing gel fins and 5 sets of gel tips, includes carabiner and lanyard
+- **Live-page note (2026-08-06):** the page states "IP67 rating, water and dust resistant". The "1m immersion" figure was NOT on the page and has been removed.
 - **Colours:** Graphite Black
 - **Positioning:** Durability-first. For athletes, adventurers, and anyone in rough conditions. The most rugged earbud in the lineup.
 
@@ -114,7 +119,7 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **URL:** https://rayconglobal.com/products/sleep-earbuds
 - **Price:** $84.99 (regular $149.98; frequently discounted)
 - **One-liner:** Tap into Sleep Mode and let five built-in ambient sounds handle the rest. No app, no phone, no counting sheep.
-- **Key features:** Ultra-slim low-profile design (side-sleeper optimised), Sleep Mode with 5 built-in ambient sounds (pink noise, brown noise, nature sounds), Bluetooth mode for music/podcasts, IPX4 Water Resistant, 45 Hour Total Battery in Sleep Mode (15h per charge), 27 Hour Total in Bluetooth Mode (9h per charge)
+- **Key features:** Ultra-slim low-profile design (side-sleeper optimised), Sleep Mode with 5 built-in ambient sounds (pink noise, brown noise, nature sounds), Sleep Mode disconnects Bluetooth entirely, No app required, Bluetooth 6.0 mode for music/podcasts, Touch controls, Passive isolation (no ANC), IPX4 Water Resistant, 45 Hour Total Battery in Sleep Mode (15h per charge), 27 Hour Total in Bluetooth Mode (9h per charge)
 - **Standard promo codes:** DREAMS-ZZ ($65 off), DREAMS-ZZZ ($70 off)
 - **Colour:** Midnight Blue is the hero
 - **Positioning:** Calm, unhurried, sleep-specific. Single-purpose product.
@@ -126,7 +131,8 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Price:** $119.99 (regular $149.98)
 - **Official tagline:** Elite noise cancellation without the tech drama.
 - **One-liner:** Hybrid ANC, six precision-tuned microphones, and 40 hours of battery. The Pro is for people who need it to just work.
-- **Key features:** Hybrid Active Noise Cancellation, Awareness Mode, 6 microphones for call clarity, Multipoint connectivity (2 devices), IPX5 Water Resistant, 40 Hour Total Battery (10h per charge), Quick Charge (10 min = 3 hours), Wireless charging case, 5 gel tip sizes
+- **Key features:** Hybrid Active Noise Cancellation (blends feedforward and feedback), Awareness Mode, 6 microphones for call clarity, Multipoint connectivity (2 devices), IPX5 Water Resistant, 40 Hour Total Battery (10h per charge), Quick Charge (10 min = 3 hours), Wireless charging case, 5 gel tip sizes
+- **Colours:** Onyx Black, Chrome Blue, Digital Purple, Platinum Silver, Silk White
 - **Positioning:** Premium productivity earbud. Best-in-class ANC and call quality for work and focus.
 
 ---
@@ -149,9 +155,11 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Slug:** `everyday-headphones`
 - **SKU code:** H20
 - **URL:** https://rayconglobal.com/collections/headphones/products/the-everyday-h20-headphones
+- **Price:** $79.99 (regular $99.98)
 - **Official tagline:** Your comfy, go everywhere, do everything, never-run-out-of-juice headphones.
 - **One-liner:** Goes all day without quitting. Comfortable in any situation.
-- **Key features:** Comfortable fit, 50 Hour Battery, Noise Cancellation
+- **Key features:** Cloud Comfort cushioned fit, 50 Hour Battery, Active Noise Cancellation, Awareness Mode, Personalized Surround Sound, 5 beam-forming microphones, IPX4 Water Resistant, Bluetooth 5.0, 3.5mm AUX cable included
+- **Colours:** Carbon Black, Rose Gold, Frost White
 - **Positioning:** The headphones equivalent of the Classic earbud. Default recommendation.
 
 ### The Fitness Headphones
@@ -162,14 +170,16 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 - **Price:** $64.99 (regular $129.98)
 - **Official tagline:** Fresh workouts with sweatproof cushions that swap.
 - **One-liner:** Sweat-proof, snug fit, ready to move when you are. Cushions swap out so they stay fresh.
-- **Key features:** ANC / Awareness Mode, Swappable cushions (PU leather + 2 breathable options included), Bluetooth 5.1, Multipoint connectivity, 5 microphones, IPX4 Sweat Resistant, 45 Hour Battery (ANC off) / 38 Hour Battery (ANC on)
+- **Key features:** ANC / Awareness Mode, 3 Quick Swap removable cushions (PU leather + 2 breathable options included), Multipoint connectivity, 5 microphones, IPX4 Sweat Resistant, 45 Hour Battery (ANC off) / 38 Hour Battery (ANC on), AUX cable included
 - **Colours:** Graphite Black, Frost White
+- **Live-page note (2026-08-06):** the page lists Bluetooth 5.1 in the feature copy and 5.0 in the spec table. The two contradict, so do not name a Bluetooth version for the H41 in copy.
 - **Positioning:** Headphones built for the gym and active use. Unique selling point: interchangeable cushions.
 
 ### Everyday Headphones Pro
 - **Slug:** `everyday-headphones-pro`
 - **SKU code:** H90
-- **Positioning:** Premium headphone tier. Details to be confirmed — not yet listed on main store page.
+- **URL:** *NONE. Verified 2026-08-06: not present in `/collections/headphones` or `/collections/all`.*
+- **Positioning:** Premium headphone tier. Not on the live storefront — do not feature it in campaign copy.
 
 ---
 
@@ -187,8 +197,11 @@ The complete reference for all active Raycon products. Use product slugs (lowerc
 
 ### Travel Adapter
 - **Slug:** `travel-adapter`
+- **SKU code:** ADAPTER45
 - **URL:** https://rayconglobal.com/products/magic-travel-adapter-45w
-- **Spec:** 45W
+- **Price:** $24.99 (regular $49.98)
+- **Key features:** 45W USB-C power delivery, 2 USB-C + 2 USB-A ports, 2 AC outlets, charges 5-7 devices at once, built-in JP/US, AU, EU and UK sockets, works in 180+ countries, retractable prongs, retractable USB-C cable included
+- **Colour:** Midnight Blue
 - **Positioning:** Travel-ready charging companion.
 
 ---
@@ -269,7 +282,8 @@ For pattern recognition only. Always use the code the user inputs for a new camp
 
 ## Notes on this document
 
-- Verify URLs and SKUs against the live Raycon store before relying on them in production copy.
+- Verify URLs and SKUs against the live Raycon store before relying on them in production copy. Last full reconciliation: 2026-08-06.
 - Update when new products launch or existing ones are deprecated.
-- The Everyday Earbuds Plus and AI Notetaker are active campaign products but were not in the original product CSV. Confirm canonical store URLs for these.
+- The AI Notetaker's canonical URL is confirmed. The Everyday Earbuds Plus (E26) and Everyday Headphones Pro (H90) have NO live product page as of 2026-08-06 and their specs cannot be verified against the storefront.
+- Shipping, returns, and warranty claims do not belong in this file. They live in `data/company-usps.md`, which is the only sanctioned source for them.
 - Special editions (MLB colourways, Hershey's collab, etc.) inherit the parent product slug and are referenced by colourway in campaign copy.

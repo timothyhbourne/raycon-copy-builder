@@ -8,7 +8,7 @@ import type {
 import type { PlannerRow } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
-import { expandProductCardSections } from "@/lib/expand-sections";
+import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
 import { extractSubheaderVariants } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
 import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
@@ -354,8 +354,14 @@ export default function Home() {
   // the client can persist them (save + regenerate/variations run off them).
   const handleBriefSubmit = async (input: BriefInput) => {
     setError(null);
-    // Expand product_card sections so each card maps to a selected product.
-    const expandedStructure = expandProductCardSections(input.section_structure, input.products_featured);
+    // Expand product_card sections so each card maps to a selected product, and
+    // resolve every Auto USP slot to a concrete SKU — both before the structure is
+    // persisted, so a saved campaign reloads with the same bindings it generated from.
+    const expandedStructure = expandUspSections(
+      expandProductCardSections(input.section_structure, input.products_featured),
+      input.products_featured,
+      input.hero_product_slug
+    );
     const normalised: BriefInput = { ...input, section_structure: expandedStructure };
     setCurrentBriefInput(normalised);
     setSectionStructure(expandedStructure);

@@ -3,7 +3,8 @@ import { getAnthropic, MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { generateRoleInstruction, generateUserPrompt, toneDirective } from "@/lib/prompts/generate";
 import { legacyGenerateRoleInstruction, legacyToneDirective } from "@/lib/prompts/legacy-generate";
-import { buildAvoidBlock } from "@/lib/constructions";
+import { buildAvoidBlock, recentUspsBySlug } from "@/lib/constructions";
+import { uspSlotsOf } from "@/lib/schemas";
 import { fetchProductReviews } from "@/lib/reviews/fetch";
 import { getProductName } from "@/lib/products";
 import { compileBrief } from "@/lib/brief/compile";
@@ -70,6 +71,23 @@ export async function POST(req: NextRequest) {
       .filter((slug) => !reviewsBySlug[slug]?.length)
       .map((slug) => ({ slug, name: getProductName(slug) }));
 
+    // USPs sections: the live offer goes ONLY to company-sourced slots (so offer
+    // mechanics are woven into a brand benefit and never appended to a product
+    // spec), plus the USP lines already sent for each bound product so the same
+    // bank entries stop resurfacing every send.
+    const offerContext = [
+      input.offer?.trim(),
+      input.promo_code?.trim() ? `code ${input.promo_code.trim()}` : "",
+      expanded_brief.deadline_language ? `ends ${expanded_brief.deadline_language}` : "",
+      input.occasion?.trim() ? `for ${input.occasion.trim()}` : "",
+    ].filter(Boolean).join(", ");
+    const uspKeys = Array.from(new Set(
+      input.section_structure
+        .filter((s) => s.type === "usps")
+        .flatMap((s) => uspSlotsOf(s).map((slot) => (slot.source === "company" ? "company" : slot.product_slug ?? "")))
+        .filter(Boolean)
+    ));
+
     const userPrompt = generateUserPrompt(
       expanded_brief,
       conceit,
@@ -79,7 +97,8 @@ export async function POST(req: NextRequest) {
         productsFeatured: input.products_featured,
         campaignType: input.campaign_type,
       }),
-      reviewsBySlug
+      reviewsBySlug,
+      { offerContext, recentUspsBySlug: await recentUspsBySlug(uspKeys) }
     );
 
     const anthropicStream = getAnthropic().messages.stream({
