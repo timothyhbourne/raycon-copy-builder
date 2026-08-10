@@ -93,6 +93,25 @@
   --color-data-4: #2563eb;  /* campaigns */
   --color-data-5: #0e9488;
   --color-data-6: #c81e1e;
+  /* ---- Promotion bands (Planner calendar). The SAME categorical hues, but as
+     SOLID fills carrying white label text, so each is darkened to the nearest
+     shade that clears 4.5:1 on white. data-1 (3.3:1), data-3 (2.0:1) and data-5
+     (3.4:1) all fail white text at their raw values, which is exactly how a band
+     ends up reading as washed-out grey. Verified: 5.43 / 4.69 / 5.58 / 5.17 /
+     6.03 / 5.73 : 1. Solid, never tinted — a band is a banner, not a wash. ---- */
+  --color-band-1: #0a7b41;
+  --color-band-2: #7c4dff;
+  --color-band-3: #8a6010;
+  --color-band-4: #2563eb;
+  --color-band-5: #0b6f66;
+  --color-band-6: #c81e1e;
+
+  /* ---- Holidays (Planner calendar). A warm clay, deliberately outside both the
+     promo band palette above and the semantic status tones, so "Labor Day" can
+     never be misread as a campaign state. 6.4:1 on its own tint. ---- */
+  --color-holiday-50: #fbeee9;
+  --color-holiday-200: #f0d3c6;
+  --color-holiday-600: #9a4a26;
 
 
   /* ---- Radius — panels get a 4th, larger step ---- */

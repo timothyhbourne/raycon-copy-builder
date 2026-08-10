@@ -17,14 +17,14 @@ import PlatformBadge from "@/components/ui/PlatformBadge";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import CopyDocModal from "@/components/CopyDocModal";
 import { toast } from "@/components/ui/Toast";
-import { holidayName } from "@/lib/holidays";
 
 import {
   money, int, pct, rpr, fmtDate, fmtDateTime, isoToLocalInput, localInputToIso,
   ymdOf, offerValue, discountCode, reDate, microLabel, selectCls, STATUS_STYLE,
   type CopyEntry, type CopyPreview, type CampaignItem,
 } from "./format";
-import { ChannelGlyph, StatusPill, CopyLink, Chevron, CopyGlyph } from "./components";
+import { ChannelGlyph, StatusPill, CopyLink, Chevron } from "./components";
+import CalendarView from "./CalendarView";
 
 export default function PlannerPage() {
   const [rows, setRows] = useState<PlannerRow[]>([]);
@@ -240,7 +240,7 @@ export default function PlannerPage() {
             }
             title="No campaigns yet"
             description="Plan your first email or SMS campaign. Start with a brief, fill in the details later."
-            action={<Button variant="primary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>}
+            action={<Button variant="secondary" size="sm" onClick={() => { setNewDate(null); setEditing("new"); }}>+ New campaign</Button>}
           />
         </div>
       ) : view === "calendar" ? (
@@ -269,142 +269,6 @@ export default function PlannerPage() {
           onClose={() => setCopyDoc(null)} onStale={fetchRows} />
       )}
     </div>
-  );
-}
-
-// ---------- calendar ----------
-function CalendarView({ rows, cursor, setCursor, onEntry, onDay, onReschedule, copyEntry, onViewCopy }: {
-  rows: PlannerRow[]; cursor: { y: number; m: number }; setCursor: (c: { y: number; m: number }) => void;
-  onEntry: (r: PlannerRow) => void; onDay: (dayYmd: string) => void; onReschedule: (id: string, ymd: string) => void;
-  copyEntry: (r: PlannerRow) => CopyEntry;
-  onViewCopy: (id: string, status?: "draft" | "final") => void;
-}) {
-  const { y, m } = cursor;
-  const first = new Date(y, m, 1);
-  const startWeekday = first.getDay();
-  const daysInMonth = new Date(y, m + 1, 0).getDate();
-  const todayYmd = new Date().toISOString().slice(0, 10);
-  const byDay = useMemo(() => {
-    const map = new Map<string, PlannerRow[]>();
-    for (const r of rows) { const k = ymdOf(r.planned_send_at); if (!k) continue; (map.get(k) ?? map.set(k, []).get(k)!).push(r); }
-    return map;
-  }, [rows]);
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  const dayKey = (d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-
-  const goPrev = () => setCursor(m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 });
-  const goNext = () => setCursor(m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 });
-  const goToday = () => { const t = new Date(); setCursor({ y: t.getFullYear(), m: t.getMonth() }); };
-  const navBtn = "w-7 h-7 inline-flex items-center justify-center rounded-sm border border-line text-ink-secondary hover:bg-chrome transition-colors";
-
-  const onDragEnd = (res: DropResult) => {
-    if (!res.destination) return;
-    const dest = res.destination.droppableId.replace("cal:", "");
-    const src = res.source.droppableId.replace("cal:", "");
-    if (dest && dest !== src) onReschedule(res.draggableId, dest);
-  };
-
-  return (
-    <DragDropContext onDragEnd={onDragEnd}>
-      {/* Fill the full (wide) workspace width — the 7-column grid and day cells
-          stretch to fill, no dead gutter on the right. */}
-      <div className="w-full bg-surface border border-line rounded-md shadow-card overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
-          <div className="flex items-center gap-2">
-            <button onClick={goPrev} aria-label="Previous month" title="Previous month" className={navBtn}>←</button>
-            <div className="text-sm font-medium text-ink min-w-[9rem] text-center">{first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
-            <button onClick={goNext} aria-label="Next month" title="Next month" className={navBtn}>→</button>
-            <Button variant="ghost" size="sm" onClick={goToday}>Today</Button>
-          </div>
-          <div className="flex items-center gap-3 t-label">
-            <span className="flex items-center gap-1"><span aria-hidden>📧</span> Email</span>
-            <span className="flex items-center gap-1"><span aria-hidden>📱</span> SMS</span>
-          </div>
-        </div>
-        <div key={`${y}-${m}`} className="rc-animate-fade">
-          <div className="grid grid-cols-7 t-label border-b border-line">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="px-2 py-1.5 text-center">{d}</div>)}
-          </div>
-          <div className="grid grid-cols-7">
-            {cells.map((d, i) => {
-              const weekend = i % 7 === 0 || i % 7 === 6;
-              if (!d) return <div key={`e-${i}`} className={`min-h-[96px] border-b border-r border-line ${weekend ? "bg-chrome/60" : "bg-canvas"}`} />;
-              const key = dayKey(d);
-              const entries = byDay.get(key) ?? [];
-              const isToday = key === todayYmd;
-              const holiday = holidayName(key);
-              return (
-                <Droppable droppableId={`cal:${key}`} key={key}>
-                  {(provided, snapshot) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps}
-                      onClick={() => onDay(key)}
-                      className={`relative min-h-[96px] border-b border-r border-line p-1.5 cursor-pointer transition-colors ${
-                        snapshot.isDraggingOver ? "bg-accent-50" : weekend ? "bg-chrome/60 hover:bg-chrome" : "hover:bg-chrome"
-                      } ${isToday ? "ring-1 ring-inset ring-accent" : ""}`}>
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className={`text-[11px] font-mono tabular-nums ${isToday ? "text-accent font-semibold" : "text-ink-muted"}`}>{d}</span>
-                        {isToday ? (
-                          <span className="text-[9px] font-medium uppercase tracking-wide text-accent">Today</span>
-                        ) : holiday ? (
-                          // Quiet holiday hint — a muted dot + truncated name, full
-                          // name on hover. Informational only; it sits above the
-                          // cell's click-to-create and drop target, never blocking them.
-                          <span title={holiday} className="pointer-events-none flex items-center gap-1 min-w-0 text-ink-muted/80">
-                            <span aria-hidden className="w-1 h-1 rounded-full bg-current shrink-0" />
-                            <span className="truncate text-[9px] leading-none tracking-wide">{holiday}</span>
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="space-y-1">
-                        {entries.map((r, idx) => (
-                          <Draggable draggableId={r.id} index={idx} key={r.id}>
-                            {(dp, snap) => {
-                              const ce = copyEntry(r);
-                              const st = STATUS_STYLE[r.status];
-                              // dnd owns the inline transform while dragging; append the tilt
-                              // rather than overwrite it so the drag position is preserved.
-                              const style = snap.isDragging
-                                ? { ...dp.draggableProps.style, transform: `${dp.draggableProps.style?.transform ?? ""} rotate(1deg)` }
-                                : dp.draggableProps.style;
-                              return (
-                                <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps} style={style}
-                                  onClick={(e) => { e.stopPropagation(); onEntry(r); }}
-                                  title={`${r.name} · ${statusLabel(r.status, r.channel)}`}
-                                  className={`flex items-center gap-1 rounded-sm px-1.5 py-1 border transition-[box-shadow] duration-150 ease-out-soft ${st.pill} ${
-                                    snap.isDragging ? "shadow-pop" : "hover:shadow-card"
-                                  }`}>
-                                  <ChannelGlyph channel={r.channel} className="shrink-0" />
-                                  {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
-                                  {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
-                                  <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
-                                  {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
-                                    <button type="button"
-                                      onClick={(e) => { e.stopPropagation(); onViewCopy(r.copy_campaign_id!, ce); }}
-                                      title="View copy" aria-label="View copy"
-                                      className="ml-auto shrink-0 text-ink-muted hover:text-ink transition-colors">
-                                      <CopyGlyph />
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            }}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                      </div>
-                    </div>
-                  )}
-                </Droppable>
-              );
-            })}
-          </div>
-        </div>
-        <div className="px-4 py-2 text-[11px] text-ink-muted border-t border-line">Drag an entry to another day to reschedule · click to edit</div>
-      </div>
-    </DragDropContext>
   );
 }
 
@@ -1058,12 +922,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     <div className="flex flex-wrap gap-1.5">
       {included.map((a) => (
         <span key={`i-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
-          <span className="text-emerald-600" aria-hidden>+</span>{a.name}
+          <span className="text-success-600" aria-hidden>+</span>{a.name}
         </span>
       ))}
       {excluded.map((a) => (
         <span key={`e-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-muted">
-          <span className="text-rose-500" aria-hidden>−</span>{a.name}
+          <span className="text-danger-600" aria-hidden>−</span>{a.name}
         </span>
       ))}
     </div>
@@ -1088,7 +952,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       footer={
         <>
           {row && (confirmDel
-            ? <Button variant="danger" size="sm" disabled={saving} onClick={del}>Confirm delete</Button>
+            ? <Button variant="dangerSolid" size="sm" disabled={saving} onClick={del}>Confirm delete</Button>
             : <Button variant="ghost" size="sm" disabled={saving} onClick={() => setConfirmDel(true)}
                 className="text-danger-600 hover:bg-danger-50 hover:text-danger-600">Delete</Button>)}
           <span className="mr-auto" />
@@ -1104,7 +968,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
         <div className="inline-flex rounded-md border border-line p-0.5 shrink-0 mt-0.5">
           {PLANNER_CHANNELS.map((c) => (
             <button key={c} type="button" onClick={() => setChannel(c)}
-              className={`px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
+              className={`px-2.5 py-1 text-[11px] font-medium capitalize rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
               {c}
             </button>
           ))}
@@ -1120,7 +984,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             const st = STATUS_STYLE[s];
             return (
               <button key={s} type="button" onClick={() => setStatus(s)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-medium uppercase tracking-wide transition-colors ${
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-sm border text-[11px] font-medium capitalize transition-colors ${
                   active ? `${st.pill} font-semibold` : "border-line text-ink-muted hover:bg-chrome"
                 }`}>
                 {st.check && active && <span aria-hidden>✓</span>}
@@ -1277,7 +1141,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <Button variant="secondary" size="sm" onClick={() => onViewCopy(copyId, copyStatus ?? "draft")}>View copy</Button>
-                  <Button variant="primary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
+                  <Button variant="secondary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
                     title="Mark ready for design and copy a Slack message with a link to the copy">
                     📋 Copy design handoff
                   </Button>

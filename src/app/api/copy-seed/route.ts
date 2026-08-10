@@ -3,6 +3,8 @@ import { getAnthropic, FAST_MODEL } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { copySeedRoleInstruction, copySeedUserPrompt } from "@/lib/prompts/copy-seed";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
+import { readPromoStore } from "@/lib/promo/store";
+import { promoOnDate } from "@/lib/promo/window";
 import { VALID_PRODUCT_IDS } from "@/lib/products";
 import { parseBody } from "@/lib/validation/api";
 import { copySeedBody } from "@/lib/validation/requests";
@@ -15,17 +17,33 @@ const AUDIENCES: AudienceType[] = ["all", "engaged", "lapsed", "post_purchase", 
 export async function POST(req: NextRequest) {
   const parsed = await parseBody(req, copySeedBody);
   if (parsed.error) return parsed.error;
-  const row = (parsed.data as unknown as { row: PlannerRow }).row;
+  const { row, notes_only } = parsed.data as unknown as { row: PlannerRow; notes_only?: boolean };
+
+  // A planner row carries no promotion id, so the honest link is the calendar:
+  // the promotion running on the planned send date. Its `learnings` are the
+  // second half of the notes block. A promo-store failure must never block the
+  // handoff — we just carry the row's own notes.
+  let promotion: { sale?: string; learnings?: string } | undefined;
+  try {
+    const store = await readPromoStore();
+    promotion = store ? promoOnDate(store.promotions, (row.planned_send_at || "").slice(0, 10)) : undefined;
+  } catch (e) {
+    console.warn("copy-seed: promo lookup failed:", e instanceof Error ? e.message : e);
+  }
 
   // Deterministic mapping first — this is what we return no matter what.
-  const seed = plannerRowToBriefSeed(row);
+  const seed = plannerRowToBriefSeed(row, promotion);
+
+  // Re-sync path: the Copy Builder asking for the CURRENT notes on a row whose
+  // copy already exists. Deterministic only — no model call, no cost.
+  if (notes_only) return NextResponse.json({ seed, rationale: "" });
 
   try {
     const systemBlocks = buildSystemBlocks(getBrandContext(), copySeedRoleInstruction);
     const userPrompt = copySeedUserPrompt(row, {
       campaign_type: (seed.campaign_type ?? "promo") as CampaignType,
       audience: (seed.audience ?? "all") as AudienceType,
-    });
+    }, promotion);
 
     const response = await getAnthropic().messages.create({
       model: FAST_MODEL,

@@ -50,15 +50,48 @@ export function inferAudience(row: PlannerRow): AudienceType {
 }
 
 /**
+ * The row's notes plus, when the send falls inside a promotion window, that
+ * promotion's `learnings` — one clearly-delimited block. This is the text the
+ * writer's literal-instruction tier carries, so a learning like "last time the
+ * 30% code confused people, state it in the body" survives verbatim into
+ * generation instead of being blurred into an AI-proposed hero angle.
+ *
+ * The promotion is passed in structurally (not as a `Promotion`) to keep this
+ * module free of the promo store's types. Returns undefined when there is
+ * nothing to carry, so the caller can leave the field unset.
+ */
+export function plannerNotesBlock(
+  row: PlannerRow,
+  promotion?: { sale?: string; learnings?: string },
+): string | undefined {
+  const parts: string[] = [];
+  const notes = (row.notes ?? "").trim();
+  if (notes) parts.push(`Planner notes for "${row.name}":\n${notes}`);
+  const learnings = (promotion?.learnings ?? "").trim();
+  if (learnings) {
+    const sale = (promotion?.sale ?? "").trim() || "this promotion";
+    parts.push(`Learnings from the Promotional Calendar (${sale}):\n${learnings}`);
+  }
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
+/**
  * Deterministic PlannerRow -> partial BriefInput. No AI. Never throws.
  *
  * Leaves `hero_angle` unset and `products_featured` empty — those are the two
  * gaps the planner can't carry, filled by the AI smart-fill step (and always
  * editable by the writer).
+ *
+ * `promotion` is optional: the client seeds instantly without it, then the
+ * copy-seed route re-seeds with the promotion it resolved from the send date.
  */
-export function plannerRowToBriefSeed(row: PlannerRow): Partial<BriefInput> {
+export function plannerRowToBriefSeed(
+  row: PlannerRow,
+  promotion?: { sale?: string; learnings?: string },
+): Partial<BriefInput> {
   const isEvergreen = row.offer_type === "evergreen";
   return {
+    planner_notes: plannerNotesBlock(row, promotion),
     campaign_name: row.name ?? "",
     campaign_type: inferCampaignType(row),
     offer: isEvergreen ? EVERGREEN_OFFER : (row.offer ?? ""),

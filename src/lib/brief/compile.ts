@@ -256,9 +256,13 @@ export function compileBrief(input: BriefInput, promotion?: Promotion, today?: D
     campaign_type: input.campaign_type,
     audience: input.audience,
     products_featured: input.products_featured,
-    // The optional nudge is the user's literal instruction tier — carry it
-    // verbatim so the generator honors it above everything.
-    campaign_specific_rules: (input.campaign_specific_rules || "").trim() || undefined,
+    // The literal-instruction tier: the planner's notes/learnings first, then
+    // the writer's own nudge (typed last, so it reads last). Both carried
+    // VERBATIM so the generator honors them above everything.
+    campaign_specific_rules: [
+      (input.planner_notes || "").trim(),
+      (input.campaign_specific_rules || "").trim(),
+    ].filter(Boolean).join("\n\n") || undefined,
   };
 
   // 5. Synthesize the Conceit so /api/generate is unchanged.

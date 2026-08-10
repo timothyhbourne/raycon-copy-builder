@@ -54,6 +54,10 @@ interface Props {
   seed?: Partial<BriefInput> | null;      // from a planner handoff
   seedLabel?: string | null;              // e.g. planner row name, for the banner
   onClearSeed?: () => void;
+  /** Re-read the planner row's notes + promo learnings. Present only when this
+   *  brief is linked to a planner row; returns the fresh block, or null when the
+   *  row now carries nothing. Never touches generated copy. */
+  onRefreshNotes?: () => Promise<string | null>;
 }
 
 const LS_KEY = "raycon_brief_draft";
@@ -94,7 +98,7 @@ function applySeed(seed: Partial<BriefInput>): BriefInput {
   return { ...DEFAULT_FORM, ...seed, products_featured: products };
 }
 
-export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearSeed }: Props) {
+export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearSeed, onRefreshNotes }: Props) {
   const [form, setForm] = useState<BriefInput>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
   const [productFilter, setProductFilter] = useState("");
@@ -120,6 +124,15 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
   // would drop the AI pass). Deduping by content also makes a parent re-passing
   // an equal object a no-op, so it can't loop.
   const lastSeedJson = useRef<string | null>(null);
+
+  // --- Notes & learnings carried from the planner -----------------------------
+  // They live on form.planner_notes (their own field, so the writer's own nudge
+  // stays separate); compileBrief merges both into the literal-instruction tier.
+  // "Exclude" stashes them here rather than dropping them, so it is reversible.
+  // Declared above the seed effect below, which resets them.
+  const [excludedNotes, setExcludedNotes] = useState<string | null>(null);
+  const [refreshingNotes, setRefreshingNotes] = useState(false);
+  const [notesRefreshed, setNotesRefreshed] = useState<"same" | "updated" | "cleared" | null>(null);
 
   // Initial hydration. A planner seed present at mount takes precedence over the
   // localStorage draft; the [seed] effect below applies its contents.
@@ -149,6 +162,8 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
     const json = JSON.stringify(seed);
     if (lastSeedJson.current === json) return;
     lastSeedJson.current = json;
+    setExcludedNotes(null);
+    setNotesRefreshed(null);
     setForm(applySeed(seed));
   }, [seed]);
 
@@ -158,6 +173,8 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
 
   const handleClearSeed = () => {
     lastSeedJson.current = null;
+    setExcludedNotes(null);
+    setNotesRefreshed(null);
     setForm(DEFAULT_FORM);
     onClearSeed?.();
   };
@@ -276,6 +293,39 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
   const toggleProduct = (slug: string) => {
     const cur = form.products_featured;
     set("products_featured", cur.includes(slug) ? cur.filter((p) => p !== slug) : [...cur, slug]);
+  };
+
+  const carriedNotes = form.planner_notes?.trim() || null;
+
+  const excludeNotes = () => {
+    setExcludedNotes(form.planner_notes ?? null);
+    setNotesRefreshed(null);
+    set("planner_notes", undefined);
+  };
+  const includeNotes = () => {
+    if (!excludedNotes) return;
+    set("planner_notes", excludedNotes);
+    setExcludedNotes(null);
+    setNotesRefreshed(null);
+  };
+  // Re-sync: always pull the CURRENT notes, so a learning typed into the planner
+  // after the handoff still reaches generation. Re-includes them if they were
+  // excluded — asking to refresh is asking to use them.
+  const refreshNotes = async () => {
+    if (!onRefreshNotes || refreshingNotes) return;
+    setRefreshingNotes(true);
+    setNotesRefreshed(null);
+    try {
+      const fresh = (await onRefreshNotes())?.trim() || null;
+      const before = carriedNotes ?? excludedNotes?.trim() ?? null;
+      setExcludedNotes(null);
+      set("planner_notes", fresh ?? undefined);
+      setNotesRefreshed(fresh === before ? "same" : fresh ? "updated" : "cleared");
+    } catch {
+      setNotesRefreshed(null);
+    } finally {
+      setRefreshingNotes(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -557,6 +607,35 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
           selectedProducts={form.products_featured.map((id) => ({ id, name: PRODUCT_NAME_BY_ID[id] ?? id }))}
         />
       </div>
+
+      {(carriedNotes || excludedNotes) && (
+        <div className={`rounded-md border px-3 py-2.5 space-y-2 ${carriedNotes ? "border-action-200 bg-action-50" : "border-line bg-sunken"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="t-label text-ink-secondary">Notes &amp; learnings from the planner</span>
+            <div className="flex items-center gap-1 shrink-0">
+              {onRefreshNotes && (
+                <Button type="button" variant="ghost" size="sm" loading={refreshingNotes} onClick={refreshNotes}>
+                  Refresh
+                </Button>
+              )}
+              <Button type="button" variant="ghost" size="sm" onClick={carriedNotes ? excludeNotes : includeNotes}>
+                {carriedNotes ? "Exclude" : "Include"}
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs whitespace-pre-wrap leading-relaxed text-ink-secondary">
+            {carriedNotes ?? excludedNotes}
+          </p>
+          <p className="text-[11px] leading-relaxed text-ink-muted">
+            {carriedNotes
+              ? "Passed to the writer verbatim, at the same priority as your own instructions below."
+              : "Excluded — this text will not reach the copy."}
+            {notesRefreshed === "same" && " · Already up to date."}
+            {notesRefreshed === "updated" && " · Updated from the planner."}
+            {notesRefreshed === "cleared" && " · The planner row no longer has notes."}
+          </p>
+        </div>
+      )}
 
       <div>
         <label className={LABEL}>Anything special about this send? (optional)</label>

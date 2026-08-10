@@ -297,6 +297,31 @@ export default function Home() {
     await handleLoadSaved(savedId);
   };
 
+  // Re-sync the planner's notes/learnings into the brief on demand. Reads the
+  // CURRENT row (notes edited after the handoff are the whole point) and asks
+  // copy-seed for the deterministic block only — no model call. Never touches
+  // the generated copy; the writer regenerates when they want it applied.
+  const refreshPlannerNotes = useCallback(async (): Promise<string | null> => {
+    const rowId = plannerLink?.rowId ?? currentBriefInput?.planner_row_id;
+    if (!rowId) return null;
+    try {
+      const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
+      const row = res.ok ? ((await res.json()).row as PlannerRow | null) : null;
+      if (!row) throw new Error("That planner row no longer exists.");
+      const seedRes = await fetch("/api/copy-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row, notes_only: true }),
+      });
+      if (!seedRes.ok) throw new Error("Could not read the planner notes.");
+      const data = await seedRes.json();
+      return (data.seed?.planner_notes as string | undefined) ?? null;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not refresh the planner notes.");
+      throw e;   // InputForm resets its own refreshing state
+    }
+  }, [plannerLink, currentBriefInput]);
+
   const handleClearSeed = () => {
     setFormSeed(null);
     setFormSeedLabel(null);
@@ -1384,7 +1409,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface">
+    <div className="rc-content-panel flex flex-1 min-h-0 overflow-hidden">
       {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
       <Suspense fallback={null}>
         <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
@@ -1476,6 +1501,7 @@ export default function Home() {
                 seed={formSeed}
                 seedLabel={formSeedLabel}
                 onClearSeed={handleClearSeed}
+                onRefreshNotes={plannerLink?.rowId || currentBriefInput?.planner_row_id ? refreshPlannerNotes : undefined}
               />
             </>
           )}
@@ -1575,7 +1601,6 @@ export default function Home() {
                 sectionStructure={sectionStructure}
                 toneDial={currentBriefInput?.tone_dial ?? 1}
                 isGenerating={loadingPhase === "generating"}
-                offer={currentBriefInput?.offer ?? ""}
                 featuredProduct={
                   expandedBrief?.products_featured?.[0] ??
                   currentBriefInput?.products_featured?.[0] ??
@@ -1583,6 +1608,21 @@ export default function Home() {
                 }
                 repetitionFlags={repetitionFlags}
                 onDismissFlag={(key) => setRepetitionFlags((prev) => { const next = { ...prev }; delete next[key]; return next; })}
+                onRenameFlags={(sectionId, renames) => setRepetitionFlags((prev) => {
+                  // Flags are keyed "<sectionId>::<element>", so a family renumber
+                  // must move them or a chip ends up on the wrong element.
+                  const next: Record<string, RepetitionFlag> = {};
+                  for (const [key, flag] of Object.entries(prev)) {
+                    const [sid, element] = key.split("::");
+                    next[sid === sectionId && renames[element] ? `${sid}::${renames[element]}` : key] = flag;
+                  }
+                  // Drop the flag for a renamed-away element that nothing replaced.
+                  for (const oldEl of Object.keys(renames)) {
+                    const oldKey = `${sectionId}::${oldEl}`;
+                    if (!Object.values(renames).includes(oldEl)) delete next[oldKey];
+                  }
+                  return next;
+                })}
                 onRegenerated={(updated) => void runRepetitionCheck(updated)}
                 onChange={setCampaign}
               />
