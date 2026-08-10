@@ -26,34 +26,34 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
         className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="t-label text-slate-500 mb-1">Regenerate</div>
-        <h3 className="font-semibold text-slate-900 mb-4">{sectionType} section</h3>
+        <div className="t-label text-ink-tertiary mb-1">Regenerate</div>
+        <h3 className="font-semibold text-ink mb-4">{sectionType} section</h3>
 
-        <label className="block text-sm text-slate-600 mb-2">
+        <label className="block text-sm text-ink-secondary mb-2">
           Steering (optional)
         </label>
         <textarea
           value={steering}
           onChange={(e) => setSteering(e.target.value)}
           rows={3}
-          className="w-full border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-slate-400 resize-none"
+          className="w-full border border-line rounded px-3 py-2 text-sm focus:outline-none focus:border-line-strong resize-none"
           placeholder="e.g. Make it punchier and benefit-led so it's easier to decide to buy"
           autoFocus
         />
 
         <div className="mt-4">
           <div className="flex items-center justify-between mb-1">
-            <label className="t-label text-slate-500">Tone</label>
+            <label className="t-label text-ink-tertiary">Tone</label>
             <span className={`text-xs px-2 py-0.5 rounded ${
-              tone >= 4 ? "bg-amber-50 text-amber-600" :
-              tone === 3 ? "bg-slate-100 text-slate-600" :
-              "bg-slate-50 text-slate-400"
+              tone >= 4 ? "bg-warning-50 text-warning-600" :
+              tone === 3 ? "bg-sunken text-ink-secondary" :
+              "bg-sunken text-ink-tertiary"
             }`}>
               {TONE_LABELS[tone]}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 shrink-0">Conservative</span>
+            <span className="text-xs text-ink-tertiary shrink-0">Conservative</span>
             <input
               type="range"
               min={1}
@@ -63,10 +63,10 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
               onChange={(e) => setTone(Number(e.target.value))}
               className="flex-1 accent-slate-900"
             />
-            <span className="text-xs text-slate-400 shrink-0">Experimental</span>
+            <span className="text-xs text-ink-tertiary shrink-0">Experimental</span>
           </div>
           {tone !== defaultTone && (
-            <div className="text-[11px] text-slate-400 mt-1">
+            <div className="text-[11px] text-ink-tertiary mt-1">
               Campaign default is {TONE_LABELS[defaultTone]}. This regeneration only affects this section.
             </div>
           )}
@@ -75,13 +75,13 @@ export default function RegenerateModal({ sectionType, defaultTone, onConfirm, o
         <div className="flex gap-2 mt-5">
           <button
             onClick={() => onConfirm(steering, tone)}
-            className="flex-1 bg-slate-900 text-white py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors"
+            className="flex-1 bg-ink text-white py-2 rounded-md text-sm font-medium hover:bg-ink-secondary transition-colors"
           >
             Regenerate
           </button>
           <button
             onClick={onClose}
-            className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-md text-sm hover:bg-slate-50 transition-colors"
+            className="flex-1 border border-line text-ink-secondary py-2 rounded-md text-sm hover:bg-sunken transition-colors"
           >
             Cancel
           </button>

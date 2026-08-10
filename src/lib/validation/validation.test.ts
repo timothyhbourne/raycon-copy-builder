@@ -64,6 +64,51 @@ describe("library / saved validation", () => {
   });
 });
 
+describe("element-level editing / removed design feature", () => {
+  const savedWith = (section: Record<string, unknown>) => ({
+    id: "s", campaign_name: "n", campaign_type: "promo", offer: "30% off", audience: "all",
+    products_featured: ["O25"], section_structure: [],
+    campaign: { meta: { subject_lines: [], preview_texts: [] }, sections: [section] },
+    status: "draft", created_at: "x", updated_at: "y",
+  });
+
+  it("still loads a campaign carrying the legacy design_image field", () => {
+    // The "Design this" feature is gone and design_image is off the interface, but
+    // saved drafts and library snapshots may still carry it. Loose validation must
+    // preserve rather than reject — no migration, dead data is harmless.
+    const saved = parseSavedCampaign(savedWith({
+      id: "h", type: "header", elements: { Headline: "Hi" },
+      design_image: "data:image/png;base64,AAAA",
+    }));
+    expect(saved).not.toBeNull();
+    expect(saved!.campaign.sections[0].elements.Headline).toBe("Hi");
+    expect((saved!.campaign.sections[0] as unknown as Record<string, unknown>).design_image)
+      .toBe("data:image/png;base64,AAAA");
+  });
+
+  it("round-trips canvas-level removed_elements on a generated section", () => {
+    const saved = parseSavedCampaign(savedWith({
+      id: "r", type: "reviews",
+      elements: { "Review 1": "a", "Review 2": "b" },
+      removed_elements: ["Subheader", "Review 3"],
+    }));
+    expect(saved).not.toBeNull();
+    expect(saved!.campaign.sections[0].removed_elements).toEqual(["Subheader", "Review 3"]);
+  });
+
+  it("accepts a section with no removed_elements (backward compatible)", () => {
+    const saved = parseSavedCampaign(savedWith({ id: "b", type: "body", elements: { "Body Copy": "x" } }));
+    expect(saved).not.toBeNull();
+    expect(saved!.campaign.sections[0].removed_elements).toBeUndefined();
+  });
+
+  it("rejects a removed_elements that is not a string array", () => {
+    expect(parseSavedCampaign(savedWith({
+      id: "b", type: "body", elements: { "Body Copy": "x" }, removed_elements: "Subheader",
+    }))).toBeNull();
+  });
+});
+
 describe("schema_version stamping", () => {
   it("stamp adds the current version", () => {
     expect(stamp({ a: 1 }).schema_version).toBe(SCHEMA_VERSION);

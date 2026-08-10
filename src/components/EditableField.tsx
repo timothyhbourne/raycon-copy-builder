@@ -28,7 +28,7 @@ export default function EditableField({ value, onChange, className = "", placeho
         if (!multiline && e.key === "Enter") e.preventDefault();
       }}
       data-placeholder={placeholder}
-      className={`min-h-[1.5em] text-slate-900 leading-relaxed cursor-text px-2 py-1 rounded transition-colors ${className}`}
+      className={`min-h-[1.5em] text-ink leading-relaxed cursor-text px-2 py-1 rounded transition-colors ${className}`}
       style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
     />
   );

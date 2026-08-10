@@ -41,6 +41,9 @@ export const plannerLinkBody = looseObj({
 
 export const copySeedBody = looseObj({
   row: looseObj({ name: z.string() }),
+  /** Skip the smart-fill model call and return only the deterministic seed —
+   *  used by the Copy Builder's "refresh notes from the planner". */
+  notes_only: z.boolean().optional(),
 });
 
 // ---- copy generation ------------------------------------------------------
@@ -55,10 +58,6 @@ export const generateBody = looseObj({
   retrieved_examples: z.array(z.unknown()).optional(),
 });
 
-export const designSectionBody = looseObj({
-  section_type: z.string(),
-});
-
 export const hardRulesCheckBody = looseObj({
   elements: z.array(z.unknown()),
 });
@@ -70,6 +69,20 @@ export const checkRepetitionBody = looseObj({
 
 export const regenerateSectionBody = looseObj({
   section_to_regenerate: looseObj({ type: z.string() }),
+});
+
+// One element of one section. `element_key` is the element name ("Body Copy",
+// "USP 2") or a grid-item compound key ("Products[2].one_liner").
+export const regenerateElementBody = looseObj({
+  element_key: z.string().min(1, "element_key is required"),
+  section: looseObj({ type: z.string(), elements: z.record(z.string(), z.unknown()) }),
+  full_campaign: looseObj({ sections: z.array(z.unknown()) }),
+  expanded_brief: looseObj({ campaign_type: z.string() }),
+  chosen_conceit: looseObj({ name: z.string() }),
+  section_spec: z.unknown().optional(),
+  steering: z.string().optional(),
+  tone_dial: z.number().optional(),
+  retrieved_examples: z.array(z.unknown()).optional(),
 });
 
 export const regenerateMetaBody = looseObj({

@@ -55,9 +55,13 @@ export function regenerateSectionUserPrompt(
   // the keys the section actually has (no Subheader resurrected on a section the
   // user switched it off for). A bundle whose spec lost its template falls back
   // to the keys already on the rendered section.
-  const elements = sectionToRegenerate.type === "bundle" && !sectionToRegenerate.bundle_template
+  const baseElements = sectionToRegenerate.type === "bundle" && !sectionToRegenerate.bundle_template
     ? Object.keys(sectionToRegenerate.current_content.elements)
     : sectionElementNames(sectionToRegenerate);
+  // Elements the user deleted ON THE CANVAS (GeneratedSection.removed_elements)
+  // are dropped too, so a section-wide rewrite never resurrects them.
+  const canvasRemoved = new Set(sectionToRegenerate.current_content.removed_elements ?? []);
+  const elements = baseElements.filter((e) => !canvasRemoved.has(e));
 
   const productMapNote = isProductCardType(sectionToRegenerate.type) && sectionToRegenerate.product_slug
     ? `\n\nPRODUCT MAPPING , this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner leads with a concrete use-case framing , a scene, a need, an audience, or a moment that grounds the product , then follows with 2-3 specs. Do NOT default to "For the [audience] who [verbs]…" , that template has been overused; pick a different opener shape unless the campaign genuinely calls for it AND the other cards in this campaign use different openers.`

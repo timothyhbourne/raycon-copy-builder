@@ -7,17 +7,26 @@ import { nanoid } from "@/lib/nanoid";
 import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
 import VariationsModal from "./VariationsModal";
-import DesignModal from "./DesignModal";
 import Skeleton from "./ui/Skeleton";
 import type { RepetitionFlag } from "@/lib/repetition-client";
 
 const SECTION_CHIPS = ["Warmer", "Punchier", "More playful", "More premium", "Less salesy", "More specific"];
 
-// A short, readable preview of a section for the variations picker.
+// A short, readable preview of a section for the variations picker. Repeatable
+// families (Review N, USP N, Item N…) are picked up dynamically, so a reviews or
+// usps section doesn't preview as blank.
 function sectionPreview(section: GeneratedSection): string {
   const el = section.elements as Record<string, unknown>;
   const lines: string[] = [];
-  for (const k of ["Headline", "Tagline", "Subheader", "Body Copy", "Body", "One-Liner", "Review", "Closing Line", "CTA"]) {
+  const fixed = ["Headline", "Tagline", "Subheader", "Body Copy", "Body", "One-Liner", "Review", "Closing Line", "CTA"];
+  const familyKeys = Object.keys(el)
+    .filter((k) => /^(.+?)\s+\d+$/.test(k))
+    .sort((a, b) => {
+      const [, fa = "", na = "0"] = a.match(/^(.+?)\s+(\d+)$/) ?? [];
+      const [, fb = "", nb = "0"] = b.match(/^(.+?)\s+(\d+)$/) ?? [];
+      return fa === fb ? Number(na) - Number(nb) : fa.localeCompare(fb);
+    });
+  for (const k of [...fixed, ...familyKeys]) {
     const v = el[k];
     if (typeof v === "string" && v.trim()) lines.push(v.trim());
     else if (k === "Subheader" && Array.isArray(v) && typeof v[0] === "string") lines.push(v[0]);
@@ -38,13 +47,14 @@ interface Props {
   sectionStructure: SectionSpec[];
   toneDial: number;
   isGenerating?: boolean;
-  offer?: string;
   /** The campaign's highlighted product SKU (hero / first featured). Drives the
    * standalone `reviews` section's automatic 3-review fill and its refresh. */
   featuredProduct?: string;
   /** Similarity flags keyed by element key (see repetition-client). */
   repetitionFlags?: Record<string, RepetitionFlag>;
   onDismissFlag?: (key: string) => void;
+  /** Migrate repetition-flag keys after a family renumber (Review 3 → Review 2). */
+  onRenameFlags?: (sectionId: string, renames: Record<string, string>) => void;
   /** Fired after a manual regenerate settles, so the parent can re-check. */
   onRegenerated?: (updated: GeneratedCampaign) => void;
   onChange: (c: GeneratedCampaign) => void;
@@ -58,17 +68,15 @@ export default function CampaignCanvas({
   sectionStructure,
   toneDial,
   isGenerating = false,
-  offer,
   featuredProduct,
   repetitionFlags,
   onDismissFlag,
+  onRenameFlags,
   onRegenerated,
   onChange,
 }: Props) {
   const [regenModal, setRegenModal] = useState<{ sectionId: string; type: string } | null>(null);
   const [regeneratingMeta, setRegeneratingMeta] = useState(false);
-  const [designModal, setDesignModal] = useState<{ sectionId: string } | null>(null);
-  const [designingSection, setDesigningSection] = useState<string | null>(null);
 
   const updateSection = (id: string, s: GeneratedSection) => {
     onChange({ ...campaign, sections: campaign.sections.map((sec) => (sec.id === id ? s : sec)) });
@@ -134,26 +142,44 @@ export default function CampaignCanvas({
     }
   };
 
-  const handleDesign = async (sectionId: string) => {
-    const section = campaign.sections.find((s) => s.id === sectionId);
-    if (!section) return;
-    setDesignModal({ sectionId });
-    setDesigningSection(sectionId);
+  // Rewrite ONE element. The returned value is applied by SectionBlock (which
+  // owns the per-element spinner/undo); this only performs the call and reports
+  // the result, then lets the parent re-run its quality gates.
+  const regenerateElement = async (
+    sectionId: string,
+    elementKey: string,
+    steering?: string,
+    tone?: number
+  ): Promise<{ value?: string; variants?: string[] } | null> => {
+    const idx = campaign.sections.findIndex((s) => s.id === sectionId);
+    const section = campaign.sections[idx];
+    if (!section || !expandedBrief || !chosenConceit) return null;
+    const spec = sectionStructure[idx]?.type === section.type
+      ? sectionStructure[idx]
+      : sectionStructure.find((s) => s.type === section.type);
     try {
-      const elements: Record<string, string> = {};
-      for (const [k, v] of Object.entries(section.elements)) {
-        if (typeof v === "string") elements[k] = v;
-      }
-      const res = await fetch("/api/design-section", {
+      const res = await fetch("/api/regenerate-element", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section_type: section.type, elements, offer }),
+        body: JSON.stringify({
+          element_key: elementKey,
+          section,
+          section_spec: spec,
+          full_campaign: campaign,
+          expanded_brief: expandedBrief,
+          chosen_conceit: chosenConceit,
+          steering: steering ?? "",
+          tone_dial: tone ?? toneDial,
+          retrieved_examples: retrievedExamples,
+        }),
       });
+      if (!res.ok) return null;
       const data = await res.json();
-      if (data.image) updateSection(sectionId, { ...section, design_image: data.image });
-      if (data.error) console.error("Design error:", data.error);
-    } finally {
-      setDesigningSection(null);
+      if (typeof data.value === "string") return { value: data.value };
+      if (Array.isArray(data.variants)) return { variants: data.variants as string[] };
+      return null;
+    } catch {
+      return null;
     }
   };
 
@@ -205,17 +231,17 @@ export default function CampaignCanvas({
   return (
     <div className="space-y-4">
       {/* Brief bar — the deterministically compiled angle/thesis (read-only). */}
-      <div className="bg-white border border-slate-200 rounded-lg px-6 py-4">
+      <div className="bg-white border border-line rounded-lg px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="t-label mb-1">Brief</div>
             {chosenConceit ? (
               <>
-                <div className="font-semibold text-slate-900">{chosenConceit.name}</div>
-                <div className="text-sm text-slate-500 mt-0.5 leading-relaxed">{chosenConceit.description}</div>
+                <div className="font-semibold text-ink">{chosenConceit.name}</div>
+                <div className="text-sm text-ink-tertiary mt-0.5 leading-relaxed">{chosenConceit.description}</div>
               </>
             ) : (
-              <div className="text-sm text-slate-400">Compiling…</div>
+              <div className="text-sm text-ink-tertiary">Compiling…</div>
             )}
           </div>
         </div>
@@ -269,8 +295,15 @@ export default function CampaignCanvas({
                 onMoveUp={() => moveSection(section.id, "up")}
                 onMoveDown={() => moveSection(section.id, "down")}
                 onInsertAfter={(type) => insertAfter(section.id, type)}
-                onDesign={section.type === "header" ? () => handleDesign(section.id) : undefined}
                 productSlug={reviewSlug}
+                defaultTone={toneDial}
+                onRegenerateElement={
+                  expandedBrief && chosenConceit
+                    ? (key, steering, tone) => regenerateElement(section.id, key, steering, tone)
+                    : undefined
+                }
+                onRequestDeleteSection={() => deleteSection(section.id)}
+                onRenameFlags={onRenameFlags}
               />
             </div>
           );
@@ -321,9 +354,23 @@ export default function CampaignCanvas({
             }}
             onApply={(payload) => {
               const newSection = payload as GeneratedSection;
+              // A section-wide rewrite must not bring back elements deleted on the
+              // canvas: carry the removal list over and drop any element the model
+              // returned for a key the user had already removed.
+              const removed = section?.removed_elements ?? [];
+              const removedSet = new Set(removed);
+              const elements = Object.fromEntries(
+                Object.entries(newSection.elements).filter(([k]) => !removedSet.has(k))
+              );
+              const merged: GeneratedSection = {
+                ...newSection,
+                id: sectionId,
+                elements,
+                ...(removed.length ? { removed_elements: removed } : {}),
+              };
               const updated = {
                 ...campaign,
-                sections: campaign.sections.map((s) => (s.id === sectionId ? { ...newSection, id: sectionId } : s)),
+                sections: campaign.sections.map((s) => (s.id === sectionId ? merged : s)),
               };
               onChange(updated);
               onRegenerated?.(updated);
@@ -333,17 +380,6 @@ export default function CampaignCanvas({
         );
       })()}
 
-      {designModal && (() => {
-        const sec = campaign.sections.find((s) => s.id === designModal.sectionId);
-        return (
-          <DesignModal
-            image={sec?.design_image ?? ""}
-            isGenerating={designingSection === designModal.sectionId}
-            onRegenerate={() => handleDesign(designModal.sectionId)}
-            onClose={() => setDesignModal(null)}
-          />
-        );
-      })()}
     </div>
   );
 }

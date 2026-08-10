@@ -105,6 +105,9 @@ const generatedSection = z.looseObject({
   id: z.string(),
   type: sectionType,
   elements: sectionElements,
+  // Elements deleted on the canvas. Must round-trip through the draft store and
+  // the library `structured` snapshot or a deletion silently comes back on reload.
+  removed_elements: z.array(z.string()).optional(),
 });
 const generatedCampaign = z.looseObject({
   meta: z.looseObject({
@@ -201,6 +204,7 @@ export const savedCampaignSchema = z.looseObject({
   section_structure: z.array(sectionSpec),
   angle: angle.optional(),
   promotion_id: z.string().optional(),
+  planner_notes: z.string().optional(),
   occasion: z.string().optional(),
   hero_product_slug: z.string().optional(),
   send_stage: sendStage.optional(),

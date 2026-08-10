@@ -167,8 +167,19 @@ export interface GeneratedSection {
   subheader_variants?: string[];
   /** Index into subheader_variants of the currently-selected option. Defaults to 0. */
   subheader_selected?: number;
-  /** Saved AI-generated PNG mockup (base64 data URI). Persists with the campaign. */
-  design_image?: string;
+  /**
+   * Elements deleted ON THE CANVAS, after generation.
+   *
+   * Deliberately here on the generated content and NOT on SectionSpec: the spec's
+   * `removed_elements` means "don't generate this", while this one means "this was
+   * removed on the canvas". Keeping it on GeneratedSection means it persists through
+   * the draft store and the library `structured` snapshot for free, with no new
+   * plumbing back up to the read-only sectionStructure prop.
+   *
+   * SectionBlock re-appends any catalogue element missing from `elements`, so a
+   * deletion only sticks because the key is listed here. Absent = nothing removed.
+   */
+  removed_elements?: string[];
 }
 
 export interface CampaignMeta {
@@ -360,6 +371,12 @@ export interface BriefInput {
   /** Optional free-text NUDGE ("Anything special about this send?") — the only
    * free text left, mapped to the user's-literal-instructions priority tier. */
   campaign_specific_rules?: string;
+  /** Notes + learnings carried over from the Planner row (and, when the send
+   * falls inside a promotion window, that promotion's `learnings`). Kept as its
+   * own field so the writer can see and exclude it independently of their own
+   * nudge; compileBrief() merges the two into the same literal-instruction
+   * tier. See plannerNotesBlock() in lib/planner-copy-link.ts. */
+  planner_notes?: string;
   /** Legacy free-text hero angle — no longer collected; kept optional so saved
    * library items still type-check. The UI does not show it. */
   hero_angle?: string;
@@ -446,6 +463,27 @@ export const REMOVABLE_ELEMENTS: Partial<Record<SectionType, string[]>> = {
   body: ["Subheader"],
   cta_bridge: ["Subheader"],
 };
+
+/**
+ * Element families that can repeat within a section, with bounds.
+ *
+ * Members are named "<family> <n>" (Review 1, USP 3), matching the catalogue
+ * convention, so the stream parser, canvas, and library body format need no
+ * changes. `product_card_review` deliberately has a single `Review` (not a
+ * family) and is absent here.
+ */
+export const REPEATABLE_ELEMENTS: Partial<Record<SectionType, { family: string; min: number; max: number }[]>> = {
+  reviews: [{ family: "Review", min: 1, max: 6 }],
+  // Bounds mirror the USP slot plan so the canvas and the section builder agree.
+  usps: [{ family: "USP", min: USP_SLOT_MIN, max: USP_SLOT_MAX }],
+};
+
+/** The repeatable-family rule a given element key belongs to, if any. */
+export function repeatableFamilyFor(type: SectionType, key: string): { family: string; min: number; max: number } | undefined {
+  const m = key.match(/^(.+?)\s+\d+$/);
+  if (!m) return undefined;
+  return (REPEATABLE_ELEMENTS[type] ?? []).find((f) => f.family === m[1]);
+}
 
 /**
  * The effective USP slot plan for a section. A section saved before the USP
