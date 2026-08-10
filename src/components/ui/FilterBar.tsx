@@ -3,7 +3,7 @@ import React from "react";
 
 // The horizontal control row under a page header. `FilterBar` lays controls out
 // in a wrapping row with a right-aligned actions slot; `FilterField` gives any
-// control the tiny uppercase label above it; `SegmentedToggle` is the pill-group
+// control the quiet sentence-case label above it; `SegmentedToggle` is the pill-group
 // control for small enumerated choices (NEW/RETURNING, 30D/60D/90D…).
 
 export function FilterBar({
@@ -62,7 +62,10 @@ export function SegmentedToggle<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="group" aria-label={ariaLabel} className={`inline-flex rounded-md border border-line bg-surface p-0.5 ${className}`}>
+    /* §4.1c — the ACTIVE tab is an outlined white pill on the panel and inactive
+       tabs are plain text with no chrome. Deliberately not the accent: switching
+       a view creates nothing, and green has to keep meaning "creates something". */
+    <div role="group" aria-label={ariaLabel} className={`inline-flex rounded-md bg-sunken p-0.5 ${className}`}>
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -72,7 +75,9 @@ export function SegmentedToggle<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(o.value)}
             className={`px-3 py-1.5 text-xs font-medium rounded-[6px] transition-colors duration-150 ease-out-soft ${
-              active ? "bg-accent text-white" : "text-ink-secondary hover:bg-accent-50 hover:text-accent"
+              active
+                ? "bg-surface text-ink border border-line-strong shadow-card"
+                : "text-ink-tertiary border border-transparent hover:text-ink"
             }`}
           >
             {o.label}

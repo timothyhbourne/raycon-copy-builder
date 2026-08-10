@@ -129,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showLoading = loading && !hasData;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-surface">
+    <div className="rc-content-panel flex-1 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-8 py-8">
         <PageHeader
           className="mb-6"

@@ -59,7 +59,7 @@ export default function CampaignsPage() {
                   <tr key={c.campaign_id} className="hover:bg-chrome transition-colors">
                     <td className="px-4 py-2.5">
                       <div className="text-ink">{c.name}</div>
-                      {c.status && <div className="text-[10px] text-ink-muted uppercase">{c.status}</div>}
+                      {c.status && <div className="text-[10px] text-ink-tertiary capitalize">{c.status}</div>}
                     </td>
                     <td className="px-4 py-2.5 text-ink-secondary whitespace-nowrap">{formatDate(c.send_time)}</td>
                     <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(c.recipients)}</td>
@@ -119,7 +119,7 @@ function StatusColumn({
             <div key={c.campaign_id} className="px-4 py-2.5">
               <div className="text-sm text-ink leading-snug">{c.name}</div>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="text-[10px] text-ink-muted uppercase">{c.status}</span>
+                <span className="text-[10px] text-ink-tertiary capitalize">{c.status}</span>
                 {c.audience_count > 0 && (
                   <span className="text-[10px] text-ink-muted">· {c.audience_count} list{c.audience_count === 1 ? "" : "s"}</span>
                 )}

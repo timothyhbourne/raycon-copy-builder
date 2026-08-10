@@ -32,7 +32,7 @@ export function DeltaPill({
   );
 }
 
-// One KPI cell: tiny uppercase label, a large bold number, an optional delta
+// One KPI cell: a quiet sentence-case label, a large bold number, an optional delta
 // pill, an optional "WAS X PRIOR" caption, and an optional description. A thin
 // accent left-border makes the run of cells read as one measured group.
 export function StatCell({
@@ -64,7 +64,7 @@ export function StatCell({
 }
 
 // A KPI stat card: a standalone rounded box (white surface, hairline, shadow) —
-// tiny uppercase micro-label over a large bold tabular number. Unlike StatCell
+// quiet sentence-case label over a large bold tabular number. Unlike StatCell
 // (a bare divider cell for use inside a Card), this is self-boxed for a run of
 // "singular rounded boxes" above a table. Reusable on Dashboard/Reports too.
 export function StatCard({

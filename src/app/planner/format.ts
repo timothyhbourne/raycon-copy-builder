@@ -28,14 +28,14 @@ export const CHANNEL_GLYPH: Record<PlannerChannel, { emoji: string; label: strin
   sms: { emoji: "📱", label: "SMS" },
 };
 
-// Status-driven pill styling. Explicit palette classes so the exact colors render
-// regardless of the token layer. `check` prefixes a ✓ glyph; `strike` strikes the
+// Status-driven pill styling, drawn from the SEMANTIC token tones (§4.4):
+// ready_for_design = action/violet, scheduled = success, the rest neutral sunken. `check` prefixes a ✓ glyph; `strike` strikes the
 // name. The scheduled label is channel-dependent — see statusLabel().
 export const STATUS_STYLE: Record<PlannerStatus, { pill: string; check?: boolean; strike?: boolean }> = {
-  writing_brief: { pill: "bg-slate-100 text-slate-600 border-slate-200" },
-  ready_for_design: { pill: "bg-purple-50 text-purple-700 border-purple-300" },
-  scheduled: { pill: "bg-emerald-50/70 text-emerald-700 border-emerald-300", check: true },
-  cancelled: { pill: "bg-slate-50 text-slate-400 border-slate-200", strike: true },
+  writing_brief: { pill: "bg-sunken text-ink-secondary border-line" },
+  ready_for_design: { pill: "bg-action-50 text-action-600 border-action-200" },
+  scheduled: { pill: "bg-success-50 text-success-600 border-success-200", check: true },
+  cancelled: { pill: "bg-sunken text-ink-tertiary border-line", strike: true },
 };
 
 export const COPY_TONE: Record<"draft" | "final", ChipTone> = { draft: "warning", final: "success" };

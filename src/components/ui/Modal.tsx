@@ -128,7 +128,7 @@ export function ConfirmModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{cancelLabel}</Button>
-          <Button variant={danger ? "danger" : "primary"} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
+          <Button variant={danger ? "dangerSolid" : "primary"} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
         </>
       }
     >

@@ -353,7 +353,7 @@ export default function FlowsPage() {
   }, [flow, selectedEmail]);
 
   return (
-    <div className="flex h-full overflow-hidden bg-surface">
+    <div className="rc-content-panel flex flex-1 min-h-0 overflow-hidden">
       {/* Flows list */}
       <aside className="w-72 shrink-0 border-r border-line bg-surface flex flex-col">
         <div className="px-4 pt-4 pb-3 flex items-center justify-between">
@@ -373,8 +373,8 @@ export default function FlowsPage() {
               }`}
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-900 truncate">{item.name}</div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-sm font-medium text-ink truncate">{item.name}</div>
+                <div className="text-xs text-ink-tertiary mt-0.5">
                   {FLOW_TYPE_META[item.type]?.label ?? item.type} · {item.written_count}/{item.email_count} written
                 </div>
               </div>
@@ -382,7 +382,7 @@ export default function FlowsPage() {
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(item.id); }}
                 aria-label="Delete flow"
                 title="Delete flow"
-                className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
+                className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-ink-tertiary hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
               >
                 ✕
               </button>
@@ -415,7 +415,7 @@ export default function FlowsPage() {
             <EmptyState
               title="Pick a flow, or create one"
               description="Flows are triggered, evergreen sequences — Welcome, Abandoned Cart, Post-Purchase. They get their own writing brain, tuned to relationship-building rather than one-off promos."
-              action={<Button variant="primary" onClick={() => setShowCreate(true)}>New flow</Button>}
+              action={<Button variant="secondary" onClick={() => setShowCreate(true)}>New flow</Button>}
             />
           </div>
         ) : !selectedEmail ? (
@@ -425,7 +425,7 @@ export default function FlowsPage() {
         ) : (
           <div className="max-w-3xl mx-auto px-6 py-6">
             {/* Brief panel */}
-            <div className="bg-white border border-slate-200 rounded-lg p-5 mb-4">
+            <div className="bg-white border border-line rounded-lg p-5 mb-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="t-label">Email {selectedEmail.position} of {flow.emails.length}</div>
                 <div className="flex items-center gap-2">
@@ -532,7 +532,6 @@ export default function FlowsPage() {
                 sectionStructure={selectedEmail.section_structure}
                 toneDial={1}
                 isGenerating={generatingEmailId === selectedEmail.id}
-                offer={flow.goal}
                 onChange={onCanvasChange}
               />
             ) : (

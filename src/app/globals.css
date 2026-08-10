@@ -1,6 +1,6 @@
 @import "tailwindcss";
 /* Fonts are loaded (self-hosted) via next/font in src/app/layout.tsx, which
-   declares --font-dm-sans / --font-jetbrains-mono on <html>. The token layer
+   declares --font-inter / --font-jetbrains-mono on <html>. The token layer
    below points --font-sans / --font-mono at them so every component inherits
    the optimized faces with no external font request. */
 
@@ -10,67 +10,104 @@
    exposes them as CSS vars (var(--color-accent)) for the hand-rolled primitives.
    --------------------------------------------------------------------------- */
 @theme {
-  /* Typefaces — one display sans + one mono for numerics. The actual faces come
-     from next/font (see layout.tsx); these tokens generate the font-sans /
-     font-mono utilities and are the single source of truth for type. */
-  --font-sans: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  /* Typefaces — Inter for everything, JetBrains Mono for tabular numerics only.
+     The actual faces come from next/font (see layout.tsx); these tokens generate
+     the font-sans / font-mono utilities and are the single source of truth. */
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 
-  /* Backgrounds */
-  --color-chrome: #f4f4ef;
-  --color-canvas: #fafaf7;
-  --color-surface: #ffffff;
+  /* ---- Surfaces: ONE near-neutral grey ramp ----
+     The previous ramp mixed WARM surfaces (cream #f4f4ef) with COOL slate ink and
+     borders, which is what read as muddy. Everything here is the same near-neutral
+     temperature. The tint is deliberately barely-there so white content panels
+     read clean rather than yellowish.
+     chrome == canvas on purpose: the sidebar IS the ground, and separation comes
+     from white panels sitting ON that ground (see .rc-panel / §4.0). */
+  --color-chrome: #f7f7f6;   /* app ground / sidebar */
+  --color-canvas: #f7f7f6;   /* same ground; panels provide the contrast */
+  --color-surface: #ffffff;  /* content panels, cards, the copy canvas */
+  --color-sunken: #f2f2f0;   /* filled inputs, table header rows, active nav pill */
 
-  /* Ink */
-  --color-ink: #0f172a;
-  --color-ink-secondary: #475569; /* slate-600 */
-  --color-ink-muted: #94a3b8;     /* slate-400 */
+  /* ---- Ink: neutral, agrees with the surfaces ---- */
+  --color-ink: #1f1f1e;
+  --color-ink-secondary: #3d3d3b;
+  --color-ink-tertiary: #6b6b67;  /* default label color (.t-label) */
+  --color-ink-muted: #8a8a85;     /* decorative / micro ONLY — never body text */
 
-  /* Lines */
-  --color-line: #e2e8f0;          /* slate-200 */
-  --color-line-strong: #cbd5e1;   /* slate-300 */
+  /* ---- Lines ---- */
+  --color-line: #e8e7e4;
+  --color-line-strong: #dcdbd7;
 
-  /* Accent — indigo promoted to THE app accent. Full ramp so active/hover
-     states, gradients, and (later) a sequential heatmap ramp (accent-50 →
-     accent-700 = low → high) all draw from one source. --color-accent stays
-     the single switch: repoint it (and its tints) to swap the brand hue. */
-  --color-accent: #4f46e5;        /* indigo-600 */
-  --color-accent-50: #eef2ff;     /* indigo-50 */
-  --color-accent-100: #e0e7ff;    /* indigo-100 */
-  --color-accent-200: #c7d2fe;    /* indigo-200 */
-  --color-accent-300: #a5b4fc;    /* indigo-300 */
-  --color-accent-400: #818cf8;    /* indigo-400 */
-  --color-accent-500: #6366f1;    /* indigo-500 */
-  --color-accent-600: #4f46e5;    /* indigo-600 (= accent) */
-  --color-accent-700: #4338ca;    /* indigo-700 */
-  /* Sequential ramp endpoints for heatmaps/data viz — light (low) → dark (high). */
+  /* ---- Accent: GREEN, and green means CREATE. Never navigation state. ----
+     NOTE (deviation from DESIGN_SYSTEM_SPEC §3): the spec's vivid #0E9F55 only
+     reaches 3.44:1 with white text, so a solid primary button failed the spec's
+     OWN acceptance criterion (all text >= 4.5:1). Its §5.6 note quoted 4.8:1 for
+     an earlier, darker draft green (#1C7A4A) that the final token block replaced.
+     #0B8044 is the closest vivid green that clears white-on-fill (5.02:1) AND
+     accent-on-accent-50 (4.52:1). Verified, not eyeballed. */
+  --color-accent: #0b8044;
+  --color-accent-50: #e7f7ee;
+  --color-accent-100: #c6edd8;
+  --color-accent-200: #97ddb9;
+  --color-accent-300: #5fc894;
+  --color-accent-400: #2fb273;
+  --color-accent-500: #14a55d;
+  --color-accent-600: #0b8044;
+  --color-accent-700: #0a7b41;
+  /* Sequential ramp endpoints for heatmaps — light (low) → dark (high). */
   --color-ramp-min: var(--color-accent-50);
   --color-ramp-max: var(--color-accent-700);
 
-  /* Semantic triads (50 / 200 / 600) */
-  --color-success-50: #ecfdf5;
-  --color-success-200: #a7f3d0;
-  --color-success-600: #059669;
-  --color-warning-50: #fffbeb;
-  --color-warning-200: #fde68a;
-  --color-warning-600: #d97706;
-  --color-danger-50: #fff1f2;
-  --color-danger-200: #fecdd3;
-  --color-danger-600: #e11d48;
-  /* Info (teal) — a hue distinct from status-green and the indigo accent, used to
-     mark the Postscript scheduling source (accent/indigo marks Klaviyo). */
-  --color-info-50: #f0fdfa;
-  --color-info-200: #99f6e4;
-  --color-info-600: #0d9488;
+  /* ---- Secondary action: VIOLET. Non-creating actions that still need to read
+     as actions, and AI affordances. ---- */
+  --color-action: #7c4dff;
+  --color-action-50: #f1ecff;
+  --color-action-200: #d3c4ff;
+  --color-action-600: #6a35f5;
 
-  /* Radius — only these three */
-  --radius-sm: 6px;   /* inputs, chips */
-  --radius-md: 10px;  /* cards, buttons */
-  --radius-lg: 14px;  /* modals */
+  /* ---- Semantic triads (50 / 200 / 600) ---- */
+  --color-success-50: #e7f7ee;
+  --color-success-200: #97ddb9;
+  --color-success-600: #0a7b41;
+  --color-warning-50: #fdf3e3;
+  --color-warning-200: #f6dca8;
+  --color-warning-600: #8f5f00;  /* darkened for 5.02:1 on warning-50 */
+  --color-danger-50: #fdecec;
+  --color-danger-200: #f5c2c2;
+  --color-danger-600: #c81e1e;   /* darkened for 5.02:1 on danger-50 */
+  /* Info (blue) — marks the Postscript scheduling source (accent/green = create,
+     so platform marking moved off the accent onto info + action). */
+  --color-info-50: #ecf1fe;
+  --color-info-200: #c2d4fb;
+  --color-info-600: #2563eb;
+  /* Commercial / urgency: promos, expiry countdowns. */
+  --color-promo-50: #fdf3e3;
+  --color-promo-600: #8a6010;    /* darkened for 5.08:1 on promo-50 */
 
-  /* Shadow */
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-pop: 0 8px 30px rgba(15, 23, 42, 0.12);
+  /* ---- Categorical data palette. For SERIES colour (email/sms/flows/…), never
+     the accent ramp — that stays sequential for heatmaps. Always pair with a
+     text label; colour alone is never the signal. ---- */
+  --color-data-1: #0e9f55;  /* email */
+  --color-data-2: #7c4dff;  /* sms */
+  --color-data-3: #e8a317;  /* flows */
+  --color-data-4: #2563eb;  /* campaigns */
+  --color-data-5: #0e9488;
+  --color-data-6: #c81e1e;
+
+
+  /* ---- Radius — panels get a 4th, larger step ---- */
+  --radius-sm: 6px;   /* chips, small inputs */
+  --radius-md: 8px;   /* buttons, inputs, nav pills */
+  --radius-lg: 12px;  /* content panels, cards, modals */
+  --radius-xl: 16px;  /* the app frame / copy canvas sheet */
+
+  /* ---- Elevation — DELIBERATELY RESTRAINED. Structure comes from the grey
+     ground vs. white panel contrast plus hairlines, NOT from drop shadows.
+     Don't reach for a heavier shadow to fix flatness; use the panel pattern. ---- */
+  --shadow-card: 0 1px 2px rgba(31, 31, 30, 0.05);
+  --shadow-raised: 0 2px 6px rgba(31, 31, 30, 0.07);
+  --shadow-pop: 0 12px 32px rgba(31, 31, 30, 0.14), 0 2px 6px rgba(31, 31, 30, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(11, 128, 68, 0.18);
 
   /* Motion */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
@@ -82,10 +119,11 @@
 
 /* Global UI scale. The whole app is rem-based (Tailwind: text, spacing, widths
    like the w-60 sidebar), so nudging the root font-size zooms everything
-   uniformly — roughly a built-in 120% browser zoom so type/layout read clearly
-   at 100%. Tune this single number to taste (125% ≈ 20px). */
+   uniformly. Inter runs slightly larger on the body than DM Sans did at the same
+   size, so 112% keeps the effective reading size while tightening the
+   "zoomed-in tool" feel 120% gave. Tune between 110–115% to taste. */
 html {
-  font-size: 120%;
+  font-size: 112%;
 }
 
 body {
@@ -95,37 +133,80 @@ body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Inter's single-storey 'a' alternate + straight-l: better at small sizes and
+     in dense tables, which is most of this app. */
+  font-feature-settings: "cv11", "ss01";
 }
 
 .font-mono {
   font-family: var(--font-mono) !important;
 }
 
+/* Digits line up in metric columns, currency, and calendar cells. */
+.font-mono,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------------------------------------------------------------------------
-   Type scale — the single, consistent scale every surface should draw from.
-   DM Sans throughout; JetBrains Mono is reserved for TABULAR NUMERICS ONLY
-   (metric columns, currency, counts, calendar day numbers — anywhere digit
-   alignment matters). Decorative micro-labels use .t-label (sans), NOT mono.
+   Type scale — the single, consistent scale every surface draws from. Inter
+   throughout; JetBrains Mono is reserved for TABULAR NUMERICS ONLY.
 
-     .t-display  — page titles (h1)                 24px / 600
-     .t-heading  — section + card headings           16px / 600
-     .t-body     — default body text                 14px / 400
-     .t-label    — micro eyebrow / column labels     11px / 500 uppercase, tracked
-     .font-mono  — tabular numerics (+ tabular-nums)  inherit size / 400–500
+     .t-display  — page titles (h1)             26px / 650
+     .t-heading  — section + card headings      16px / 620
+     .t-body     — default body text            14px / 400
+     .t-label    — default label: SENTENCE CASE 12px / 550, ink-tertiary
+     .t-micro    — rare all-caps structural     11px / 600 uppercase, muted
+     .font-mono  — tabular numerics             inherit size / 400–500
 
-   .t-label replaces the old `font-mono text-[10px] uppercase tracking-wide`
-   micro-label idiom: same quiet, all-caps read, but in the sans face so it no
-   longer looks like monospaced typewriter text. --------------------------- */
-.t-display { font-size: 1.5rem; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
-.t-heading { font-size: 1rem; line-height: 1.3; font-weight: 600; }
-.t-body { font-size: 0.875rem; line-height: 1.5; font-weight: 400; }
+   .t-label KEEPS ITS NAME but is no longer all-caps. An all-caps drumbeat across
+   every card, table and nav group is what read as utilitarian; plain sentence
+   case reads considered. Existing markup inherits the new look for free.
+   Where the all-caps read is genuinely wanted — table column heads, nav group
+   heads — opt in explicitly with .t-micro. ------------------------------- */
+.t-display { font-size: 1.625rem; line-height: 1.15; font-weight: 650; letter-spacing: -0.02em; }
+.t-heading { font-size: 1rem; line-height: 1.3; font-weight: 620; letter-spacing: -0.01em; }
+.t-body { font-size: 0.875rem; line-height: 1.55; font-weight: 400; }
 .t-label {
+  font-size: 0.75rem;     /* 12px */
+  line-height: 1.3;
+  font-weight: 550;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-ink-tertiary);
+}
+.t-micro {
   font-size: 0.6875rem;   /* 11px */
   line-height: 1.2;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--color-ink-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   §4.0 The inset panel — the app's core structural pattern.
+   The grey ground fills the window and the sidebar sits directly on it with no
+   border and no background of its own. Content is a WHITE panel inset from the
+   window edges so the ground shows around it. Content is the figure, chrome is
+   the ground — achieved with contrast and shape, not shadow. ------------- */
+.rc-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+/* The scrolling content region of a route: an inset white panel on the ground.
+   Inset only on the three window-facing edges — the sidebar already provides the
+   gap on the left. Always pair with `overflow-y-auto` in the markup; this class
+   deliberately sets no overflow so the utility owns scrolling. */
+.rc-content-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  margin: 0.5rem 0.5rem 0.5rem 0;
+  min-height: 0;
 }
 
 /* Visible, consistent keyboard focus everywhere. */
@@ -150,14 +231,23 @@ body {
   pointer-events: none;
 }
 
+/* Inputs get the soft accent ring rather than a hard outline. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
 /* The email body renders as ONE connected sheet rather than a stack of boxed
    cards; sections inside are borderless and separated by whitespace + a
    hover-revealed hairline (see .section-block / .insert-divider). */
 .rc-canvas-sheet {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
-  border-radius: 16px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
   padding: 0.25rem 2.5rem;
 }
 /* Hairline between consecutive sections in the connected sheet. */
@@ -249,7 +339,7 @@ details[open] > summary .rc-chevron { transform: rotate(180deg); }
   animation: rc-rise 0.3s var(--ease-out-soft) both, rc-accent-flash 1.1s var(--ease-out-soft) 0.15s forwards;
 }
 .rc-skeleton {
-  background: linear-gradient(90deg, var(--color-line) 25%, #eef1f5 50%, var(--color-line) 75%);
+  background: linear-gradient(90deg, var(--color-line) 25%, var(--color-sunken) 50%, var(--color-line) 75%);
   background-size: 200% 100%;
   animation: rc-shimmer 1.4s ease-in-out infinite;
 }

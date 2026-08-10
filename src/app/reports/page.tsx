@@ -152,7 +152,7 @@ export default function ReportsPage() {
         <Card className="text-center" bodyClassName="p-12">
           <div className="t-label mb-2">No report yet</div>
           <p className="text-ink-secondary text-sm mb-4">Run the first weekly capture to see Northbeam-attributed email &amp; SMS performance.</p>
-          <Button variant="primary" size="sm" loading={running} onClick={runNow}>Run now</Button>
+          <Button variant="secondary" size="sm" loading={running} onClick={runNow}>Run now</Button>
         </Card>
       ) : (
         <>

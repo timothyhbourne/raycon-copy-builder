@@ -18,7 +18,7 @@ export function ChannelGlyph({ channel, className = "" }: { channel: PlannerChan
 export function StatusPill({ status, className = "" }: { status: PlannerStatus; className?: string }) {
   const st = STATUS_STYLE[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide leading-none whitespace-nowrap ${st.pill} ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium capitalize leading-none whitespace-nowrap ${st.pill} ${className}`}>
       {st.check && <span aria-hidden>✓</span>}
       <span className={st.strike ? "line-through" : ""}>{PLANNER_STATUS_LABELS[status]}</span>
     </span>
@@ -34,7 +34,7 @@ export function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; 
   if (entry === "unlinked") {
     return (
       <Link href={writeHref} onClick={(e) => e.stopPropagation()}
-        className="mt-0.5 w-fit text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
+        className="mt-0.5 w-fit text-[11px] font-medium text-info-600 hover:underline">
         Write copy
       </Link>
     );
@@ -43,7 +43,7 @@ export function CopyLink({ entry, rowId, copyId, channel }: { entry: CopyEntry; 
     <span className="mt-0.5 flex items-center gap-1.5 w-fit" onClick={(e) => e.stopPropagation()}>
       <Chip tone={COPY_TONE[entry]}>Copy: {entry}</Chip>
       <Link href={`/copy-builder?campaign=${copyId}`} onClick={(e) => e.stopPropagation()}
-        className="text-[10px] font-medium uppercase tracking-wide text-accent hover:underline">
+        className="text-[11px] font-medium text-info-600 hover:underline">
         Open copy
       </Link>
     </span>

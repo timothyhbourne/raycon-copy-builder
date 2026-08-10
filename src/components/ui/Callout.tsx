@@ -1,6 +1,6 @@
 import React from "react";
 
-// Best/worst-style callout card: a tiny uppercase label, a bold headline value,
+// Best/worst-style callout card: a quiet sentence-case label, a bold headline value,
 // an optional signed delta (vs. a median/prior), and an optional secondary stat.
 // `tone` tints the label + left accent bar green (good) or red (weak); neutral
 // by default. Pairs with DeltaPill for the delta slot.

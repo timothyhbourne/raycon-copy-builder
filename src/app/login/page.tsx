@@ -38,8 +38,8 @@ export default function LoginPage() {
         {/* Brand */}
         <div className="flex flex-col items-center mb-8">
           <RayconIcon />
-          <RayconWordmark className="mt-4 h-5 text-slate-900" />
-          <p className="mt-3 t-label text-slate-400">
+          <RayconWordmark className="mt-4 h-5 text-ink" />
+          <p className="mt-3 t-label text-ink-tertiary">
             Copy Builder
           </p>
         </div>
@@ -47,10 +47,10 @@ export default function LoginPage() {
         {/* Card */}
         <form
           onSubmit={handleSubmit}
-          className="bg-white border border-slate-200 rounded-2xl shadow-sm p-7"
+          className="bg-white border border-line rounded-2xl shadow-sm p-7"
         >
-          <h1 className="text-lg font-semibold text-slate-900">Sign in</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-lg font-semibold text-ink">Sign in</h1>
+          <p className="mt-1 text-sm text-ink-tertiary">
             Enter your credentials to continue.
           </p>
 
@@ -73,7 +73,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <div className="mt-4 text-sm text-danger-600 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
@@ -81,13 +81,13 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading || !username || !password}
-            className="mt-6 w-full rounded-lg bg-slate-900 text-white text-sm font-medium py-2.5 transition-colors hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-6 w-full rounded-lg bg-ink text-white text-sm font-medium py-2.5 transition-colors hover:bg-ink disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
-        <p className="mt-6 text-center t-label text-slate-300">
+        <p className="mt-6 text-center t-label text-ink-muted">
           Raycon Internal Tools
         </p>
       </div>
@@ -112,7 +112,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-xs font-medium text-slate-600 mb-1.5">
+      <span className="block text-xs font-medium text-ink-secondary mb-1.5">
         {label}
       </span>
       <input
@@ -121,7 +121,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         autoFocus={autoFocus}
-        className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+        className="w-full rounded-lg border border-line bg-sunken/60 px-3 py-2.5 text-sm text-ink placeholder-ink-muted outline-none transition focus:border-ink focus:bg-white focus:ring-2 focus:ring-ink/10"
       />
     </label>
   );
@@ -131,7 +131,7 @@ function Field({
 function RayconIcon() {
   const bars = [10, 18, 26, 18, 10];
   return (
-    <div className="h-14 w-14 rounded-2xl bg-slate-900 flex items-center justify-center shadow-sm">
+    <div className="h-14 w-14 rounded-2xl bg-ink flex items-center justify-center shadow-sm">
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
         {bars.map((h, i) => (
           <rect

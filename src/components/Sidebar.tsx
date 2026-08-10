@@ -86,11 +86,11 @@ function PhoneGlyph() {
 
 function StatusChip({ kind }: { kind: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    draft: { label: "Draft", cls: "bg-chrome text-ink-muted" },
+    draft: { label: "Draft", cls: "bg-warning-50 text-warning-600" },
     final: { label: "Final", cls: "bg-success-50 text-success-600" },
-    library: { label: "Library", cls: "bg-accent-50 text-accent" },
+    library: { label: "Library", cls: "bg-info-50 text-info-600" },
   };
-  const m = map[kind] ?? { label: kind, cls: "bg-chrome text-ink-muted" };
+  const m = map[kind] ?? { label: kind, cls: "bg-sunken text-ink-tertiary" };
   return <span className={`text-[10px] font-semibold tracking-wide rounded px-1.5 py-0.5 shrink-0 ${m.cls}`}>{m.label}</span>;
 }
 
@@ -122,11 +122,11 @@ function BrowseCard({
       <span className={`mt-0.5 shrink-0 ${active ? "text-accent" : "text-ink-muted"}`}>{glyph}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <div className="text-sm font-medium text-slate-900 truncate flex-1">{title}</div>
+          <div className="text-sm font-medium text-ink truncate flex-1">{title}</div>
           <StatusChip kind={statusKind} />
         </div>
-        <div className="text-xs text-slate-400 mt-0.5 truncate">{metaLine}</div>
-        {subtitle && <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">{subtitle}</div>}
+        <div className="text-xs text-ink-tertiary mt-0.5 truncate">{metaLine}</div>
+        {subtitle && <div className="text-xs text-ink-tertiary mt-0.5 line-clamp-2">{subtitle}</div>}
         {audience && (
           <span className="inline-block mt-1 text-[10px] font-medium text-ink-muted bg-chrome border border-line rounded-full px-1.5 py-0.5">
             {audience}
@@ -137,7 +137,7 @@ function BrowseCard({
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         aria-label={deleteLabel}
         title={deleteLabel}
-        className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-slate-400 hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
+        className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 text-ink-tertiary hover:text-danger-600 transition-opacity text-xs shrink-0 mt-0.5"
       >
         ✕
       </button>

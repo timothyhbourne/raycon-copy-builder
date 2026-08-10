@@ -90,43 +90,43 @@ export default function SandboxPage() {
   return (
     <div>
       <div className="mb-6">
-        <div className="t-label text-slate-500 mb-1">Sandbox</div>
-        <h1 className="text-2xl font-semibold text-slate-900">Sandbox data entry</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <div className="t-label text-ink-tertiary mb-1">Sandbox</div>
+        <h1 className="text-2xl font-semibold text-ink">Sandbox data entry</h1>
+        <p className="text-sm text-ink-tertiary mt-1">
           Northbeam probes. #1 platform level (reconciled ✅) · #2 campaign level — one
           campaign&apos;s revenue by its Klaviyo name. Clicks only · Cash · daily.
         </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <label className="text-sm text-slate-600">
+        <label className="text-sm text-ink-secondary">
           Model{" "}
           <select value={model} onChange={(e) => setModel(e.target.value)}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm">
+            className="border border-line-strong rounded-md px-3 py-2 text-sm">
             {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-sm text-ink-secondary">
           Window (days){" "}
           <select value={window_} onChange={(e) => setWindow(e.target.value)}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm">
+            className="border border-line-strong rounded-md px-3 py-2 text-sm">
             {WINDOWS.map((w) => <option key={w} value={w}>{w}</option>)}
           </select>
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-sm text-ink-secondary">
           Start{" "}
           <input type="date" value={start} onChange={(e) => setStart(e.target.value)}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+            className="border border-line-strong rounded-md px-3 py-2 text-sm" />
         </label>
-        <label className="text-sm text-slate-600">
+        <label className="text-sm text-ink-secondary">
           End{" "}
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+            className="border border-line-strong rounded-md px-3 py-2 text-sm" />
         </label>
         <button
           onClick={() => run("platform")}
           disabled={busy !== null}
-          className="rounded-md bg-slate-900 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-md bg-ink text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
         >
           {busy === "platform" ? "Fetching… (1–3 min when the queue is busy)" : "#1 Fetch Klaviyo revenue"}
         </button>
@@ -137,12 +137,12 @@ export default function SandboxPage() {
           value={campaign}
           onChange={(e) => setCampaign(e.target.value)}
           placeholder="Klaviyo campaign name (Northbeam utm_campaign)"
-          className="border border-slate-300 rounded-md px-3 py-2 text-sm w-[420px]"
+          className="border border-line-strong rounded-md px-3 py-2 text-sm w-[420px]"
         />
-        <label className="text-sm text-slate-600">
+        <label className="text-sm text-ink-secondary">
           Platform{" "}
           <select value={platform} onChange={(e) => setPlatform(e.target.value as "klaviyo" | "postscript")}
-            className="border border-slate-300 rounded-md px-3 py-2 text-sm">
+            className="border border-line-strong rounded-md px-3 py-2 text-sm">
             <option value="klaviyo">Klaviyo (email)</option>
             <option value="postscript">Postscript (SMS)</option>
           </select>
@@ -151,32 +151,32 @@ export default function SandboxPage() {
           value={breakdownKey}
           onChange={(e) => setBreakdownKey(e.target.value)}
           placeholder='campaign breakdown key (blank = none)'
-          className="border border-slate-300 rounded-md px-3 py-2 text-sm w-72"
+          className="border border-line-strong rounded-md px-3 py-2 text-sm w-72"
         />
         <button
           onClick={() => run("campaign")}
           disabled={busy !== null || !campaign.trim()}
-          className="rounded-md bg-indigo-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-md bg-accent text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
         >
           {busy === "campaign" ? "Fetching… (1–3 min when the queue is busy)" : "#2 Fetch campaign revenue"}
         </button>
         <button
           onClick={() => run("breakdowns")}
           disabled={busy !== null}
-          className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-md border border-line-strong px-4 py-2 text-sm font-medium disabled:opacity-50"
         >
           {busy === "breakdowns" ? "Listing…" : "List breakdown keys"}
         </button>
       </div>
 
       {hasPlatformNumber && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 max-w-md">
-          <div className="t-label text-slate-500 mb-1">
+        <div className="mb-6 rounded-lg border border-line bg-white p-6 max-w-md">
+          <div className="t-label text-ink-tertiary mb-1">
             Klaviyo revenue · {result?.window?.start} → {result?.window?.end} · {result?.modelRequested} · {result?.attributionWindowRequested}d
           </div>
-          <div className="text-4xl font-semibold text-slate-900">{fmtUsd(result!.klaviyoRevenue!)}</div>
+          <div className="text-4xl font-semibold text-ink">{fmtUsd(result!.klaviyoRevenue!)}</div>
           {result?.totalsByPlatform && (
-            <div className="mt-3 text-sm text-slate-600">
+            <div className="mt-3 text-sm text-ink-secondary">
               {Object.entries(result.totalsByPlatform).map(([p, v]) => (
                 <div key={p}>{p}: {fmtUsd(v)}</div>
               ))}
@@ -186,24 +186,24 @@ export default function SandboxPage() {
       )}
 
       {hasCampaignResult && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 max-w-2xl">
-          <div className="t-label text-slate-500 mb-1">
+        <div className="mb-6 rounded-lg border border-line bg-white p-6 max-w-2xl">
+          <div className="t-label text-ink-tertiary mb-1">
             Campaign revenue · {result?.window?.start} → {result?.window?.end} · {result?.modelRequested} · {result?.attributionWindowRequested}d
           </div>
           {result?.matchType !== "none" ? (
             <>
-              <div className="text-4xl font-semibold text-slate-900">{fmtUsd(result!.matchedRevenue ?? 0)}</div>
-              <div className="mt-2 text-sm text-slate-600">
+              <div className="text-4xl font-semibold text-ink">{fmtUsd(result!.matchedRevenue ?? 0)}</div>
+              <div className="mt-2 text-sm text-ink-secondary">
                 Matched ({result?.matchType}): <span className="font-medium">{result?.matchedName}</span>
               </div>
             </>
           ) : (
             <>
-              <div className="text-lg font-semibold text-amber-700">No campaign matched “{result?.campaignQuery}”.</div>
-              <div className="mt-2 text-sm text-slate-600">
+              <div className="text-lg font-semibold text-warning-600">No campaign matched “{result?.campaignQuery}”.</div>
+              <div className="mt-2 text-sm text-ink-secondary">
                 Northbeam&apos;s campaign names in this window (top by revenue) — find yours below, then adjust the query:
               </div>
-              <ul className="mt-2 text-sm text-slate-700 max-h-64 overflow-auto space-y-1">
+              <ul className="mt-2 text-sm text-ink-secondary max-h-64 overflow-auto space-y-1">
                 {(result?.candidates ?? []).map((c) => (
                   <li key={c.name} className="flex justify-between gap-4">
                     <button className="text-left underline decoration-dotted" onClick={() => setCampaign(c.name)}>{c.name}</button>
@@ -217,17 +217,17 @@ export default function SandboxPage() {
       )}
 
       {result?.error && (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 max-w-2xl whitespace-pre-wrap">
+        <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 p-4 text-sm text-danger-600 max-w-2xl whitespace-pre-wrap">
           {result.error}
         </div>
       )}
 
       {result && (
         <details open={!hasPlatformNumber && !hasCampaignResult} className="max-w-4xl">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700 mb-2">
+          <summary className="cursor-pointer text-sm font-medium text-ink-secondary mb-2">
             Debug detail ({result.elapsedMs} ms)
           </summary>
-          <pre className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs overflow-auto max-h-[480px]">
+          <pre className="rounded-lg border border-line bg-sunken p-4 text-xs overflow-auto max-h-[480px]">
             {JSON.stringify({ ...result, rows: undefined }, null, 2)}
           </pre>
         </details>

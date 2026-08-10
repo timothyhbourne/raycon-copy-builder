@@ -174,22 +174,22 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
             onDragOver={(e) => onDragOver(e, s.id)}
             onDrop={() => onDrop(s.id)}
             onDragEnd={() => { setDragging(null); setDragOver(null); }}
-            className={`flex items-start gap-2 p-2 rounded border border-slate-200 bg-white text-sm transition-all ${
+            className={`flex items-start gap-2 p-2 rounded border border-line bg-white text-sm transition-all ${
               dragging === s.id ? "opacity-40" : ""
             } ${
               // Purple drop-line under the hovered row = "the section lands here".
               dragOver === s.id ? "shadow-[inset_0_-3px_0_0_var(--color-accent)]" : ""
             }`}
           >
-            <span className="cursor-grab text-slate-400 mt-0.5 select-none">⠿</span>
+            <span className="cursor-grab text-ink-tertiary mt-0.5 select-none">⠿</span>
             <div className="flex-1 min-w-0">
-              <div className="t-label text-slate-500 mb-1">{s.type}</div>
+              <div className="t-label text-ink-tertiary mb-1">{s.type}</div>
               <input
                 type="text"
                 value={s.focus || ""}
                 onChange={(e) => updateFocus(s.id, e.target.value)}
                 placeholder="Focus for this section (optional)"
-                className="w-full text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-slate-400 bg-slate-50"
+                className="w-full text-xs border border-line rounded px-2 py-1 focus:outline-none focus:border-line-strong bg-sunken"
               />
               {(optionalAvailable.length > 0 || removableAvailable.length > 0) && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
@@ -202,8 +202,8 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                         onClick={() => toggleOptionalElement(s.id, el)}
                         className={`text-xs px-2 py-0.5 rounded border transition-colors ${
                           active
-                            ? "bg-slate-700 text-white border-slate-700"
-                            : "bg-white text-slate-400 border-slate-200 hover:border-slate-400 hover:text-slate-600"
+                            ? "bg-ink-secondary text-white border-ink-secondary"
+                            : "bg-white text-ink-tertiary border-line hover:border-line-strong hover:text-ink-secondary"
                         }`}
                       >
                         {active ? "✓ " : "+ "}{el}
@@ -221,8 +221,8 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                         title={on ? `Remove ${el} from this section` : `Add ${el} back`}
                         className={`text-xs px-2 py-0.5 rounded border transition-colors ${
                           on
-                            ? "bg-slate-700 text-white border-slate-700"
-                            : "bg-white text-slate-300 border-slate-200 line-through hover:border-slate-400 hover:text-slate-500"
+                            ? "bg-ink-secondary text-white border-ink-secondary"
+                            : "bg-white text-ink-muted border-line line-through hover:border-line-strong hover:text-ink-tertiary"
                         }`}
                       >
                         {on ? "✓ " : "✕ "}{el}
@@ -236,8 +236,8 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                 return (
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">USPs</span>
-                      <span className="text-xs text-slate-300">{slots.length} of {USP_SLOT_MAX}</span>
+                      <span className="text-xs text-ink-tertiary">USPs</span>
+                      <span className="text-xs text-ink-muted">{slots.length} of {USP_SLOT_MAX}</span>
                     </div>
                     {slots.map((slot, idx) => {
                       const showFocus = openFocus.has(focusKey(s.id, idx)) || !!slot.focus;
@@ -245,11 +245,11 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                       return (
                         <div key={idx} className="space-y-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-slate-400 w-3 shrink-0">{idx + 1}</span>
+                            <span className="text-xs text-ink-tertiary w-3 shrink-0">{idx + 1}</span>
                             <select
                               value={slot.source}
                               onChange={(e) => setSlotSource(s.id, idx, e.target.value as UspSource)}
-                              className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                              className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                             >
                               <option value="product">Product</option>
                               <option value="company">Company</option>
@@ -258,7 +258,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                               <select
                                 value={slot.product_slug ?? ""}
                                 onChange={(e) => updateSlot(s.id, idx, { product_slug: e.target.value || undefined })}
-                                className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400 min-w-0 flex-1"
+                                className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong min-w-0 flex-1"
                               >
                                 <option value="">Auto (hero product)</option>
                                 {selectedProducts.map((p) => (
@@ -272,8 +272,8 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                               title="Steer this one USP"
                               className={`text-xs px-1.5 py-0.5 rounded border transition-colors ml-auto ${
                                 slot.focus
-                                  ? "border-slate-300 text-slate-600"
-                                  : "border-transparent text-slate-300 hover:text-slate-500"
+                                  ? "border-line-strong text-ink-secondary"
+                                  : "border-transparent text-ink-muted hover:text-ink-tertiary"
                               }`}
                             >
                               focus
@@ -283,7 +283,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                               onClick={() => removeSlot(s.id, idx)}
                               disabled={slots.length <= USP_SLOT_MIN}
                               title={slots.length <= USP_SLOT_MIN ? `A USPs section keeps at least ${USP_SLOT_MIN}` : "Remove this USP"}
-                              className="text-xs text-slate-300 hover:text-red-400 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors"
+                              className="text-xs text-ink-muted hover:text-danger-600 disabled:opacity-30 disabled:hover:text-ink-muted transition-colors"
                             >
                               ✕
                             </button>
@@ -294,11 +294,11 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                               value={slot.focus ?? ""}
                               onChange={(e) => updateSlot(s.id, idx, { focus: e.target.value || undefined })}
                               placeholder="Steer this USP (e.g. lead on battery)"
-                              className="w-full text-xs border border-slate-200 rounded px-2 py-1 ml-4 focus:outline-none focus:border-slate-400 bg-slate-50"
+                              className="w-full text-xs border border-line rounded px-2 py-1 ml-4 focus:outline-none focus:border-line-strong bg-sunken"
                             />
                           )}
                           {noBank && (
-                            <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 ml-4">
+                            <div className="text-xs text-warning-600 bg-warning-50 border border-warning-200 rounded px-2 py-1 ml-4">
                               No USPs recorded for {getProductName(slot.product_slug as string)} — add them in data/product-usps.md.
                             </div>
                           )}
@@ -309,12 +309,12 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                       type="button"
                       onClick={() => addSlot(s.id)}
                       disabled={slots.length >= USP_SLOT_MAX}
-                      className="text-xs text-slate-400 hover:text-slate-700 disabled:opacity-40 disabled:hover:text-slate-400 transition-colors"
+                      className="text-xs text-ink-tertiary hover:text-ink-secondary disabled:opacity-40 disabled:hover:text-ink-tertiary transition-colors"
                     >
                       + Add USP
                     </button>
                     {slots.some((x) => x.source === "product") && selectedProducts.length === 0 && (
-                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <div className="text-xs text-warning-600 bg-warning-50 border border-warning-200 rounded px-2 py-1">
                         Select featured products first — a product USP needs a product to draw from.
                       </div>
                     )}
@@ -329,26 +329,26 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                 return (
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 shrink-0">Grid</span>
+                      <span className="text-xs text-ink-tertiary shrink-0">Grid</span>
                       <select
                         value={cols}
                         onChange={(e) => updateGridCols(s.id, Number(e.target.value))}
-                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                        className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                       >
                         {[1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
-                      <span className="text-xs text-slate-400">cols ×</span>
+                      <span className="text-xs text-ink-tertiary">cols ×</span>
                       <select
                         value={rows}
                         onChange={(e) => updateGridRows(s.id, Number(e.target.value))}
-                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                        className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                       >
                         {[1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
-                      <span className="text-xs text-slate-400">rows = {cellCount} products</span>
+                      <span className="text-xs text-ink-tertiary">rows = {cellCount} products</span>
                     </div>
                     {mismatch && (
-                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <div className="text-xs text-warning-600 bg-warning-50 border border-warning-200 rounded px-2 py-1">
                         Grid has {cellCount} cells but {productsCount} product{productsCount === 1 ? "" : "s"} selected. Adjust the grid or the product selection to match.
                       </div>
                     )}
@@ -357,14 +357,14 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
               })()}
               {isProductCardType(s.type) && (
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xs text-slate-400 shrink-0">Product</span>
+                  <span className="text-xs text-ink-tertiary shrink-0">Product</span>
                   {selectedProducts.length === 0 ? (
-                    <span className="text-xs text-amber-600">Select featured products first</span>
+                    <span className="text-xs text-warning-600">Select featured products first</span>
                   ) : (
                     <select
                       value={s.product_slug ?? ""}
                       onChange={(e) => updateProductSlug(s.id, e.target.value)}
-                      className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                      className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                     >
                       <option value="">Auto (assign in order)</option>
                       {selectedProducts.map((p) => (
@@ -382,11 +382,11 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                 return (
                   <div className="mt-2 space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 shrink-0 w-16">Source</span>
+                      <span className="text-xs text-ink-tertiary shrink-0 w-16">Source</span>
                       <select
                         value={mode}
                         onChange={(e) => setBundleMode(s.id, e.target.value as BundleMode)}
-                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                        className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                       >
                         <option value="custom">Custom bundle</option>
                         <option value="existing">Existing Raycon bundle</option>
@@ -395,11 +395,11 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
 
                     {mode === "existing" ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400 shrink-0 w-16">Bundle</span>
+                        <span className="text-xs text-ink-tertiary shrink-0 w-16">Bundle</span>
                         <select
                           value={s.bundle_id ?? ""}
                           onChange={(e) => pickExistingBundle(s.id, e.target.value)}
-                          className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400 max-w-full"
+                          className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong max-w-full"
                         >
                           <option value="">Choose a bundle…</option>
                           {RAYCON_BUNDLES.map((b) => (
@@ -411,7 +411,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                       </div>
                     ) : (
                       <div className="flex items-start gap-2">
-                        <span className="text-xs text-slate-400 shrink-0 w-16 mt-1">Products</span>
+                        <span className="text-xs text-ink-tertiary shrink-0 w-16 mt-1">Products</span>
                         <div className="flex-1 min-w-0">
                           {chosen.length > 0 && (
                             <div className="flex flex-wrap gap-1 mb-1">
@@ -420,7 +420,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                                   key={id}
                                   type="button"
                                   onClick={() => toggleBundleProduct(s.id, id)}
-                                  className="text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-slate-50 text-slate-600 hover:border-red-300 hover:text-red-500 transition-colors"
+                                  className="text-xs px-2 py-0.5 rounded-full border border-line-strong bg-sunken text-ink-secondary hover:border-danger-200 hover:text-danger-600 transition-colors"
                                   title="Remove from bundle"
                                 >
                                   {getProductName(id)} ✕
@@ -431,7 +431,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                           <select
                             value=""
                             onChange={(e) => { if (e.target.value) toggleBundleProduct(s.id, e.target.value); }}
-                            className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                            className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                           >
                             <option value="">+ Add product…</option>
                             {ALL_CATALOGUE_PRODUCTS.filter((p) => !chosen.includes(p.id)).map((p) => (
@@ -443,20 +443,20 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                     )}
 
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 shrink-0 w-16">Layout</span>
+                      <span className="text-xs text-ink-tertiary shrink-0 w-16">Layout</span>
                       <select
                         value={template}
                         onChange={(e) => patchSection(s.id, { bundle_template: e.target.value as SectionSpec["bundle_template"] })}
-                        className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-slate-400"
+                        className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
                       >
                         {BUNDLE_TEMPLATES.map((t) => (
                           <option key={t.id} value={t.id}>{t.label}</option>
                         ))}
                       </select>
                     </div>
-                    {tmplHint && <div className="text-xs text-slate-400 pl-[4.5rem] leading-relaxed">{tmplHint}</div>}
+                    {tmplHint && <div className="text-xs text-ink-tertiary pl-[4.5rem] leading-relaxed">{tmplHint}</div>}
                     {chosen.length < 2 && (
-                      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <div className="text-xs text-warning-600 bg-warning-50 border border-warning-200 rounded px-2 py-1">
                         A bundle needs at least 2 products. {mode === "existing" ? "Pick a bundle above." : "Add another product."}
                       </div>
                     )}
@@ -467,7 +467,7 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
             <button
               type="button"
               onClick={() => remove(s.id)}
-              className="text-slate-300 hover:text-red-400 transition-colors mt-0.5 text-xs"
+              className="text-ink-muted hover:text-danger-600 transition-colors mt-0.5 text-xs"
             >
               ✕
             </button>
@@ -479,18 +479,18 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
         <button
           type="button"
           onClick={() => setShowAddMenu(!showAddMenu)}
-          className="w-full text-xs text-slate-400 hover:text-slate-700 border border-dashed border-slate-300 rounded py-1.5 transition-colors"
+          className="w-full text-xs text-ink-tertiary hover:text-ink-secondary border border-dashed border-line-strong rounded py-1.5 transition-colors"
         >
           + Add section
         </button>
         {showAddMenu && (
-          <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-slate-200 rounded shadow-lg py-1">
+          <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-line rounded shadow-lg py-1">
             {SECTION_TYPES.map((t) => (
               <button
                 type="button"
                 key={t}
                 onClick={() => addSection(t)}
-                className="w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                className="w-full text-left px-3 py-1.5 text-xs text-ink-secondary hover:bg-sunken transition-colors"
               >
                 {t}
               </button>

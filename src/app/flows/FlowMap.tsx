@@ -15,10 +15,10 @@ type SplitFields = { label?: string; yes_label?: string; no_label?: string };
 
 function StatusPill({ status }: { status: EmailStatus }) {
   const map = {
-    empty: { label: "Empty", cls: "bg-chrome text-ink-muted" },
-    draft: { label: "Draft", cls: "bg-accent-50 text-accent" },
+    empty: { label: "Empty", cls: "bg-sunken text-ink-tertiary" },
+    draft: { label: "Draft", cls: "bg-warning-50 text-warning-600" },
     final: { label: "Final", cls: "bg-success-50 text-success-600" },
-    writing: { label: "Writing…", cls: "bg-accent-50 text-accent animate-pulse" },
+    writing: { label: "Writing…", cls: "bg-action-50 text-action-600 animate-pulse" },
   }[status];
   return <span className={`text-[10px] font-semibold tracking-wide rounded px-1.5 py-0.5 ${map.cls}`}>{map.label}</span>;
 }

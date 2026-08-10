@@ -21,7 +21,7 @@ export default function Card({
 }) {
   const hasHeader = title != null || subtitle != null || action != null;
   return (
-    <section className={`bg-surface border border-line rounded-md shadow-card overflow-hidden ${className}`}>
+    <section className={`bg-surface border border-line rounded-lg shadow-card overflow-hidden ${className}`}>
       {hasHeader && (
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-line">
           <div className="min-w-0">

@@ -58,7 +58,7 @@ function VariantText({ value, onChange }: { value: string; onChange: (v: string)
       value={value}
       onChange={(e) => onChange(e.target.value)}
       rows={2}
-      className="w-full resize-none text-sm text-slate-900 leading-relaxed bg-transparent focus:outline-none"
+      className="w-full resize-none text-sm text-ink leading-relaxed bg-transparent focus:outline-none"
       style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
     />
   );
@@ -105,7 +105,7 @@ export default function SmsCanvas({ campaign, isGenerating, onSelect, onChangeVa
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); setAltFor(i); }}
-                className="ml-auto text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-0.5 hover:bg-slate-50 transition-colors"
+                className="ml-auto text-xs text-ink-tertiary hover:text-ink border border-line rounded px-2 py-0.5 hover:bg-sunken transition-colors"
                 title="Get alternative wordings for this message"
               >
                 Alternatives

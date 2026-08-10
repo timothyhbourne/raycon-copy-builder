@@ -120,8 +120,8 @@ export default function SmsForm({ emailSources, loading, seedBrief, seedSourceId
                     : "border-line hover:border-line-strong bg-surface hover:bg-chrome"
                 }`}
               >
-                <div className="text-sm font-medium text-slate-900 truncate">{s.name}</div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-sm font-medium text-ink truncate">{s.name}</div>
+                <div className="text-xs text-ink-tertiary mt-0.5">
                   {s.date} · {s.type} · {s.kind}
                 </div>
               </button>

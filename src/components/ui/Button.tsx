@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "action" | "ghost" | "danger" | "dangerSolid";
 type Size = "sm" | "md";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -10,11 +10,27 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+/**
+ * ACTION SEMANTICS (§4.1). The variant carries meaning, not just weight:
+ *
+ *   primary   — CREATES something (Generate, New campaign, Save to library).
+ *               Solid green. Aim for exactly ONE per view; if a button doesn't
+ *               create anything, it should be `secondary`.
+ *   secondary — Non-creating actions (Save draft, Apply, Refresh, Sync).
+ *   action    — Text-style action that creates a record inline ("+ New task").
+ *               Violet, no fill.
+ *   ghost     — Tertiary / dismissive (Cancel, Close, inline controls).
+ *   danger    — Destructive TRIGGER. Tinted, so it doesn't shout from a toolbar.
+ *   dangerSolid — The destructive CONFIRM step only (ConfirmModal, an inline
+ *               "Confirm delete"). §4.1 reserves solid red for exactly this.
+ */
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-ink text-white border border-transparent hover:opacity-90",
-  secondary: "bg-surface text-ink-secondary border border-line hover:bg-chrome hover:border-line-strong",
-  ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-chrome hover:text-ink",
-  danger: "bg-danger-600 text-white border border-transparent hover:opacity-90",
+  primary: "bg-accent text-white border border-transparent hover:bg-accent-700",
+  secondary: "bg-surface text-ink border border-line-strong hover:bg-sunken",
+  action: "bg-transparent text-action-600 border border-transparent hover:bg-action-50",
+  ghost: "bg-transparent text-ink-secondary border border-transparent hover:bg-sunken hover:text-ink",
+  danger: "bg-danger-50 text-danger-600 border border-transparent hover:bg-danger-200/60",
+  dangerSolid: "bg-danger-600 text-white border border-transparent hover:opacity-90",
 };
 
 const SIZE: Record<Size, string> = {

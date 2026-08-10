@@ -3,11 +3,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-// Grouped, labeled, searchable left sidebar (the app's primary nav). Replaces the
-// old 72px icon rail. Light surface, hairline border, ~240px wide. Nav items are
-// organized under tiny uppercase section headers; the active item takes the
-// accent (tinted bg + left bar + accent text). The search box filters the nav
-// client-side and is focusable with ⌘K — a real affordance, not decoration.
+// Grouped, labeled, searchable left sidebar (the app's primary nav), ~240px wide.
+//
+// §4.0/§4.3 — CHROME RECEDES. The sidebar has NO background and NO right border:
+// it sits directly on the app ground (--color-chrome) and the route's content is
+// an inset white panel beside it, so content is unmistakably the figure.
+// The active item is a QUIET SUNKEN PILL with ink text — deliberately not the
+// accent. Green is reserved for actions that create something; using it for
+// navigation state is what made the accent meaningless. There's no left accent
+// bar either.
+// Group headers are the ONE sanctioned all-caps in the app (.t-micro).
+// The search box filters the nav client-side and is focusable with ⌘K.
 
 // 1.5px-stroke line icons (20px), currentColor so active/hover tinting works.
 const SVG = "w-[18px] h-[18px] shrink-0";
@@ -51,6 +57,14 @@ function WhatWorksIcon() {
 }
 function SignOutIcon() {
   return (<svg {...svgProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>);
+}
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden className="w-4 h-4 shrink-0">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
 }
 function SearchIcon() {
   return (
@@ -138,17 +152,29 @@ export default function AppNav() {
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   return (
-    <aside className="w-60 shrink-0 border-r border-line bg-surface flex flex-col h-full">
+    <aside className="w-60 shrink-0 flex flex-col h-full">
       {/* Brand lockup */}
       <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-md bg-ink text-white text-sm font-semibold flex items-center justify-center shrink-0">R</div>
         <div className="min-w-0">
           <div className="text-sm font-semibold text-ink leading-tight truncate">Raycon</div>
-          <div className="text-[11px] text-ink-muted leading-tight truncate">Campaign tools</div>
+          <div className="text-[11px] text-ink-tertiary leading-tight truncate">Campaign tools</div>
         </div>
       </div>
 
-      {/* Search + ⌘K hint */}
+      {/* The one green primary in the chrome: the create action, top of sidebar,
+          full width. Everything else here is neutral. */}
+      <div className="px-3 pb-2">
+        <Link
+          href="/copy-builder"
+          className="w-full flex items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-white shadow-card hover:bg-accent-700 transition-colors duration-150 ease-out-soft"
+        >
+          <PlusIcon /> New copy
+        </Link>
+      </div>
+
+      {/* Search — FILLED (sunken, borderless) because it lives in the sidebar;
+          toolbar searches on a white panel get a border instead (§4.1c). */}
       <div className="px-3 pb-2">
         <div className="relative flex items-center">
           <span className="absolute left-2.5 text-ink-muted pointer-events-none"><SearchIcon /></span>
@@ -159,9 +185,9 @@ export default function AppNav() {
             onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
             placeholder="Search"
             aria-label="Search navigation"
-            className="w-full rounded-md border border-line bg-canvas pl-8 pr-12 py-2 text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors"
+            className="w-full rounded-md border border-transparent bg-sunken pl-8 pr-12 py-2 text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors"
           />
-          <kbd className="absolute right-2 text-[10px] font-medium text-ink-muted bg-chrome border border-line rounded px-1.5 py-0.5 pointer-events-none select-none">⌘K</kbd>
+          <kbd className="absolute right-2 text-[10px] font-medium text-ink-muted bg-surface border border-line rounded px-1.5 py-0.5 pointer-events-none select-none">⌘K</kbd>
         </div>
       </div>
 
@@ -169,7 +195,8 @@ export default function AppNav() {
       <nav className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-4">
         {groups.map((group) => (
           <div key={group.title} className="flex flex-col gap-0.5">
-            <div className="t-label px-2 pb-1">{group.title}</div>
+            {/* Group heads: the one sanctioned all-caps in the app. */}
+            <div className="t-micro px-2 pb-1">{group.title}</div>
             {group.items.map(({ href, label, Icon, badge }) => {
               const active = isActive(href);
               return (
@@ -177,16 +204,17 @@ export default function AppNav() {
                   key={href}
                   href={href}
                   aria-current={active ? "page" : undefined}
-                  className={`relative flex items-center gap-2.5 rounded-md pl-3 pr-2 py-2 text-sm font-medium transition-colors duration-150 ease-out-soft ${
-                    active ? "bg-accent-50 text-accent" : "text-ink-secondary hover:bg-chrome hover:text-ink"
+                  className={`relative flex items-center gap-2.5 rounded-md pl-3 pr-2 py-2 text-sm transition-colors duration-150 ease-out-soft ${
+                    active
+                      ? "bg-sunken text-ink font-medium"
+                      : "text-ink-secondary font-normal hover:bg-sunken/60 hover:text-ink"
                   }`}
                 >
-                  {active && <span aria-hidden className="absolute left-0.5 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent" />}
                   <Icon />
                   <span className="truncate flex-1">{label}</span>
                   {badge && (
                     <span className={`text-[10px] font-semibold tracking-wide rounded px-1.5 py-0.5 ${
-                      active ? "bg-accent-200/60 text-accent" : "bg-chrome text-ink-muted"
+                      badge === "AI" ? "bg-action-50 text-action-600" : "bg-surface text-ink-tertiary border border-line"
                     }`}>
                       {badge}
                     </span>
@@ -197,16 +225,16 @@ export default function AppNav() {
           </div>
         ))}
         {groups.length === 0 && (
-          <div className="px-2 py-1 text-sm text-ink-muted">No matches</div>
+          <div className="px-2 py-1 text-sm text-ink-tertiary">No matches</div>
         )}
       </nav>
 
-      {/* Admin — sign out pinned to the bottom */}
+      {/* Admin — sign out pinned to the bottom. Hairline only, no filled bar. */}
       <div className="border-t border-line px-3 py-2">
         <button
           onClick={logout}
           aria-label="Sign out"
-          className="w-full flex items-center gap-2.5 rounded-md pl-3 pr-2 py-2 text-sm font-medium text-ink-muted hover:bg-chrome hover:text-ink-secondary transition-colors duration-150 ease-out-soft"
+          className="w-full flex items-center gap-2.5 rounded-md pl-3 pr-2 py-2 text-sm text-ink-tertiary hover:bg-sunken hover:text-ink transition-colors duration-150 ease-out-soft"
         >
           <SignOutIcon />
           <span className="truncate">Sign out</span>

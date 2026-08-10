@@ -3,13 +3,14 @@
 // strip; the Calendar view caps its own width internally (see CalendarView) so
 // it isn't over-stretched at this width.
 //
-// The workspace is white (not the app's warm-gray `chrome` body background):
-// the Table view is one continuous white surface, so the gray page must not
-// show through in the day-group gutters or around rows. Structure comes from
-// hairlines, whitespace, and the accent instead.
+// The workspace is an INSET WHITE PANEL on the app's grey ground (§4.0 of
+// DESIGN_SYSTEM_SPEC): the Table view is one continuous white surface, so the
+// ground must not show through in day-group gutters or around rows — it shows
+// only in the margin around the panel. Structure comes from hairlines and
+// whitespace inside it.
 export default function PlannerLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex-1 overflow-y-auto bg-surface">
+    <div className="rc-content-panel flex-1 overflow-y-auto">
       <div className="max-w-[110rem] mx-auto px-6 py-8">{children}</div>
     </div>
   );

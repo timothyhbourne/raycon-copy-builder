@@ -90,8 +90,8 @@ export default function VariationsModal({
         className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="t-label text-slate-500 mb-1">Alternatives</div>
-        <h3 className="font-semibold text-slate-900 mb-4">{title}</h3>
+        <div className="t-label text-ink-tertiary mb-1">Alternatives</div>
+        <h3 className="font-semibold text-ink mb-4">{title}</h3>
 
         {/* Quick-pick feedback chips */}
         <div className="flex flex-wrap gap-2 mb-3">
@@ -103,8 +103,8 @@ export default function VariationsModal({
                 onClick={() => toggleChip(c)}
                 className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                   on
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                    ? "bg-ink text-white border-ink"
+                    : "bg-white text-ink-secondary border-line hover:border-line-strong"
                 }`}
               >
                 {c}
@@ -117,15 +117,15 @@ export default function VariationsModal({
           value={freeText}
           onChange={(e) => setFreeText(e.target.value)}
           rows={2}
-          className="w-full border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-slate-400 resize-none"
+          className="w-full border border-line rounded px-3 py-2 text-sm focus:outline-none focus:border-line-strong resize-none"
           placeholder="Optional: what feels off? (e.g. too pushy, no personality)"
         />
 
         {showTone && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
-              <label className="t-label text-slate-500">Tone</label>
-              <span className="text-xs text-slate-500">{TONE_LABELS[tone]}</span>
+              <label className="t-label text-ink-tertiary">Tone</label>
+              <span className="text-xs text-ink-tertiary">{TONE_LABELS[tone]}</span>
             </div>
             <input
               type="range"
@@ -143,31 +143,31 @@ export default function VariationsModal({
           <button
             onClick={run}
             disabled={loading}
-            className="flex-1 bg-slate-900 text-white py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors disabled:opacity-50"
+            className="flex-1 bg-ink text-white py-2 rounded-md text-sm font-medium hover:bg-ink-secondary transition-colors disabled:opacity-50"
           >
             {loading ? "Writing alternatives…" : hasResults ? "Regenerate a new set" : "Get 5 alternatives"}
           </button>
           <button
             onClick={onClose}
-            className="border border-slate-200 text-slate-600 px-4 py-2 rounded-md text-sm hover:bg-slate-50 transition-colors"
+            className="border border-line text-ink-secondary px-4 py-2 rounded-md text-sm hover:bg-sunken transition-colors"
           >
             Close
           </button>
         </div>
 
-        {error && <div className="text-xs text-red-600 mt-3">{error}</div>}
+        {error && <div className="text-xs text-danger-600 mt-3">{error}</div>}
 
         {/* Results */}
         {hasResults && (
           <div className="mt-5">
             <div className="flex items-center justify-between mb-2">
-              <div className="t-label text-slate-500">Tap one to apply it</div>
+              <div className="t-label text-ink-tertiary">Tap one to apply it</div>
               {sets.length > 1 && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
+                <div className="flex items-center gap-2 text-xs text-ink-tertiary">
                   <button
                     onClick={() => setSetIndex((i) => Math.max(0, i - 1))}
                     disabled={setIndex === 0}
-                    className="px-1.5 py-0.5 border border-slate-200 rounded disabled:opacity-40"
+                    className="px-1.5 py-0.5 border border-line rounded disabled:opacity-40"
                   >
                     ‹
                   </button>
@@ -175,7 +175,7 @@ export default function VariationsModal({
                   <button
                     onClick={() => setSetIndex((i) => Math.min(sets.length - 1, i + 1))}
                     disabled={setIndex === sets.length - 1}
-                    className="px-1.5 py-0.5 border border-slate-200 rounded disabled:opacity-40"
+                    className="px-1.5 py-0.5 border border-line rounded disabled:opacity-40"
                   >
                     ›
                   </button>
@@ -190,10 +190,10 @@ export default function VariationsModal({
                     onApply(item.payload);
                     onClose();
                   }}
-                  className="w-full text-left border border-slate-200 rounded-lg p-3 hover:border-slate-900 hover:bg-slate-50 transition-colors"
+                  className="w-full text-left border border-line rounded-lg p-3 hover:border-ink hover:bg-sunken transition-colors"
                 >
-                  <div className="t-label text-slate-500 mb-1">{item.label}</div>
-                  <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{item.preview}</div>
+                  <div className="t-label text-ink-tertiary mb-1">{item.label}</div>
+                  <div className="text-sm text-ink leading-relaxed whitespace-pre-wrap">{item.preview}</div>
                 </button>
               ))}
             </div>

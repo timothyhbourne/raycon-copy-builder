@@ -56,7 +56,7 @@ export default function FlowsPage() {
                 <tr key={f.flow_id} className="hover:bg-chrome transition-colors">
                   <td className="px-4 py-2.5">
                     <div className="text-ink">{f.name}</div>
-                    {f.status && <div className="text-[10px] text-ink-muted uppercase">{f.status}</div>}
+                    {f.status && <div className="text-[10px] text-ink-tertiary capitalize">{f.status}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.recipients)}</td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.opens)}</td>

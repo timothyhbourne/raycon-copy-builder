@@ -77,7 +77,7 @@ function CohortCard({ cohort, membersReady }: { cohort: LifecycleCohort; members
 
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {cohort.pills.map((p) => (
-              <span key={p} className="inline-flex items-center rounded-sm border border-line bg-chrome px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">{p}</span>
+              <span key={p} className="inline-flex items-center rounded-sm bg-sunken px-1.5 py-0.5 text-[11px] font-medium capitalize text-ink-secondary">{p}</span>
             ))}
           </div>
 

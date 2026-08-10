@@ -25,13 +25,13 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating, 
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg" style={{ padding: "32px 40px" }}>
+    <div className="bg-white border border-line rounded-lg" style={{ padding: "32px 40px" }}>
       <div className="flex items-center justify-between mb-5">
         <span className="t-label">Subject Lines + Preview Text</span>
         <button
           onClick={onRegenerate}
           disabled={regenerating}
-          className="text-xs text-slate-500 hover:text-slate-900 px-2 py-0.5 rounded hover:bg-slate-100 transition-colors disabled:opacity-50"
+          className="text-xs text-ink-tertiary hover:text-ink px-2 py-0.5 rounded hover:bg-sunken transition-colors disabled:opacity-50"
         >
           {regenerating ? "Regenerating..." : "↻ regenerate all"}
         </button>
@@ -46,19 +46,19 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating, 
               return (
               <div key={i}>
                 {LANE_LABELS[i] && (
-                  <div className="t-label text-indigo-400 mb-0.5 ml-6 flex items-center gap-2">
+                  <div className="t-label text-action-600 mb-0.5 ml-6 flex items-center gap-2">
                     {LANE_LABELS[i]}
                     {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(metaKey("subject", i))} />}
                   </div>
                 )}
                 <div className="flex items-baseline gap-2">
-                  <span className="text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
+                  <span className="text-xs text-ink-muted w-4 shrink-0">{i + 1}</span>
                   <input
                     value={line}
                     onChange={(e) => updateLine("subject_lines", i, e.target.value)}
-                    className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
+                    className="flex-1 text-ink text-sm border-b border-transparent focus:border-line focus:outline-none py-0.5 bg-transparent"
                   />
-                  <span className={`font-mono text-xs shrink-0 tabular-nums ${line.length > 50 ? "text-red-400" : "text-slate-300"}`}>
+                  <span className={`font-mono text-xs shrink-0 tabular-nums ${line.length > 50 ? "text-danger-600" : "text-ink-muted"}`}>
                     {line.length}/50
                   </span>
                 </div>
@@ -76,19 +76,19 @@ export default function MetaBlock({ meta, onChange, onRegenerate, regenerating, 
               return (
               <div key={i}>
                 {LANE_LABELS[i] && (
-                  <div className="t-label text-indigo-400 mb-0.5 ml-6 flex items-center gap-2">
+                  <div className="t-label text-action-600 mb-0.5 ml-6 flex items-center gap-2">
                     {LANE_LABELS[i]}
                     {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(metaKey("preview", i))} />}
                   </div>
                 )}
                 <div className="flex items-baseline gap-2">
-                  <span className="text-xs text-slate-300 w-4 shrink-0">{i + 1}</span>
+                  <span className="text-xs text-ink-muted w-4 shrink-0">{i + 1}</span>
                   <input
                     value={text}
                     onChange={(e) => updateLine("preview_texts", i, e.target.value)}
-                    className="flex-1 text-slate-900 text-sm border-b border-transparent focus:border-slate-200 focus:outline-none py-0.5 bg-transparent"
+                    className="flex-1 text-ink text-sm border-b border-transparent focus:border-line focus:outline-none py-0.5 bg-transparent"
                   />
-                  <span className={`font-mono text-xs shrink-0 tabular-nums ${text.length > 90 ? "text-red-400" : "text-slate-300"}`}>
+                  <span className={`font-mono text-xs shrink-0 tabular-nums ${text.length > 90 ? "text-danger-600" : "text-ink-muted"}`}>
                     {text.length}/90
                   </span>
                 </div>
