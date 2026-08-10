@@ -45,7 +45,7 @@ function weakPerDimension(aggs: DimensionAgg[], keys: string[], minN: number): S
     if (eligible.length < 2) continue; // need a spread to call one "weaker"
     const worst = eligible[eligible.length - 1];
     const best = eligible[0];
-    if (worst.rpr < best.rpr) out.push({ dimLabel: agg.label, value: worst.value, n: worst.n, rpr: worst.rpr });
+    if (worst.mean_rpr < best.mean_rpr) out.push({ dimLabel: agg.label, value: worst.value, n: worst.n, rpr: worst.mean_rpr });
   }
   return out.sort((a, b) => a.rpr - b.rpr);
 }

@@ -7,9 +7,3 @@ data/lifecycle-customers.json
 worker/
 docs/
 lifecycle_dashboard_mockup.html
-
-# TEMPORARY — in-progress Learning Loop work that does not yet type check
-# (DimensionValueAgg has no `rpr` property). Nothing imports it, so excluding it
-# from the upload keeps the production build green without editing half-finished
-# code. DELETE THIS LINE once the file compiles.
-src/lib/performance-memory.ts
