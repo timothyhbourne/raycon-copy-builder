@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import type {
   BriefInput, ExpandedBrief, Conceit, GeneratedCampaign, GeneratedSection,
@@ -21,9 +21,10 @@ import InputForm from "@/components/InputForm";
 import CampaignCanvas from "@/components/CampaignCanvas";
 import SmsForm, { type EmailSource, type SmsGenerateArgs } from "@/components/sms/SmsForm";
 import SmsCanvas from "@/components/sms/SmsCanvas";
-import Sidebar from "@/components/Sidebar";
+import LibraryBrowser from "@/components/LibraryBrowser";
 import Button from "@/components/ui/Button";
 import Chip from "@/components/ui/Chip";
+import Drawer from "@/components/ui/Drawer";
 import EmptyState from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/Modal";
 import { toast } from "@/components/ui/Toast";
@@ -32,7 +33,16 @@ import {
   type Stage, type CanvasSource, type PlannerLinkContext,
   type StepKey, type LibraryMeta, type SavedMeta,
 } from "./helpers";
-import { DeepLinkReader, Stepper, AutosaveStatus, CollapseIcon, PanelIcon } from "./components";
+import { DeepLinkReader, Stepper, AutosaveStatus, CollapseIcon, PanelIcon, LibraryIcon } from "./components";
+
+// One recently-touched campaign, whichever store it came from.
+interface RecentItem {
+  kind: "draft" | "library" | "sms";
+  id: string;
+  title: string;
+  meta: string;
+  ts: string;
+}
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("form");
@@ -53,8 +63,11 @@ export default function Home() {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" | "sms" } | null>(null);
   const [pendingBriefInput, setPendingBriefInput] = useState<BriefInput | null>(null);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
-  // Stage-aware chrome (Phase 3a): collapsible sidebar + brief panel.
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Stage-aware chrome: a collapsible brief panel beside the canvas, plus the
+  // campaign browser as an on-demand WIDE drawer. It used to be a permanent
+  // 240px column wedged between the nav and the brief, which truncated every
+  // title and sandwiched the brief between two lists (Phase 3b).
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(true);
 
   // Tracks where the canvas content came from
@@ -103,12 +116,12 @@ export default function Home() {
   const [smsSeedSourceId, setSmsSeedSourceId] = useState<string | null>(null);
   const [pendingSmsGen, setPendingSmsGen] = useState<SmsGenerateArgs | null>(null);
 
-  const refreshSidebar = useCallback(async () => {
+  const refreshBrowseLists = useCallback(async () => {
     const [libRes, savedRes, smsRes] = await Promise.all([
       fetch("/api/library"), fetch("/api/campaigns"), fetch("/api/sms"),
     ]);
     // Each parse is independent: a single failing store (e.g. a 500) must not
-    // abort the others, or one broken sidebar section blanks all three.
+    // abort the others, or one broken list blanks all three.
     const lib = await libRes.json().catch(() => ({}));
     const saved = await savedRes.json().catch(() => ({}));
     const sms = await smsRes.json().catch(() => ({}));
@@ -121,7 +134,7 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => { refreshSidebar(); }, [refreshSidebar]);
+  useEffect(() => { refreshBrowseLists(); }, [refreshBrowseLists]);
 
   // Restore in-progress draft from localStorage on load.
   useEffect(() => {
@@ -737,7 +750,7 @@ export default function Home() {
       setCanvasSource("draft");
       setSavingStatus("idle");
       writeBackToPlanner(id, "draft");   // stamp the planner row (fire-and-forget)
-      await refreshSidebar();
+      await refreshBrowseLists();
       toast.success("Draft saved");
     } catch (e) {
       setSavingStatus("idle");
@@ -782,7 +795,7 @@ export default function Home() {
       setCanvasSource("library");
       setSavingStatus("idle");
       writeBackToPlanner(id, "final");   // flip the planner chip to "final"
-      await refreshSidebar();
+      await refreshBrowseLists();
       toast.success("Saved to library");
     } catch (e) {
       setSavingStatus("idle");
@@ -855,7 +868,7 @@ export default function Home() {
         } else {
           setAutosaveStatus("saved");
           savedFadeTimerRef.current = setTimeout(() => setAutosaveStatus("check"), 2000);
-          refreshSidebar();                // keep sidebar titles in sync with edits
+          refreshBrowseLists();               // keep browser titles in sync with edits
         }
       })
       .catch(() => {
@@ -1018,7 +1031,7 @@ export default function Home() {
         if (currentLibraryId === id) resetAll();
         toast.success("Removed from library");
       }
-      await refreshSidebar();
+      await refreshBrowseLists();
     } catch {
       toast.error("Delete failed");
     }
@@ -1327,7 +1340,7 @@ export default function Home() {
       setSmsCurrentId(id);
       setSmsSource(status === "final" ? "final" : "draft");
       writeBackToPlanner(id, status);
-      await refreshSidebar();
+      await refreshBrowseLists();
       toast.success(status === "final" ? "SMS saved as final" : "SMS draft saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
@@ -1408,46 +1421,137 @@ export default function Home() {
     if (key === "form") setStage("form");
   };
 
+  // --- Browse surface (drawer + "pick up where you left off") --------------
+  const browseCount = savedItems.length + libraryItems.length + smsItems.length;
+
+  // The four most recently touched things across all three stores. Shown on the
+  // empty canvas so the blank brief stage isn't a dead end — it used to be the
+  // only place the (now drawer-bound) list of campaigns was visible.
+  const recentItems: RecentItem[] = useMemo(() => {
+    const items: RecentItem[] = [
+      ...savedItems.map((i) => ({
+        kind: "draft" as const, id: i.id, title: i.campaign_name, ts: i.updated_at ?? "",
+        meta: [i.campaign_type, (i.updated_at ?? "").slice(0, 10)].filter(Boolean).join(" · "),
+      })),
+      ...libraryItems.map((i) => ({
+        kind: "library" as const, id: i.id, title: i.title, ts: i.date ?? "",
+        meta: [(i.date ?? "").slice(0, 10), i.campaign_type].filter(Boolean).join(" · "),
+      })),
+      ...smsItems.map((i) => ({
+        kind: "sms" as const, id: i.id, title: i.name, ts: i.updated_at ?? "",
+        meta: (i.updated_at ?? "").slice(0, 10),
+      })),
+    ];
+    return items.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 4);
+  }, [savedItems, libraryItems, smsItems]);
+
+  const openRecent = (item: RecentItem) => {
+    if (item.kind === "draft") handleLoadSaved(item.id);
+    else if (item.kind === "library") handleViewLibrary(item.id);
+    else handleLoadSms(item.id);
+  };
+
   return (
-    <div className="rc-content-panel flex flex-1 min-h-0 overflow-hidden">
+    <div className="rc-content-panel flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Deep-link reader (Next 16 requires useSearchParams under Suspense) */}
       <Suspense fallback={null}>
         <DeepLinkReader onPlanner={handlePlannerDeepLink} onCampaign={handleCampaignDeepLink} />
       </Suspense>
 
-      {/* Sidebar (collapsible) */}
-      <div className={`shrink-0 border-r border-line bg-surface overflow-hidden transition-[width] duration-[250ms] ease-out-soft ${sidebarOpen ? "w-60" : "w-12"}`}>
-        {sidebarOpen ? (
-          <div className="relative h-full overflow-y-auto">
-            <button onClick={() => setSidebarOpen(false)} title="Collapse" aria-label="Collapse sidebar"
-              className="absolute top-3.5 right-2 z-10 text-ink-muted hover:text-ink p-1 rounded-sm hover:bg-chrome transition-colors">
-              <CollapseIcon />
-            </button>
-            <Sidebar
-              libraryItems={libraryItems}
-              savedItems={savedItems}
-              smsItems={smsItems}
-              onLoadSaved={handleLoadSaved}
-              onDeleteSaved={handleDeleteSaved}
-              onViewLibrary={handleViewLibrary}
-              onDeleteLibrary={handleDeleteLibrary}
-              onLoadSms={handleLoadSms}
-              onDeleteSms={handleDeleteSms}
-              activeSavedId={currentDraftId}
-              activeLibraryId={currentLibraryId}
-              activeSmsId={channel === "sms" ? smsCurrentId : null}
-            />
-          </div>
-        ) : (
-          <button onClick={() => setSidebarOpen(true)} title="Saved & Library" aria-label="Expand sidebar"
-            className="w-full flex justify-center pt-4 text-ink-muted hover:text-ink transition-colors">
-            <PanelIcon />
-          </button>
-        )}
+      {/* Workspace toolbar — ONE full-width bar carrying what the campaign is
+          and what you can do to it. Replaces the two per-channel sticky bars
+          that used to sit inside the canvas column, and gives the Library a
+          home as a button so it no longer needs a column of its own. */}
+      <div className="shrink-0 border-b border-line bg-surface px-4 py-2.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="secondary" size="sm" onClick={() => setLibraryOpen(true)}
+            title="Browse drafts, library & SMS campaigns">
+            <LibraryIcon />
+            Library
+            <span className="font-normal text-ink-muted tabular-nums">{browseCount}</span>
+          </Button>
+          <span aria-hidden className="w-px h-5 bg-line shrink-0" />
+          {channel === "email" ? (
+            <>
+              {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
+                <div className="group relative flex items-center min-w-0">
+                  <input
+                    value={currentBriefInput.campaign_name}
+                    onChange={(e) => handleRenameCampaign(e.target.value)}
+                    className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 pr-5 transition-colors"
+                    title="Click to rename campaign"
+                  />
+                  <svg aria-hidden className="pointer-events-none absolute right-0 w-3.5 h-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                </div>
+              ) : (
+                <span className="t-label truncate">New campaign</span>
+              )}
+              {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
+              {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+            </>
+          ) : (
+            <>
+              {smsCampaign ? (
+                <input
+                  value={smsCampaign.name}
+                  onChange={(e) => setSmsCampaign((c) => (c ? { ...c, name: e.target.value } : c))}
+                  className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 transition-colors"
+                  title="Click to rename SMS campaign"
+                />
+              ) : (
+                <span className="t-label truncate">New SMS</span>
+              )}
+              <Chip tone="accent" className="shrink-0">SMS</Chip>
+              {smsSource === "final" && <Chip tone="muted" className="shrink-0">final</Chip>}
+              {smsSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          {channel === "email" && (
+            <>
+              <Stepper activeKey={activeKey} canGoBack={canGoBack} onNavigate={onStepNavigate} />
+              {loadingPhase === "generating" && (
+                <span className="text-xs text-ink-muted hidden xl:inline">
+                  Writing — section {Math.min((campaign?.sections.length ?? 0) + 1, sectionStructure.length || 99)} of {sectionStructure.length || "…"}
+                </span>
+              )}
+              {campaign && (
+                <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
+                  <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                  Copy
+                </Button>
+              )}
+              {renderSaveButtons()}
+              {campaign && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => canvasSource === "library" ? resetAll() : setShowNewConfirm(true)}
+                  title="Start new campaign"
+                >
+                  New
+                </Button>
+              )}
+            </>
+          )}
+          {channel === "sms" && smsCampaign && (
+            <>
+              <Button variant="ghost" size="sm" onClick={handleSmsCopy} title="Copy selected variant">Copy</Button>
+              <Button variant="secondary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("draft")}>Save Draft</Button>
+              <Button variant="primary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("final")}>Save Final</Button>
+              <Button variant="ghost" size="sm" onClick={handleSmsNew} title="Start new SMS">New</Button>
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Two panes: the brief and the canvas. Nothing between them. */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+
       {/* Brief panel (collapsible; the form stays mounted so its state is never lost) */}
-      <div className={`shrink-0 border-r border-line bg-surface overflow-hidden transition-[width] duration-[250ms] ease-out-soft ${briefOpen ? "w-96" : "w-12"}`}>
+      <div className={`shrink-0 border-r border-line bg-surface overflow-hidden transition-[width] duration-[250ms] ease-out-soft ${briefOpen ? "w-[420px]" : "w-12"}`}>
         {!briefOpen && (
           <button onClick={() => setBriefOpen(true)} title="Expand brief" aria-label="Expand brief"
             className="h-full w-full flex flex-col items-center gap-3 pt-4 text-ink-secondary hover:text-ink hover:bg-chrome transition-colors">
@@ -1520,76 +1624,61 @@ export default function Home() {
 
       {/* Main canvas area */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 pb-8">
+        <div className="max-w-3xl mx-auto px-6 pt-6 pb-8">
           {channel === "email" && (<>
-          {/* Sticky top bar + stepper */}
-          <div className="sticky top-0 z-10 bg-surface border-b border-line -mx-6 px-6">
-            <div className="flex items-center justify-between gap-3 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
-                  <div className="group relative flex items-center min-w-0">
-                    <input
-                      value={currentBriefInput.campaign_name}
-                      onChange={(e) => handleRenameCampaign(e.target.value)}
-                      className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 pr-5 transition-colors"
-                      title="Click to rename campaign"
-                    />
-                    <svg aria-hidden className="pointer-events-none absolute right-0 w-3.5 h-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                  </div>
-                ) : (
-                  <span className="t-label">New campaign</span>
-                )}
-                {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
-                {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {campaign && (
-                  <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
-                    <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                    Copy
-                  </Button>
-                )}
-                {renderSaveButtons()}
-                {campaign && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => canvasSource === "library" ? resetAll() : setShowNewConfirm(true)}
-                    title="Start new campaign"
-                  >
-                    New
-                  </Button>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-4 pb-3">
-              <Stepper activeKey={activeKey} canGoBack={canGoBack} onNavigate={onStepNavigate} />
-              {loadingPhase === "generating" && (
-                <span className="text-xs text-ink-muted">
-                  Writing — section {Math.min((campaign?.sections.length ?? 0) + 1, sectionStructure.length || 99)} of {sectionStructure.length || "…"}
-                </span>
-              )}
-            </div>
-          </div>
-
           {error && (
-            <div className="mt-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">
+            <div className="mb-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">
               {error}
             </div>
           )}
 
-          <div className="pt-5">
+          <div>
             {stage === "form" && loadingPhase === null && (
-              <EmptyState
-                icon={
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                  </svg>
-                }
-                title="Start a campaign"
-                description="Fill in the brief on the left and click Generate Brief to begin."
-              />
+              <div>
+                <EmptyState
+                  icon={
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                  }
+                  className="py-10"
+                  title="Start a campaign"
+                  description="Fill in the brief on the left and hit Generate Brief. Or pick up something you've already written."
+                  action={
+                    browseCount > 0 ? (
+                      <Button variant="secondary" size="sm" onClick={() => setLibraryOpen(true)}>
+                        <LibraryIcon /> Browse all {browseCount}
+                      </Button>
+                    ) : undefined
+                  }
+                />
+                {/* The canvas would otherwise be dead space until you generate —
+                    so it earns its keep by surfacing recent work. */}
+                {recentItems.length > 0 && (
+                  <div className="mt-2 border-t border-line pt-5">
+                    <div className="t-label mb-2.5">Pick up where you left off</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {recentItems.map((item) => (
+                        <button
+                          key={`${item.kind}:${item.id}`}
+                          type="button"
+                          onClick={() => openRecent(item)}
+                          className="text-left p-3 rounded-md border border-line bg-surface hover:border-line-strong hover:shadow-card transition-[box-shadow,border-color] duration-150"
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className="text-sm font-medium text-ink flex-1 break-words leading-snug">{item.title}</div>
+                            <Chip tone={item.kind === "library" ? "muted" : item.kind === "sms" ? "accent" : "warning"} className="shrink-0">
+                              {item.kind === "library" ? "library" : item.kind === "sms" ? "sms" : "draft"}
+                            </Chip>
+                          </div>
+                          <div className="text-xs text-ink-tertiary mt-1 tabular-nums">{item.meta}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {stage === "canvas" && campaign && (
@@ -1632,40 +1721,11 @@ export default function Home() {
 
           {channel === "sms" && (
             <>
-              {/* SMS top bar */}
-              <div className="sticky top-0 z-10 bg-surface border-b border-line -mx-6 px-6">
-                <div className="flex items-center justify-between gap-3 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {smsCampaign ? (
-                      <input
-                        value={smsCampaign.name}
-                        onChange={(e) => setSmsCampaign((c) => (c ? { ...c, name: e.target.value } : c))}
-                        className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 transition-colors"
-                        title="Click to rename SMS campaign"
-                      />
-                    ) : (
-                      <span className="t-label">New SMS</span>
-                    )}
-                    <Chip tone="accent" className="shrink-0">SMS</Chip>
-                    {smsSource === "final" && <Chip tone="muted" className="shrink-0">final</Chip>}
-                    {smsSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
-                  </div>
-                  {smsCampaign && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={handleSmsCopy} title="Copy selected variant">Copy</Button>
-                      <Button variant="secondary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("draft")}>Save Draft</Button>
-                      <Button variant="primary" size="sm" loading={smsSaving} onClick={() => handleSmsSave("final")}>Save Final</Button>
-                      <Button variant="ghost" size="sm" onClick={handleSmsNew} title="Start new SMS">New</Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {error && (
-                <div className="mt-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">{error}</div>
+                <div className="mb-4 bg-danger-50 border border-danger-200 text-danger-600 text-sm rounded-md px-4 py-3">{error}</div>
               )}
 
-              <div className="pt-5">
+              <div>
                 {!smsCampaign && !smsLoading && (
                   <EmptyState
                     icon={
@@ -1696,6 +1756,35 @@ export default function Home() {
           )}
         </div>
       </div>
+      </div>
+
+      {/* Campaign browser — a wide drawer, so a card can show its whole title */}
+      <Drawer
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        title="Campaigns"
+        size="xl"
+        padBody={false}
+      >
+        <LibraryBrowser
+          libraryItems={libraryItems}
+          savedItems={savedItems}
+          smsItems={smsItems}
+          onLoadSaved={(id) => { setLibraryOpen(false); handleLoadSaved(id); }}
+          /* Deletes close the drawer first: the confirm dialog is its own focus
+             trap, and nesting one inside the drawer's trap makes the confirm
+             button unreachable by keyboard. */
+          onDeleteSaved={(id) => { setLibraryOpen(false); handleDeleteSaved(id); }}
+          onViewLibrary={(id) => { setLibraryOpen(false); handleViewLibrary(id); }}
+          onDeleteLibrary={(id) => { setLibraryOpen(false); handleDeleteLibrary(id); }}
+          onLoadSms={(id) => { setLibraryOpen(false); handleLoadSms(id); }}
+          onDeleteSms={(id) => { setLibraryOpen(false); handleDeleteSms(id); }}
+          activeSavedId={currentDraftId}
+          activeLibraryId={currentLibraryId}
+          activeSmsId={channel === "sms" ? smsCurrentId : null}
+        />
+      </Drawer>
+
       {/* Confirmations (shared Modal primitive) */}
       <ConfirmModal
         open={showNewConfirm}

@@ -1,13 +1,24 @@
 "use client";
 import React, { useEffect, useRef, useId } from "react";
 
+type DrawerSize = "md" | "xl";
+
 interface DrawerProps {
   open: boolean;
   onClose: () => void;
   title?: React.ReactNode;
+  /** Panel width. "md" (default) for edit forms; "xl" for browsing surfaces. */
+  size?: DrawerSize;
   children?: React.ReactNode;
   footer?: React.ReactNode;
+  /** Set false when the panel owns its own padding (e.g. a sticky sub-header). */
+  padBody?: boolean;
 }
+
+const SIZE: Record<DrawerSize, string> = {
+  md: "max-w-lg",
+  xl: "max-w-5xl",
+};
 
 const FOCUSABLE = 'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -16,7 +27,9 @@ const FOCUSABLE = 'a[href],button:not([disabled]),textarea:not([disabled]),input
 // cycles within, aria-modal + labelled title, body scroll locked). Slides in
 // from the right in 250ms — preferred over a centered modal for editing flows
 // where the underlying content (the calendar) stays partially in view.
-export default function Drawer({ open, onClose, title, children, footer }: DrawerProps) {
+export default function Drawer({
+  open, onClose, title, size = "md", children, footer, padBody = true,
+}: DrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const prevFocus = useRef<Element | null>(null);
   const titleId = useId();
@@ -62,16 +75,19 @@ export default function Drawer({ open, onClose, title, children, footer }: Drawe
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
-        className="rc-animate-drawer-in h-full w-full max-w-lg bg-surface shadow-pop flex flex-col focus:outline-none"
+        className={`rc-animate-drawer-in h-full w-full ${SIZE[size]} bg-surface shadow-pop flex flex-col focus:outline-none`}
       >
         {title && (
-          <div id={titleId} className="flex items-center justify-between px-5 py-4 border-b border-line shrink-0">
-            <span className="t-label">{title}</span>
+          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-line shrink-0">
+            {/* The label is on the title text alone, not the row — the row also
+                holds the ✕, and naming the dialog "Campaigns ✕" reads badly to
+                a screen reader. */}
+            <span id={titleId} className="t-label">{title}</span>
             <button onClick={onClose} aria-label="Close" title="Close (Esc)"
-              className="text-ink-muted hover:text-ink text-sm transition-colors">✕</button>
+              className="text-ink-muted hover:text-ink text-sm transition-colors shrink-0">✕</button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className={`flex-1 overflow-y-auto ${padBody ? "px-5 py-4" : ""}`}>{children}</div>
         {footer && <div className="border-t border-line px-5 py-3 flex items-center gap-2 shrink-0">{footer}</div>}
       </div>
     </div>
