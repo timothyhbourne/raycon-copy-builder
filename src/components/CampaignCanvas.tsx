@@ -29,7 +29,16 @@ function sectionPreview(section: GeneratedSection): string {
   for (const k of [...fixed, ...familyKeys]) {
     const v = el[k];
     if (typeof v === "string" && v.trim()) lines.push(v.trim());
-    else if (k === "Subheader" && Array.isArray(v) && typeof v[0] === "string") lines.push(v[0]);
+    else if (k === "Subheader" && Array.isArray(v)) {
+      // Show more than option 1: two variations can differ a lot across their 3
+      // subheader options and still look identical if only the first is shown.
+      // Capped at 2 (+ an ellipsis) so the card stays compact.
+      const opts = (v as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+      if (opts.length) {
+        const shown = opts.slice(0, 2).map((o, i) => `${i + 1}. ${o.trim()}`).join("  ");
+        lines.push(opts.length > 2 ? `${shown} …` : shown);
+      }
+    }
   }
   if (Array.isArray(el["Products"])) {
     for (const p of el["Products"] as { name?: string; one_liner?: string }[]) {
@@ -333,7 +342,7 @@ export default function CampaignCanvas({
             chips={SECTION_CHIPS}
             showTone
             defaultTone={toneDial}
-            onFetch={async (feedback, tone) => {
+            onFetch={async (feedback, tone, prior) => {
               if (!expandedBrief || !chosenConceit || !section) return [];
               const res = await fetch("/api/section-variations", {
                 method: "POST",
@@ -346,11 +355,16 @@ export default function CampaignCanvas({
                   feedback,
                   tone_dial: tone,
                   retrieved_examples: retrievedExamples,
+                  // What the user has already seen and passed on, so a new set
+                  // is genuinely new rather than the same prompt run again.
+                  prior_variations: prior.map((p) => ({ label: p.label, preview: p.preview })),
                 }),
               });
               const data = await res.json();
               const vars = (data.variations ?? []) as { label: string; section: GeneratedSection }[];
-              return vars.map((v) => ({ label: v.label, preview: sectionPreview(v.section), payload: v.section }));
+              const items = vars.map((v) => ({ label: v.label, preview: sectionPreview(v.section), payload: v.section }));
+              const failures = ((data.failures ?? []) as { failed: string }[]).map((f) => f.failed);
+              return { items, failures };
             }}
             onApply={(payload) => {
               const newSection = payload as GeneratedSection;

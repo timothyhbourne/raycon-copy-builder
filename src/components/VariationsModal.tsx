@@ -14,8 +14,17 @@ interface Props {
   /** Show the tone slider (email sections); omit for SMS. */
   showTone?: boolean;
   defaultTone?: number;
-  /** Caller runs the request and returns a labeled spread. */
-  onFetch: (feedback: string, tone: number) => Promise<VariationItem[]>;
+  /**
+   * Caller runs the request and returns a labeled spread. `prior` is every card
+   * already shown across all previous sets, so the caller can tell the model
+   * what not to repeat. Callers may return a bare array (no failure reporting)
+   * or `{ items, failures }` to surface registers that dropped.
+   */
+  onFetch: (
+    feedback: string,
+    tone: number,
+    prior: VariationItem[]
+  ) => Promise<VariationItem[] | { items: VariationItem[]; failures: string[] }>;
   /** Caller applies the chosen payload in place. */
   onApply: (payload: unknown) => void;
   onClose: () => void;
@@ -45,6 +54,8 @@ export default function VariationsModal({
   const [setIndex, setSetIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Register labels that failed on the latest run (empty when all came back). */
+  const [failures, setFailures] = useState<string[]>([]);
 
   const toggleChip = (c: string) =>
     setSelected((prev) => {
@@ -63,8 +74,13 @@ export default function VariationsModal({
   const run = async () => {
     setLoading(true);
     setError(null);
+    setFailures([]);
     try {
-      const items = await onFetch(combinedFeedback(), tone);
+      // Every card from every prior set, so the caller can ask for something new.
+      const prior = sets.flat();
+      const result = await onFetch(combinedFeedback(), tone, prior);
+      const items = Array.isArray(result) ? result : result.items;
+      setFailures(Array.isArray(result) ? [] : result.failures);
       if (!items.length) {
         setError("No alternatives came back. Try again or adjust the feedback.");
       } else {
@@ -156,6 +172,12 @@ export default function VariationsModal({
         </div>
 
         {error && <div className="text-xs text-danger-600 mt-3">{error}</div>}
+
+        {failures.length > 0 && (
+          <div className="text-xs text-warning-600 mt-3">
+            Couldn&apos;t generate: {failures.join(", ")}. Try adjusting the feedback or regenerate.
+          </div>
+        )}
 
         {/* Results */}
         {hasResults && (

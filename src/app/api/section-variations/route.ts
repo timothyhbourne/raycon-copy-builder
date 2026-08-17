@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
       feedback?: string;
       tone_dial?: number;
       retrieved_examples: LibraryCampaign[];
+      /** Every card the user has already seen and rejected, across all prior
+       *  sets. Feeds the anti-duplication block so "Regenerate a new set"
+       *  actually diverges instead of resending an identical prompt. */
+      prior_variations?: Array<{ label: string; preview: string }>;
     };
 
     const roleInstruction = regenerateSectionRoleInstruction + toneDirective(body.tone_dial ?? 3);
@@ -52,6 +56,16 @@ export async function POST(req: NextRequest) {
       ? await buildAvoidBlock({ productsFeatured: [sec.product_slug] })
       : await buildAvoidBlock({});
     const currentId = sec.current_content.id || nanoid();
+
+    // Sets after the first carry every card the user already rejected, so the
+    // model is told what NOT to restate. Without this, "Regenerate a new set"
+    // posts a byte-identical prompt and gets set 1 back.
+    const prior = body.prior_variations ?? [];
+    const priorBlock = prior.length
+      ? `\n\nANTI-DUPLICATION , the user already rejected these previous alternatives:
+${prior.map((p, i) => `[Prior ${i + 1} , ${p.label}] ${p.preview}`).join("\n\n")}
+Do not restate any of these. Change the opener, the angle, the sentence shape. If your draft rhymes with any prior above, rewrite it.`
+      : "";
 
     // One call per register, in parallel. Reusing the regenerate-section prompt
     // guarantees each variation is a schema-valid section of the right type.
@@ -63,13 +77,16 @@ export async function POST(req: NextRequest) {
             body.chosen_conceit,
             body.section_to_regenerate,
             body.full_campaign,
-            registerSteering(body.feedback ?? "", register),
+            registerSteering(body.feedback ?? "", register) + priorBlock,
             body.retrieved_examples,
             avoidBlock
           );
           const response = await getAnthropic().messages.create({
             model: MODEL,
             max_tokens: 1536,
+            // Explicit, not the SDK default: five prompts that differ by one
+            // block need full sampling range to come back reading differently.
+            temperature: 1,
             system: systemBlocks,
             messages: [{ role: "user", content: userPrompt }],
           });
@@ -84,17 +101,21 @@ export async function POST(req: NextRequest) {
             ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
           };
           return { label: register.label, section };
-        } catch {
-          return null; // a single failed register is dropped, not fatal
+        } catch (err) {
+          // A single failed register is not fatal, but it is never silent: it
+          // comes back labeled so the UI can say which one dropped and why.
+          return { failed: register.label, reason: err instanceof Error ? err.message : "unknown" };
         }
       })
     );
 
-    const variations = results.filter((r): r is { label: string; section: GeneratedSection } => r !== null);
+    const variations = results.filter((r): r is { label: string; section: GeneratedSection } => !("failed" in r));
+    const failures = results.filter((r): r is { failed: string; reason: string } => "failed" in r);
+    if (failures.length) console.warn("section-variations: registers dropped", failures);
     if (!variations.length) {
-      return NextResponse.json({ error: "Could not generate variations" }, { status: 502 });
+      return NextResponse.json({ error: "Could not generate variations", failures }, { status: 502 });
     }
-    return NextResponse.json({ variations });
+    return NextResponse.json({ variations, failures });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Section variations failed" }, { status: 500 });

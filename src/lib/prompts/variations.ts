@@ -11,28 +11,43 @@ import type { SmsBrief } from "../schemas";
  * appended per variation; the label is shown in the UI. Kept identical across
  * SMS and email so the experience is consistent.
  */
+// Each nudge names what the register DOES and what it may never do. The
+// "Prohibited" clause is what actually separates one register from the next:
+// without a concrete way to fail, five near-identical prompts converge on five
+// near-identical drafts.
 export const REGISTERS: { label: string; nudge: string }[] = [
-  { label: "Direct", nudge: "State the offer or benefit plainly and confidently. Straight to the point, no wind-up." },
-  { label: "Playful", nudge: "Lead with a light, product-tied wink or the one allowed gentle pun. Warm and fun, never clever for its own sake." },
-  { label: "Warm", nudge: "Human and friendly. Meet the reader where they are with a little empathy, like a helpful person talking." },
-  { label: "Confident", nudge: "Brand-forward and self-assured. A premium, quietly certain feel. Let the product carry it." },
-  { label: "Curiosity", nudge: "Open a small, honest curiosity gap that makes them want the next line, without shouting the discount." },
+  { label: "Direct", nudge: "One clean claim, no wind-up. Short sentences. State what it is and what the deal is. Zero decoration. Reads like a product page headline. Prohibited: rhetorical questions, wordplay, metaphors, curiosity gaps." },
+  { label: "Playful", nudge: "Lead with a light, product-tied wink or the one allowed gentle pun. Fun without trying too hard. Prohibited: opening with the discount, hard-sell verbs (\"Grab\", \"Snag\"), any \"don't miss\" construction." },
+  { label: "Warm", nudge: "Human and friendly, second-person, meet the reader where they are. A little empathy for the moment they are in. Reads like a helpful person talking, not marketing. Prohibited: exclamation points, urgency language, imperative openers." },
+  { label: "Confident", nudge: "Brand-forward and quietly certain. Premium feel. Short declarative sentences carry the weight; the product does the selling. Prohibited: hedges (\"kind of\", \"we think\"), enthusiasm markers (\"so excited\"), any pleading." },
+  { label: "Curiosity", nudge: "Open a small honest curiosity gap that makes them want the next line. The subject or opener names the interesting thing without revealing the payoff. Prohibited: shouting the discount in the opener, listing product specs before the hook lands, questions with obvious answers." },
 ];
 
 /**
  * Per-variation steering for the EMAIL flow. Reuses the existing
- * regenerate-section prompt, so we only need to compose the user's feedback
- * (substance) with the register (style) into one steering string.
+ * regenerate-section prompt, whose wrapper reads the whole steering string as
+ * one literal top-priority instruction , so the register must be presented as
+ * its own mandatory constraint, NOT as a hint trailing the user's feedback.
+ * Collapsing these two blocks back together is what made all five registers
+ * converge on the same copy.
  */
 export function registerSteering(feedback: string, register: { label: string; nudge: string }): string {
   const fb = feedback.trim();
-  const feedbackLine = fb
-    ? `The user's feedback on the current version (this is the substance, honor it first): ${fb}`
-    : "The user did not write specific feedback. Simply produce a genuinely different, better option.";
-  return `${feedbackLine}
+  const substance = fb
+    ? `SUBSTANCE (what the user asked for , the angle, benefit, and promise):
+${fb}`
+    : `SUBSTANCE: no explicit feedback. Produce a genuinely different, stronger angle from the current version.`;
 
-Style/register for THIS specific variation: ${register.label}. ${register.nudge}
-Keep the same offer, products, and facts as the current campaign. Change the wording and register, not the deal.`;
+  return `${substance}
+
+STYLE / REGISTER , NON-NEGOTIABLE for THIS specific variation: ${register.label}.
+${register.nudge}
+
+How to combine them: SUBSTANCE controls what you say (the angle, the benefit, the promise, the strategy). STYLE controls how you say it (voice, cadence, opener shape, warmth). They are orthogonal , do BOTH, not one at the expense of the other. If the user asked for "more premium" and the register is "Playful", write premium copy in a playful register (a light, confident wink), not one or the other.
+
+This variation is part of a spread of 5. It must read as unmistakably ${register.label} , a reader shown this card next to the other 4 should be able to tell which register produced it from the wording alone. If your draft could plausibly have been produced by any of the other 4 registers, it is failing this instruction; rewrite the opener and cadence until the register is legible.
+
+Keep the same offer, products, and factual claims as the current campaign. Change the wording and register, not the deal.`;
 }
 
 // --- SMS variations --------------------------------------------------------
