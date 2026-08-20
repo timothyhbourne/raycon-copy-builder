@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getAnthropic, MODEL, CREATIVE_TEMPERATURE } from "@/lib/anthropic";
 import { smsSystemInstruction, buildSmsUserPrompt, type SmsBrief } from "@/lib/prompts/sms";
 import { buildSmsAvoidBlock } from "@/lib/constructions";
+import { buildLearningBlocks } from "@/lib/corpus/inject";
 import { smsLength } from "@/lib/sms-format";
 import { parseBody } from "@/lib/validation/api";
 import { smsGenerateBody } from "@/lib/validation/requests";
@@ -50,6 +51,7 @@ async function callModel(system: string, messages: MessageParam[]): Promise<stri
   const res = await getAnthropic().messages.create({
     model: MODEL,
     max_tokens: 1024,
+    temperature: CREATIVE_TEMPERATURE,
     system,
     messages,
     output_config: { format: { type: "json_schema", schema: VARIANTS_SCHEMA } },
@@ -77,7 +79,16 @@ export async function POST(req: NextRequest) {
     }
 
     const system = smsSystemInstruction;
-    const userPrompt = buildSmsUserPrompt(body.brief, body.source_email, await buildSmsAvoidBlock());
+    // Same learning seam as email. withReference: false — the rotating sample is
+    // email headlines and taglines, which is the wrong register to hand an SMS
+    // writer; the in-flight repulsion and the performance context both apply.
+    const learning = await buildLearningBlocks({}, { withReference: false, channel: "sms" });
+    const userPrompt = buildSmsUserPrompt(
+      body.brief,
+      body.source_email,
+      await buildSmsAvoidBlock(),
+      { inFlight: learning.inFlight, performance: learning.performance },
+    );
     const messages: MessageParam[] = [{ role: "user", content: userPrompt }];
 
     const first = await callModel(system, messages);

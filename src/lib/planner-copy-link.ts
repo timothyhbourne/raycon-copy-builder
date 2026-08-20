@@ -8,7 +8,7 @@
 
 import { EVERGREEN_OFFER } from "./planner-types";
 import type { PlannerRow } from "./planner-types";
-import { DEFAULT_SECTION_STRUCTURE } from "./schemas";
+import { DEFAULT_SECTION_STRUCTURE, DEFAULT_TONE_DIAL } from "./schemas";
 import type { BriefInput, CampaignType, AudienceType } from "./schemas";
 
 /** Case-insensitive substring test against a single haystack. */
@@ -99,7 +99,7 @@ export function plannerRowToBriefSeed(
     audience: inferAudience(row),
     products_featured: [],
     section_structure: DEFAULT_SECTION_STRUCTURE,
-    tone_dial: 1,
+    tone_dial: DEFAULT_TONE_DIAL,
     planner_row_id: row.id,
   };
 }

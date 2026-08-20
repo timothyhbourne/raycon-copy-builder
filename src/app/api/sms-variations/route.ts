@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getAnthropic, MODEL, CREATIVE_TEMPERATURE } from "@/lib/anthropic";
 import { smsVariationsSystem, buildSmsVariationsUserPrompt } from "@/lib/prompts/variations";
 import { autoFixMechanical } from "@/lib/hard-rules-check";
 import { smsLength } from "@/lib/sms-format";
@@ -36,6 +36,7 @@ async function callModel(system: string, messages: MessageParam[]): Promise<stri
   const res = await getAnthropic().messages.create({
     model: MODEL,
     max_tokens: 1200,
+    temperature: CREATIVE_TEMPERATURE,
     system,
     messages,
   });

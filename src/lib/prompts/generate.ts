@@ -4,6 +4,11 @@ import { getProductName } from "../products";
 import { getProductUsps, getCompanyUsps, formatUsp } from "../usps";
 import { getBundle } from "../bundles";
 import { rayconVoice, hardRulesGate } from "./voice";
+
+// The tone-dial default lives in ../schemas (pure, client-safe) and is re-exported
+// here, next to the dial instructions it selects, so prompt callers have one
+// obvious import. Never re-derive a fallback inline — see the constant's doc.
+export { DEFAULT_TONE_DIAL } from "../schemas";
 import { playbookBlock } from "./playbooks";
 
 export const generateRoleInstruction = `Your job in this step is to write the full email campaign copy.
@@ -24,14 +29,15 @@ Cohesion across sections. You are writing ONE email, not a stack of independent 
 Bundle sections. A bundle section sells a COMBINATION of products as one offer. The Bundle Name and Subheader lead with the bundle as a whole (the combined value, the occasion, or the shared use-case) , never list two product names in the Bundle Name or Subheader (the individual products get their own allocated lines: USPs, items, or add-ons per the section's layout note). Each per-product line stays true to that exact catalogue product. Sell why the pieces belong together, not just each piece on its own.
 
 Element craft. LENGTH CAPS ARE NOT RESTATED HERE , every cap lives once, in the Length caps table of the HARD RULES gate at the end of this prompt. Obey that table; if anything here seems to imply a different number, the table wins.
-- Headline: the HOOK, within the Headline cap. Draft one candidate per headline pattern in the voice (idiom remix, product-truth pun, rhyme/parallel, bold claim , 4 minimum), pick the strongest. Never a discount number, promo code, or urgency tag; the offer lives in the tagline.
+- Headline: the HOOK, within the Headline cap. Draft one candidate per named headline pattern in the voice (idiom remix, product-truth pun, rhyme/parallel, bold claim), then DISCARD the most predictable ones and ship from the less-obvious remainder , the test is least predictable, not "strongest" (strongest under a tight ban list resolves to safest, which is how a headline ends up dull while breaking no rule). Throw out any candidate a competitor could have written for a different product, any that states the obvious benefit flatly, and any that is the first phrase the offer suggests. Never a discount number, promo code, or urgency tag; the offer lives in the tagline.
 - Tagline: ONE line, within the Tagline cap. The plain PAYOFF of the headline's hook: it states the offer and what it covers, naming products per the count rule in the HARD RULES gate (1 → name it; 2 → both exact names; 3+ → characterful category or "sitewide"). A light wink at most; never a code, an urgency tag, or a counting construction.
 - Headline and Tagline are a PAIR, not two independent elements. The headline carries the play, the tagline answers it with the deal, and the two read as ONE thought said out loud: "Summer Just Got Louder" + "20% off sitewide" is one thought; two playful lines in a row is two hooks and no payoff.
+- THE HEADLINE SLATE. Where a section's required elements include a Headline, that element is an array of EXACTLY 4 candidates, one per named headline pattern, each LABELLED with its pattern (idiom_remix, product_truth, rhyme, bold_claim) , and each carrying the Tagline that pays IT off (see output shape). This is not four rewordings of one idea: four different patterns means four genuinely different constructions, and a slate where three candidates share a shape has failed. Because the pair is one thought, the tagline travels with its headline: a writer switching to the rhyme candidate gets the tagline written for the rhyme candidate, not one written for a bold claim. Where the section has a Headline but NO Tagline element, omit the tagline field. Order the slate strongest-first unless a FORM BUDGET block above tells you which pattern to lead with , then that pattern goes first.
 - Never list two or more product names in a Headline, Tagline, or Subheader. In a multi-product sale (combo, bundle, sitewide) the hero leads with the OFFER or the OCCASION; the individual products get their own cards below the fold. A single-product send may name that one product.
 - Subheader: a benefit FRAGMENT within the Subheader cap, per the shipped reference #8 register ("A battery that keeps you going") , the spec proof belongs in the supporting line below, never inside the subheader. Where a section's required-elements list includes a Subheader, this element is an array of EXACTLY 3 distinct options (see output shape) , each a genuinely different angle (one benefit-led, one product/feature-led, one occasion/emotion-led), each within the cap and clean of every hard ban, ordered strongest-first. Offer mechanics ("30% off. Closes tonight.") are never a subheader , the offer already lives in the tagline, CTA, and body. All other elements are single strings.
 - Body copy per module: 2-4 short sentences in the voice. May restate the offer or code at the end.
 - One-liners: 5-12 words, benefit-led and plain, per the voice rules. Never any offer mechanics.
-- Review (product_card_review only): a REAL customer review supplied to you below. Use it VERBATIM (you may trim length only), never reword, summarize, or invent one. It may end with an attribution like "… — Jordan M." — KEEP that reviewer name exactly; never add, change, or invent a name. If no review was supplied for the card's product, leave the Review element empty (empty string). Never fabricate a review.
+- Reviews (the "Review" element of a product card, AND every "Review 1 / 2 / 3…" element of a reviews section): a REAL customer review supplied to you below. Use it VERBATIM (you may trim length only), never reword, summarize, or invent one. It may end with an attribution like "… — Jordan M." — KEEP that reviewer name exactly; never add, change, or invent a name. If no review was supplied for a slot, leave that element EMPTY (empty string) and move on. Never fabricate a review, never write one "as an example", and never adapt one review to fill a second slot. An empty review slot is correct and expected; an invented one is a false claim about a real person, and it is stripped from your output server-side before anyone sees it.
 - CTAs: 2-4 word action phrases (4 words MAX). A discount phrase belongs here ("Get 30% Off", "Shop the Sale"), but the promo CODE never does , codes live in body copy, a callout, or the tagline, never in a CTA (no "Get 30% off, code COMBO30"). Never put a product name inside a CTA , the surrounding section already names what the reader is shopping for.
 - Closing line: one plain sentence, max 12 words.
 
@@ -46,7 +52,7 @@ References. Study the reference campaigns for register and rhythm. At low tone d
 
 Number and unit formatting. Always use numerals and symbols, never words: "56 hours" not "fifty-six hours", "30%" not "thirty percent", "$79.99" not "seventy-nine dollars", "Bluetooth 5.3" / "IPX7" exactly as the catalogue lists them.
 
-Final pass. One output-shape requirement not covered by the gate: every Subheader element is a JSON array of 3 genuinely distinct options, strongest first. Everything else (length caps, banned words and structures, offer integrity, catalogue accuracy) is governed by the HARD RULES: FINAL GATE at the very end of this prompt. Run that gate against your draft and fix anything that fails before returning.`;
+Final pass. Two output-shape requirements not covered by the gate: every Subheader element is a JSON array of 3 genuinely distinct options, strongest first, and every Headline element is a JSON array of 4 pattern-labelled candidates (each with its paired tagline where the section has a Tagline), which REPLACES the standalone Tagline key for that section. Everything else (length caps, banned words and structures, offer integrity, catalogue accuracy) is governed by the HARD RULES: FINAL GATE at the very end of this prompt. Run that gate against your draft and fix anything that fails before returning.`;
 
 export function toneDirective(dial: number): string {
   const d = Math.max(1, Math.min(5, Math.round(dial)));
@@ -88,6 +94,9 @@ export interface SectionListOpts {
    * the constructions recency index. A soft preference to draw on a bank entry
    * these did not already cover — never a hard block. */
   recentUspsBySlug?: Record<string, string[]>;
+  /** Real reviews for each standalone `reviews` section, keyed by SECTION id and
+   * ordered by slot. A slot with no entry is told to come back empty. */
+  reviewsBySection?: Record<string, string[]>;
 }
 
 /**
@@ -161,6 +170,10 @@ export function buildSectionList(
   reviewsBySlug: Record<string, string[]> = {},
   opts: SectionListOpts = {}
 ): string {
+  // Real reviews resolved PER SECTION (keyed by section id), for standalone
+  // `reviews` sections whose slots can each point at a different product, URL or
+  // pasted text. product_card_review keeps using reviewsBySlug.
+  const reviewsForSection = opts.reviewsBySection ?? {};
   return sectionStructure.map((s, i) => {
     const isBundle = s.type === "bundle";
     const bundleProducts = s.bundle_products ?? [];
@@ -199,15 +212,50 @@ export function buildSectionList(
     const suppliedReview = s.type === "product_card_review" && s.product_slug
       ? (reviewsBySlug[s.product_slug]?.[0] ?? "").trim()
       : "";
-    const reviewNote = s.type === "product_card_review"
+    const cardReviewNote = s.type === "product_card_review"
       ? (suppliedReview
           ? `\n  Review element: use this REAL customer review VERBATIM (trim length only, never reword or invent): "${suppliedReview}"`
           : `\n  Review element: no real review was supplied for this product , leave "Review" as an empty string. Never write or invent a review.`)
       : "";
+    // A standalone `reviews` section was THE hole: named Review 1/2/3, handed no
+    // source material and no prohibition, so the model wrote them. Every slot now
+    // arrives either with its real review or with an explicit instruction to leave
+    // it empty.
+    const reviewsSectionNote = s.type === "reviews"
+      ? (() => {
+          const supplied = reviewsForSection[s.id] ?? [];
+          const slots = allElements.filter((e) => /^Review \d+$/.test(e));
+          const lines = slots.map((slot, idx) => {
+            const text = (supplied[idx] ?? "").trim();
+            return text
+              ? `    ${slot}: use this REAL customer review VERBATIM (trim length only): "${text}"`
+              : `    ${slot}: NO real review was available for this slot , return an EMPTY STRING. Do not write one.`;
+          });
+          return `\n  Review elements (real customer text , never yours):\n${lines.join("\n")}`;
+        })()
+      : "";
+    const reviewNote = cardReviewNote + reviewsSectionNote;
+    // The required-elements list stays complete (it says what this section HAS),
+    // and this note resolves the one place it would otherwise contradict the output
+    // shape: the Tagline is delivered inside the Headline slate, not as its own key.
+    const slateNote = allElements.includes("Headline") && allElements.includes("Tagline")
+      ? `\n  Headline + Tagline ship as ONE element here: a "Headline" array of 4 pattern-labelled candidates, each carrying its own "tagline" field. Do NOT emit a separate "Tagline" key for this section.`
+      : "";
     return `- section ${i + 1} , type: ${s.type}
-  elements required: ${allElements.join(", ")}${gridNote}${productNote}${reviewNote}${bundleNote}${uspNote}
+  elements required: ${allElements.join(", ")}${slateNote}${gridNote}${productNote}${reviewNote}${bundleNote}${uspNote}
   focus (optional steering from user , may reference another section by number, e.g. "build on section 1"): ${s.focus || "none"}`;
   }).join("\n");
+}
+
+/** The four named headline patterns, in the order the slate must carry them. Kept
+ * here (not imported from the corpus module) so the pure prompt layer has no
+ * dependency on the learning subsystem. */
+const HEADLINE_SLATE_PATTERNS = ["idiom_remix", "product_truth", "rhyme", "bold_claim"] as const;
+
+function headlineSlateSkeleton(withTagline: boolean): string {
+  return HEADLINE_SLATE_PATTERNS
+    .map((p) => `{"pattern":"${p}","text":"..."${withTagline ? `,"tagline":"..."` : ""}}`)
+    .join(",");
 }
 
 // Per-section JSONL shape examples (one skeleton line per section, in order),
@@ -226,13 +274,49 @@ export function buildSectionExampleLines(sectionStructure: SectionSpec[]): strin
     }
     // Same derivation as buildSectionList, so the skeleton can never disagree with
     // the required-elements list (a removed Subheader is absent from BOTH).
-    const elemPairs = sectionElementNames(s).map((el) =>
-      el === "Subheader"
-        ? `"Subheader":["option 1","option 2","option 3"]`
-        : `"${el}":"..."`
-    ).join(",");
+    const names = sectionElementNames(s);
+    // The Headline slate carries each candidate's paired Tagline, so the standalone
+    // Tagline key is dropped from the skeleton for that section — emitting both
+    // would ask the model to write the tagline twice and invite the two to
+    // disagree. normalizeSectionElements() mirrors the selected pair back onto
+    // elements.Tagline, so every downstream consumer still sees a plain string.
+    const hasHeadline = names.includes("Headline");
+    const hasTagline = names.includes("Tagline");
+    const elemPairs = names
+      .filter((el) => !(hasHeadline && hasTagline && el === "Tagline"))
+      .map((el) =>
+        el === "Subheader"
+          ? `"Subheader":["option 1","option 2","option 3"]`
+          : el === "Headline"
+            ? `"Headline":[${headlineSlateSkeleton(hasTagline)}]`
+            : `"${el}":"..."`
+      ).join(",");
     return `{"type":"${s.type}","elements":{${elemPairs}}}`;
   }).join("\n");
+}
+
+/**
+ * The four learning blocks, in the order they are injected
+ * (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §2.6). Each is INDEPENDENTLY able to
+ * be empty: every one of them returns "" when the corpus is too thin to say
+ * anything, and generation must never block or degrade because of that.
+ *
+ * They are passed in as finished strings rather than built here because building
+ * them needs store reads (planner + corpus + metrics), and this module is the pure
+ * prompt layer shared with the flows brain.
+ */
+export interface LearningBlocks {
+  /** 1. Rotating Tier-A reference sample, relevance-scored and form-diversified.
+   * Supersedes the frozen 11-row register anchor when present. */
+  reference?: string;
+  /** 2. Headline-pattern quotas from the last N approved sends. */
+  formBudget?: string;
+  /** 3. Approved-but-unsent copy + the constructions already in use. Complements
+   * (never replaces) the lexical avoid block. */
+  inFlight?: string;
+  /** 4. What has earned revenue-per-recipient — angles, stages and structure only,
+   * NEVER a line of copy to emulate. */
+  performance?: string;
 }
 
 export function generateUserPrompt(
@@ -246,7 +330,9 @@ export function generateUserPrompt(
    * (see reviews service). Empty when none were found — never invent one. */
   reviewsBySlug: Record<string, string[]> = {},
   /** Offer + USP-recency context for `usps` sections (see SectionListOpts). */
-  uspOpts: SectionListOpts = {}
+  uspOpts: SectionListOpts = {},
+  /** The recursive-learning blocks (§2.6). All optional; all fail open. */
+  learning: LearningBlocks = {}
 ): string {
   const sectionList = buildSectionList(sectionStructure, reviewsBySlug, uspOpts);
 
@@ -285,7 +371,7 @@ Description: ${chosenConceit.description}${archLine ? `\n${archLine}` : ""}
 
 ${playbookBlock(expandedBrief.campaign_type)}
 This send type has a defined job and shape , let it govern pacing and structure. It never overrides the voice rules or the user's literal instructions.
-${avoidBlock ? `\n${avoidBlock}\n` : ""}
+${learning.reference ? `\n${learning.reference}\n` : ""}${learning.formBudget ? `\n${learning.formBudget}\n` : ""}${avoidBlock ? `\n${avoidBlock}\n` : ""}${learning.inFlight ? `\n${learning.inFlight}\n` : ""}${learning.performance ? `\n${learning.performance}\n` : ""}
 Section structure to produce (in order):
 ${sectionList}
 
@@ -304,7 +390,9 @@ Line 1 must be the meta block:
 Lines 2+ are sections in order, one per line:
 ${exampleLines}
 
-Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match that section's "elements required" list above EXACTLY , produce every element listed there and NO element that is absent from it. A section whose list omits "Subheader" or "CTA" must not contain that key at all; do not helpfully add one back. If Sub-Tagline was not in the elements required list above, do not include it. Wherever "Subheader" IS in a section's required list it must be a JSON array of EXACTLY 3 distinct option strings (see the Subheader variants rule) , never a single string. All other elements are single strings.
+A Review element is the one place where an EMPTY string is the correct answer: if a Review slot above was not supplied with real customer text, return "" for it. Reviews are never written, adapted, or copied across from another slot.
+
+Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match that section's "elements required" list above EXACTLY , produce every element listed there and NO element that is absent from it. A section whose list omits "Subheader" or "CTA" must not contain that key at all; do not helpfully add one back. If Sub-Tagline was not in the elements required list above, do not include it. Wherever "Subheader" IS in a section's required list it must be a JSON array of EXACTLY 3 distinct option strings (see the Subheader variants rule) , never a single string. Wherever "Headline" IS in a section's required list it must be a JSON array of EXACTLY 4 objects, one per pattern, in this shape: {"pattern":"idiom_remix","text":"the headline","tagline":"the tagline that pays it off"} , the pattern field must be one of idiom_remix, product_truth, rhyme, bold_claim, and each candidate needs its own tagline. When a section has BOTH a Headline and a Tagline in its required list, do NOT emit a separate "Tagline" key: the taglines live inside the headline candidates. All other elements are single strings.
 
 COMPLETENESS REQUIREMENT , read carefully. The section structure above lists ${sectionStructure.length} section${sectionStructure.length === 1 ? "" : "s"}. Your output must contain exactly ${sectionStructure.length + 1} JSON lines in total: the meta block, then one line per section, in the order listed, every section included. If the same section type appears multiple times (e.g. three product_card sections in a row), you must produce a separate JSON line for EACH one , do not collapse, merge, or skip any of them, even when their content looks similar. Do not stop early because the email "feels done." The output is incomplete unless every section in the list above has its own line. Before you finish, count your output lines and confirm there are ${sectionStructure.length + 1}.`;
 }

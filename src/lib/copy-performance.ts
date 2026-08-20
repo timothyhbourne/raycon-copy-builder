@@ -54,16 +54,54 @@ export interface PerformanceRecord {
 export interface DimensionValueAgg {
   value: string;
   n: number;
+  /**
+   * RECIPIENT-WEIGHTED pooled RPR: total revenue / total recipients. This is the
+   * honest estimator and the one everything ranks on. The unweighted `mean_rpr`
+   * below counts a 2,000-recipient test send exactly as heavily as a 400,000-
+   * recipient blast, which is how a dimension value can "win" on a rounding error
+   * (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §2.7).
+   */
+  pooled_rpr: number;
+  /** Unweighted mean of per-campaign RPRs. Kept because it is a genuinely useful
+   * second view (it answers "how does a typical send in this bucket do?"), but it
+   * must never be the ranking key. */
   mean_rpr: number;
   median_rpr: number;
+  /** Population standard deviation of the per-campaign RPRs in this bucket — the
+   * WITHIN-group dispersion. Feeds the eligibility test below. */
+  stdev_rpr: number;
   total_revenue: number;
   total_recipients: number;
   low_confidence: boolean;
 }
+
+/**
+ * Whether a dimension's differences are big enough to be worth asserting.
+ *
+ * These aggregates are univariate across eight dimensions with no significance
+ * test and no multiple-comparison correction, so "angle=urgency wins" is
+ * confounded with promo windows and audience size. A full fix needs an experiment
+ * design the app does not have. The minimum honest bar, and the one the spec asks
+ * for, is this: the BETWEEN-group spread must be wider than the typical
+ * WITHIN-group dispersion. If the buckets overlap more than they differ, the
+ * ranking is noise and nothing from this dimension may reach a prompt.
+ */
+export interface DimensionSpread {
+  /** Highest pooled RPR minus lowest, across buckets at n >= minN. */
+  between: number;
+  /** Mean within-bucket standard deviation across those same buckets. */
+  within: number;
+  /** How many buckets cleared minN. */
+  groups: number;
+  /** groups >= 2 AND between > within. */
+  eligible: boolean;
+}
+
 export interface DimensionAgg {
   dimension: string;
   label: string;
   values: DimensionValueAgg[];
+  spread: DimensionSpread;
 }
 export interface Coverage {
   sent_count: number;
@@ -172,6 +210,11 @@ function median(sorted: number[]): number {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
+function stdev(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mean = values.reduce((s, x) => s + x, 0) / values.length;
+  return Math.sqrt(values.reduce((s, x) => s + (x - mean) ** 2, 0) / values.length);
+}
 
 /** The dimensions we correlate (spec §5). Each maps a record to a display value
  * (undefined → the record doesn't contribute to that dimension). Shared with the
@@ -215,12 +258,26 @@ export function aggregate(
       const mean = b.rprs.reduce((s, x) => s + x, 0) / b.rprs.length;
       return {
         value, n: b.rprs.length,
-        mean_rpr: mean, median_rpr: median(sorted),
+        // Pooled = revenue per recipient across the whole bucket. Falls back to the
+        // unweighted mean only when recipient counts are missing, which is the one
+        // case where there is nothing to weight by.
+        pooled_rpr: b.recipients > 0 ? b.revenue / b.recipients : mean,
+        mean_rpr: mean, median_rpr: median(sorted), stdev_rpr: stdev(b.rprs),
         total_revenue: b.revenue, total_recipients: b.recipients,
         low_confidence: b.rprs.length < minN,
       };
-    }).sort((a, z) => z.mean_rpr - a.mean_rpr);
-    return { dimension: key, label, values };
+      // Ranked on the recipient-weighted figure, not the unweighted mean.
+    }).sort((a, z) => z.pooled_rpr - a.pooled_rpr);
+
+    const eligible = values.filter((v) => v.n >= minN);
+    const pooled = eligible.map((v) => v.pooled_rpr);
+    const between = pooled.length >= 2 ? Math.max(...pooled) - Math.min(...pooled) : 0;
+    const within = eligible.length ? eligible.reduce((s, v) => s + v.stdev_rpr, 0) / eligible.length : 0;
+    const spread: DimensionSpread = {
+      between, within, groups: eligible.length,
+      eligible: eligible.length >= 2 && between > within,
+    };
+    return { dimension: key, label, values, spread };
   });
 
   const attributedCount = attributed.length;

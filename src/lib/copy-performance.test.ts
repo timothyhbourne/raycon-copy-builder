@@ -155,3 +155,86 @@ describe("aggregate — min-n, median, unattributed", () => {
     expect(angle.values[0].total_revenue).toBe(2000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The pooled (recipient-weighted) estimator and the dispersion guard.
+// docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §2.7.
+// ---------------------------------------------------------------------------
+describe("aggregate — recipient-weighted pooling", () => {
+  it("does not let a tiny test send outvote a big blast", () => {
+    // A 2,000-recipient send at $5.00 RPR and a 400,000-recipient send at $1.00.
+    // The unweighted mean says $3.00; the account actually earned $1.02 per
+    // recipient. Only the second number is a fact about the business.
+    const records = [
+      rec({ attributes: { angle: "offer_led" }, rpr: 5, revenue: 10_000, recipients: 2_000 }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 1, revenue: 400_000, recipients: 400_000 }),
+    ];
+    const v = aggregate(records, "platform", 1).aggregates.find((a) => a.dimension === "angle")!.values[0];
+    expect(v.mean_rpr).toBe(3);
+    expect(v.pooled_rpr).toBeCloseTo(410_000 / 402_000);
+  });
+
+  it("ranks on the pooled figure, not the unweighted mean", () => {
+    const records = [
+      // "story_led" wins on the unweighted mean off one small send…
+      rec({ attributes: { angle: "story_led" }, rpr: 9, revenue: 9_000, recipients: 1_000 }),
+      rec({ attributes: { angle: "story_led" }, rpr: 0.5, revenue: 150_000, recipients: 300_000 }),
+      // …while "offer_led" is the one that actually earns per recipient.
+      rec({ attributes: { angle: "offer_led" }, rpr: 2, revenue: 200_000, recipients: 100_000 }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 2, revenue: 200_000, recipients: 100_000 }),
+    ];
+    const values = aggregate(records, "platform", 1).aggregates.find((a) => a.dimension === "angle")!.values;
+    expect(values[0].value).toBe("offer_led");
+    // Confirm the old estimator would have got this backwards.
+    const storyLed = values.find((v) => v.value === "story_led")!;
+    expect(storyLed.mean_rpr).toBeGreaterThan(values[0].mean_rpr);
+  });
+
+  it("falls back to the unweighted mean when recipient counts are missing", () => {
+    const records = [
+      rec({ attributes: { angle: "offer_led" }, rpr: 2, revenue: 0, recipients: null }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 4, revenue: 0, recipients: null }),
+    ];
+    const v = aggregate(records, "platform", 1).aggregates.find((a) => a.dimension === "angle")!.values[0];
+    expect(v.pooled_rpr).toBe(3);
+  });
+});
+
+describe("aggregate — dispersion eligibility", () => {
+  it("is ineligible with only one bucket at n >= minN", () => {
+    const records = [
+      rec({ attributes: { angle: "offer_led" }, rpr: 2, revenue: 2_000, recipients: 1_000 }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 3, revenue: 3_000, recipients: 1_000 }),
+    ];
+    const agg = aggregate(records, "platform", 2).aggregates.find((a) => a.dimension === "angle")!;
+    expect(agg.spread.groups).toBe(1);
+    expect(agg.spread.eligible).toBe(false);
+  });
+
+  it("is ineligible when the buckets overlap more than they differ", () => {
+    // Two buckets whose pooled RPRs are nearly identical but whose members are all
+    // over the place: the ranking here is noise.
+    const records = [
+      rec({ attributes: { angle: "offer_led" }, rpr: 0.5, revenue: 500, recipients: 1_000 }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 3.5, revenue: 3_500, recipients: 1_000 }),
+      rec({ attributes: { angle: "story_led" }, rpr: 0.4, revenue: 400, recipients: 1_000 }),
+      rec({ attributes: { angle: "story_led" }, rpr: 3.6, revenue: 3_600, recipients: 1_000 }),
+    ];
+    const agg = aggregate(records, "platform", 2).aggregates.find((a) => a.dimension === "angle")!;
+    expect(agg.spread.groups).toBe(2);
+    expect(agg.spread.within).toBeGreaterThan(agg.spread.between);
+    expect(agg.spread.eligible).toBe(false);
+  });
+
+  it("is eligible when tight buckets sit far apart", () => {
+    const records = [
+      rec({ attributes: { angle: "offer_led" }, rpr: 4.0, revenue: 4_000, recipients: 1_000 }),
+      rec({ attributes: { angle: "offer_led" }, rpr: 4.1, revenue: 4_100, recipients: 1_000 }),
+      rec({ attributes: { angle: "story_led" }, rpr: 1.0, revenue: 1_000, recipients: 1_000 }),
+      rec({ attributes: { angle: "story_led" }, rpr: 1.1, revenue: 1_100, recipients: 1_000 }),
+    ];
+    const agg = aggregate(records, "platform", 2).aggregates.find((a) => a.dimension === "angle")!;
+    expect(agg.spread.eligible).toBe(true);
+    expect(agg.values[0].value).toBe("offer_led");
+  });
+});

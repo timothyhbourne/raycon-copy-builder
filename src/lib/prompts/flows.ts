@@ -73,7 +73,14 @@ export function flowUserPrompt(
   sectionStructure: SectionSpec[],
   avoidBlock = "",
   /** Real reviews per product SKU (best-first), used VERBATIM for product_card_review. */
-  reviewsBySlug: Record<string, string[]> = {}
+  reviewsBySlug: Record<string, string[]> = {},
+  /** The recursive-learning blocks (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md
+   * §2.6). A flow email is evergreen, so it is REPELLED from broadcast copy in
+   * flight (a welcome email echoing Thursday's promo headline is the same defect)
+   * and shares the account-level performance context. Flow-level attribution is
+   * explicitly out of scope (§5): nothing here claims to know what a flow MESSAGE
+   * earned, only what the account's angles and structures have earned. */
+  learning: { formBudget?: string; inFlight?: string; performance?: string } = {}
 ): string {
   const sectionList = buildSectionList(sectionStructure, reviewsBySlug);
   const exampleLines = buildSectionExampleLines(sectionStructure);
@@ -97,7 +104,7 @@ THIS EMAIL:
 - Its job in the sequence: ${ctx.job}
 ${highlightBlock}
 ${siblingBlock}
-${avoidBlock ? `\n${avoidBlock}\n` : ""}
+${avoidBlock ? `\n${avoidBlock}\n` : ""}${learning.formBudget ? `\n${learning.formBudget}\n` : ""}${learning.inFlight ? `\n${learning.inFlight}\n` : ""}${learning.performance ? `\n${learning.performance}\n` : ""}
 Section structure to produce (in order):
 ${sectionList}
 
@@ -111,7 +118,7 @@ Line 1 must be the meta block:
 Lines 2+ are sections in order, one per line:
 ${exampleLines}
 
-Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. The "Subheader" element, wherever it appears, must be a JSON array of EXACTLY 3 distinct option strings , never a single string. All other elements are single strings.
+Critical output rules: the very first character you output must be "{". No preamble, no commentary, no markdown fences, no trailing text. Each line must be valid, self-contained JSON. Element keys must match the section catalogue exactly. The "Subheader" element, wherever it appears, must be a JSON array of EXACTLY 3 distinct option strings , never a single string. The "Headline" element, wherever it appears, must be a JSON array of EXACTLY 4 objects , one per headline pattern , in this shape: {"pattern":"idiom_remix","text":"the headline","tagline":"the tagline that pays it off"}, with pattern one of idiom_remix, product_truth, rhyme, bold_claim. When a section has both a Headline and a Tagline, do NOT emit a separate "Tagline" key: the taglines live inside the headline candidates. All other elements are single strings.
 
 COMPLETENESS REQUIREMENT. The section structure above lists ${sectionStructure.length} section${sectionStructure.length === 1 ? "" : "s"}. Your output must contain exactly ${sectionStructure.length + 1} JSON lines: the meta block, then one line per section, in order, every section included. Do not stop early. Before you finish, count your output lines and confirm there are ${sectionStructure.length + 1}.`;
 }

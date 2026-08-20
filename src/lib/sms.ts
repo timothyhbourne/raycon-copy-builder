@@ -57,6 +57,13 @@ export async function listSmsCampaigns(): Promise<SmsMeta[]> {
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
+/** Every SMS campaign, variants included, newest-first. One store read — use
+ * this instead of a loadSmsCampaign() loop when you need them all (the corpus
+ * ingest does). */
+export async function getSmsCampaigns(): Promise<SmsCampaign[]> {
+  return (await readAll()).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
 export async function saveSmsCampaign(c: SmsCampaign): Promise<void> {
   if (!isSafeId(c.id)) throw new Error("Invalid SMS campaign id");
   const entries = await readAll();

@@ -39,7 +39,13 @@ ${SMS_VARIANTS}`;
 export function buildSmsUserPrompt(
   brief: SmsBrief,
   sourceEmail?: string,
-  avoidBlock = ""
+  avoidBlock = "",
+  /** The recursive-learning blocks (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md
+   * §2.6). SMS gets the same treatment as email, with no special case: an SMS
+   * planner row at status "scheduled" is the same approval signal, so in-flight
+   * repulsion and performance context both apply. The rotating email reference
+   * sample does not — SMS has its own register. */
+  learning: { inFlight?: string; performance?: string } = {}
 ): string {
   const briefLines = [
     brief.name ? `Campaign: ${brief.name}` : "",
@@ -56,7 +62,7 @@ export function buildSmsUserPrompt(
 
   return `Write SMS copy from this brief:
 ${briefLines}
-${sourceBlock}${avoidBlock ? `\n${avoidBlock}\n` : ""}
+${sourceBlock}${avoidBlock ? `\n${avoidBlock}\n` : ""}${learning.inFlight ? `\n${learning.inFlight}\n` : ""}${learning.performance ? `\n${learning.performance}\n` : ""}
 Return ONLY a single JSON object, nothing else. The very first character you output must be "{". No preamble, no markdown fences, no trailing text.
 
 Shape:

@@ -242,12 +242,32 @@ function DimensionPanel({ agg }: { agg: DimensionAgg }) {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <div className="font-mono tabular-nums text-sm text-ink">{money2(v.mean_rpr)}</div>
-                {v.n > 1 && <div className="text-[11px] text-ink-muted">med {money2(v.median_rpr)}</div>}
+                {/* The recipient-weighted figure leads: it is what the account
+                    actually earned per recipient. The unweighted mean sits under it
+                    as a second view, never as the ranking key. */}
+                <div className="font-mono tabular-nums text-sm text-ink" title="Pooled: total revenue ÷ total recipients">
+                  {money2(v.pooled_rpr)}
+                </div>
+                {v.n > 1 && (
+                  <div className="text-[11px] text-ink-muted" title="Unweighted mean of per-campaign RPR · median">
+                    avg {money2(v.mean_rpr)} · med {money2(v.median_rpr)}
+                  </div>
+                )}
               </div>
             </li>
           ))}
         </ul>
+      )}
+      {/* Whether this dimension's differences are big enough to act on. The same
+          test gates what the generator is allowed to be told. */}
+      {agg.values.length > 0 && (
+        <div className="mt-3 pt-2.5 border-t border-line text-[11px] text-ink-muted">
+          {agg.spread.groups < 2
+            ? "Only one value has enough sends to compare — no ranking to read yet."
+            : agg.spread.eligible
+              ? `Differences exceed the within-group spread (${money2(agg.spread.between)} apart vs ${money2(agg.spread.within)} scatter) — worth acting on.`
+              : `Within-group scatter (${money2(agg.spread.within)}) is wider than the gap between values (${money2(agg.spread.between)}) — treat this ranking as noise.`}
+        </div>
       )}
     </Card>
   );

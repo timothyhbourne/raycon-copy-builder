@@ -23,9 +23,17 @@ export function isReviewElement(key: string): boolean {
   return key === "Review" || /^Review \d+$/.test(key);
 }
 
-/** Subheader is the one element returned as an array of options. */
+/** Subheader is returned as an array of 3 option strings. */
 export function elementReturnsVariants(key: string): boolean {
   return key === "Subheader";
+}
+
+/** Headline is returned as a slate of 4 pattern-labelled candidates, each with
+ * its paired tagline — a different shape from the Subheader's plain strings, so it
+ * gets its own predicate rather than overloading the one above
+ * (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §1.3). */
+export function elementReturnsHeadlineSlate(key: string): boolean {
+  return key === "Headline";
 }
 
 /** A `Products[2].one_liner` style key for a single grid-item field. */

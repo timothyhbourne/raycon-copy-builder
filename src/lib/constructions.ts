@@ -281,31 +281,62 @@ interface AvoidOpts {
   productsFeatured?: string[];
   campaignType?: string;
   excludeId?: string;
+  /**
+   * Campaign id → authority tier, from the corpus (src/lib/corpus). Optional: with
+   * no map every entry is treated as untiered and the block behaves exactly as it
+   * did before.
+   *
+   * This is what fixes a real defect (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md
+   * §2.2): this index is written on "Save Final", which is NOT approval, so copy
+   * that was drafted, rejected and abandoned sat here with exactly the same weight
+   * as copy that shipped to 400,000 people — and copy scheduled for Thursday was
+   * not distinguished at all. Tiering orders the recency slice by authority, labels
+   * in-flight sends as such, and lets the byte cap trim drafts first.
+   */
+  tiers?: Record<string, "shipped" | "approved" | "drafted">;
 }
 
-// Campaigns newest-first, excluding the one being (re)written.
-function sortedCampaigns(index: ConstructionsIndex, excludeId?: string): [string, CampaignConstructions][] {
-  return Object.entries(index.campaigns)
-    .filter(([id]) => id !== excludeId)
-    .sort((a, b) => (b[1].date || "").localeCompare(a[1].date || ""));
+const TIER_RANK = { approved: 0, shipped: 1, drafted: 2 } as const;
+const TIER_NOTE = { approved: " [approved, IN FLIGHT — not sent yet]", shipped: "", drafted: " [draft only]" } as const;
+
+// Campaigns newest-first, excluding the one being (re)written. With a tier map,
+// authority orders first: in-flight copy is the most dangerous to echo, drafts the
+// least, so drafts sink to the tail where the byte cap trims them.
+function sortedCampaigns(
+  index: ConstructionsIndex,
+  excludeId?: string,
+  tiers?: Record<string, "shipped" | "approved" | "drafted">,
+): [string, CampaignConstructions][] {
+  const entries = Object.entries(index.campaigns).filter(([id]) => id !== excludeId);
+  if (!tiers) return entries.sort((a, b) => (b[1].date || "").localeCompare(a[1].date || ""));
+  const rank = (id: string) => TIER_RANK[tiers[id] ?? "drafted"];
+  return entries.sort((a, b) => {
+    const d = rank(a[0]) - rank(b[0]);
+    return d !== 0 ? d : (b[1].date || "").localeCompare(a[1].date || "");
+  });
 }
 
 export async function buildAvoidBlock(opts: AvoidOpts = {}): Promise<string> {
   const index = await readIndex();
-  const campaigns = sortedCampaigns(index, opts.excludeId);
+  const campaigns = sortedCampaigns(index, opts.excludeId, opts.tiers);
   if (!campaigns.length) return "";
 
   const lines: string[] = [];
 
-  // 1. Recency — 8 most recent campaigns.
+  // 1. Recency — 8 most recent campaigns, highest authority first when tiered.
   const recency: string[] = [];
-  for (const [, c] of campaigns.slice(0, 8)) {
-    const parts = [
-      c.headlines.length ? `headlines: ${c.headlines.slice(0, 3).join(" | ")}` : "",
-      c.subject_lines.length ? `subjects: ${c.subject_lines.join(" | ")}` : "",
-      c.body_openers[0] ? `opened: "${c.body_openers[0]}"` : "",
-    ].filter(Boolean).join("; ");
-    if (parts) recency.push(`- ${c.date} "${c.title}": ${parts}`);
+  for (const [id, c] of campaigns.slice(0, 8)) {
+    const tier = opts.tiers?.[id];
+    // A draft contributes its headlines only. It is the weakest signal in the
+    // corpus and it should not spend the block's budget on subjects and openers.
+    const parts = (tier === "drafted"
+      ? [c.headlines.length ? `headlines: ${c.headlines.slice(0, 2).join(" | ")}` : ""]
+      : [
+        c.headlines.length ? `headlines: ${c.headlines.slice(0, 3).join(" | ")}` : "",
+        c.subject_lines.length ? `subjects: ${c.subject_lines.join(" | ")}` : "",
+        c.body_openers[0] ? `opened: "${c.body_openers[0]}"` : "",
+      ]).filter(Boolean).join("; ");
+    if (parts) recency.push(`- ${c.date} "${c.title}"${tier ? TIER_NOTE[tier] : ""}: ${parts}`);
   }
   if (recency.length) {
     lines.push("[Recent campaigns]");
@@ -504,7 +535,13 @@ export function similarity(a: string, b: string): number {
 // ---------------------------------------------------------------------------
 // Step 3b — repetition scan (in-memory, synchronous)
 // ---------------------------------------------------------------------------
-export type CheckKind = "headline" | "subject" | "preview" | "one_liner" | "opener";
+// Every element kind the repetition check covers. Taglines, subheaders, CTAs and
+// closing lines used to be WRITTEN into this index and never CHECKED against it —
+// only Headline, body opener and one-liners were collected (spec §2.3). They are
+// checked now: lexically here, and by construction in src/lib/corpus/repetition.ts.
+export type CheckKind =
+  | "headline" | "subject" | "preview" | "one_liner" | "opener"
+  | "tagline" | "subheader" | "cta" | "closing";
 
 export interface CheckElement {
   id: string;
@@ -519,18 +556,34 @@ export interface CheckMatch {
   match_campaign_title: string;
   match_date: string;
   score: number;
+  /** Which checker flagged it. "lexical" = the words overlap (this module).
+   * "form" = the construction is the same though the words differ
+   * (src/lib/corpus/repetition.ts). */
+  reason?: "lexical" | "form";
+  /** For a form match: the shared construction, described. */
+  construction?: string;
 }
 
 const SIMILARITY_THRESHOLD = 0.65;
 
-// The index field each element kind is scanned against.
-function fieldFor(kind: CheckKind): keyof CampaignConstructions {
+// The index field each element kind is scanned against. The index has eight
+// buckets and folds several kinds together (a Subheader was recorded as a
+// "headline", a Closing Line as a "tagline"), so this mapping is lossy by design —
+// it is the price of checking these kinds at all without reshaping a store that
+// the USP, SMS and conceit paths also read. The corpus keeps every kind distinct.
+// null = no lexical bucket exists for this kind (CTAs are 2-4 word action phrases;
+// lexical overlap between them is normal and not a defect).
+function fieldFor(kind: CheckKind): keyof CampaignConstructions | null {
   switch (kind) {
     case "subject": return "subject_lines";
     case "preview": return "preview_texts";
     case "opener": return "body_openers";
     case "headline": return "headlines";
+    case "subheader": return "headlines";
+    case "tagline": return "taglines";
+    case "closing": return "taglines";
     case "one_liner": return "one_liners";
+    case "cta": return null;
   }
 }
 
@@ -553,12 +606,14 @@ export async function checkRepetition(elements: CheckElement[], excludeId?: stri
           candidates = Object.values(c.one_liners).flat();
         }
       } else {
-        candidates = (c[fieldFor(el.kind)] as string[]) ?? [];
+        const field = fieldFor(el.kind);
+        if (!field) continue;
+        candidates = (c[field] as string[]) ?? [];
       }
       for (const cand of candidates) {
         const score = similarity(text, cand);
         if (score >= SIMILARITY_THRESHOLD && (!best || score > best.score)) {
-          best = { id: el.id, match_text: cand, match_campaign_title: c.title, match_date: c.date, score };
+          best = { id: el.id, match_text: cand, match_campaign_title: c.title, match_date: c.date, score, reason: "lexical" };
         }
       }
     }

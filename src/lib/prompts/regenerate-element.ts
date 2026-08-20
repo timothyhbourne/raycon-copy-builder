@@ -4,12 +4,12 @@ import type {
 import { isProductCardType, uspSlotsOf, sectionElementNames } from "../schemas";
 import { getProductName } from "../products";
 import { getProductUsps, getCompanyUsps, formatUsp } from "../usps";
-import { isReviewElement, elementReturnsVariants, parseGridItemKey } from "../element-families";
+import { isReviewElement, elementReturnsVariants, elementReturnsHeadlineSlate, parseGridItemKey } from "../element-families";
 import { rayconVoice, hardRulesGate } from "./voice";
 
 // Re-exported so server code can keep importing them from the prompt module; the
 // definitions live in element-families.ts because that file is client-safe.
-export { isReviewElement, elementReturnsVariants, parseGridItemKey };
+export { isReviewElement, elementReturnsVariants, elementReturnsHeadlineSlate, parseGridItemKey };
 
 /**
  * Rewrite ONE element of a section.
@@ -70,7 +70,8 @@ ${bank.length ? `Draw from this product's USP bank only:\n${bank.map((u) => `  $
     return `Return EXACTLY 3 distinct Subheader options, strongest first. Each is a benefit FRAGMENT, each takes a genuinely different angle (one benefit-led, one product/feature-led, one occasion/emotion-led), and each independently obeys the Subheader cap and every hard rule. Spec proof belongs in the supporting line below, never inside the subheader. Offer mechanics are never a subheader.`;
   }
   if (key === "Headline") {
-    return `The HOOK. Draft one candidate per headline pattern in the voice (idiom remix, product-truth pun, rhyme/parallel, bold claim) and return the strongest. Never a discount number, promo code, or urgency tag , the offer lives in the tagline.`;
+    const hasTagline = typeof section.elements["Tagline"] === "string";
+    return `The HOOK. Return a SLATE of EXACTLY 4 candidates, one per named headline pattern (idiom_remix, product_truth, rhyme, bold_claim), each labelled with its pattern${hasTagline ? ` and each carrying the Tagline that pays IT off (the pair is one thought, so a candidate written as a rhyme needs the tagline written for that rhyme)` : ""}. Four patterns means four genuinely different constructions, not four rewordings. The test is LEAST PREDICTABLE, not "strongest": discard any candidate a competitor could have written for a different product, any that states the obvious benefit flatly, and any that is the first phrase the offer suggests. Never a discount number, promo code, or urgency tag , the offer lives in the tagline.`;
   }
   if (key === "Tagline") {
     return `ONE line: the plain PAYOFF of the headline's hook. It states the offer and what it covers, naming products per the count rule in the gate. A light wink at most; never a code, an urgency tag, or a counting construction. It must read as one thought with the Headline above.`;
@@ -163,6 +164,8 @@ export function regenerateElementUserPrompt(args: {
 
   const craft = elementCraftNote(elementKey, section, sectionSpec, offerContext);
   const wantsVariants = elementReturnsVariants(elementKey);
+  const wantsHeadlineSlate = elementReturnsHeadlineSlate(elementKey);
+  const headlineHasTagline = wantsHeadlineSlate && typeof section.elements["Tagline"] === "string";
 
   const steeringBlock = steering.trim()
     ? `USER STEERING , THIS IS YOUR TOP PRIORITY. Read it literally and do the SPECIFIC thing it asks:
@@ -206,9 +209,13 @@ ${steeringBlock}
 ${avoidBlock ? `\n${avoidBlock}\n` : ""}${exampleSummary ? `Reference campaigns (for voice only):\n${exampleSummary}\n` : ""}
 ${expandedBrief.deadline_language ? `DEADLINE LANGUAGE: the sale ends ${expandedBrief.deadline_language}. Use this exact time frame anywhere a deadline is named. "Tonight"/"today" are FORBIDDEN unless the supplied phrase is "tonight".\n` : ""}
 Return ONLY valid JSON, nothing else, in exactly this shape:
-${wantsVariants
-  ? `{"variants":["option 1","option 2","option 3"]}`
-  : `{"value":"the rewritten ${elementKey}"}`}
+${wantsHeadlineSlate
+  ? `{"headline_variants":[${["idiom_remix", "product_truth", "rhyme", "bold_claim"]
+      .map((p) => `{"pattern":"${p}","text":"the headline"${headlineHasTagline ? `,"tagline":"the tagline that pays it off"` : ""}}`)
+      .join(",")}]}`
+  : wantsVariants
+    ? `{"variants":["option 1","option 2","option 3"]}`
+    : `{"value":"the rewritten ${elementKey}"}`}
 
-Rules for your output: the very first character must be "{". No preamble, no commentary, no markdown fences. Rewrite ONLY "${elementKey}" , do not return any other element.${wantsVariants ? " The variants array must hold EXACTLY 3 distinct options." : ""}`;
+Rules for your output: the very first character must be "{". No preamble, no commentary, no markdown fences. Rewrite ONLY "${elementKey}" , do not return any other element.${wantsVariants ? " The variants array must hold EXACTLY 3 distinct options." : ""}${wantsHeadlineSlate ? " The headline_variants array must hold EXACTLY 4 candidates, one per pattern, in the order shown." : ""}`;
 }

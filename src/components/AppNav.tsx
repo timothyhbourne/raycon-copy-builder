@@ -55,6 +55,9 @@ function LifecycleIcon() {
 function WhatWorksIcon() {
   return (<svg {...svgProps}><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></svg>);
 }
+function LearnedIcon() {
+  return (<svg {...svgProps}><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /><path d="m6.3 6.3 2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1" /></svg>);
+}
 function SignOutIcon() {
   return (<svg {...svgProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>);
 }
@@ -102,6 +105,7 @@ const GROUPS: NavGroup[] = [
       { href: "/dashboard/flows", label: "Flows", Icon: FlowsIcon },
       { href: "/dashboard/campaigns", label: "Campaigns", Icon: CampaignsIcon },
       { href: "/copy-performance", label: "Copy Performance", Icon: WhatWorksIcon, badge: "NEW" },
+      { href: "/learning", label: "What It Learned", Icon: LearnedIcon, badge: "NEW" },
       { href: "/reports", label: "Reports", Icon: ReportsIcon },
       { href: "/lifecycle", label: "Lifecycle", Icon: LifecycleIcon, badge: "NEW" },
     ],

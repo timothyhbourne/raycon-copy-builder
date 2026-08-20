@@ -13,6 +13,12 @@ export interface RepetitionFlag {
   match_campaign_title: string;
   match_date: string;
   score: number;
+  /** "lexical" = shares words with a past send. "form" = same construction,
+   * different words ("Motion Never Stops" / "Sound Never Quits"). The two read
+   * differently to a writer, so the chip says which. */
+  reason?: "lexical" | "form";
+  /** For a form flag: the construction both lines are built on. */
+  construction?: string;
 }
 
 export function firstSentence(text: string): string {
@@ -61,6 +67,18 @@ export function collectSectionElements(
   const str = (k: string) => (typeof el[k] === "string" ? (el[k] as string) : "");
 
   if (str("Headline").trim()) out.push({ id: elementKey(section.id, "Headline"), kind: "headline", text: str("Headline") });
+
+  // The kinds that were recorded into the index but never checked against it
+  // (spec §2.3). elements.Subheader always mirrors the selected variant, so
+  // checking it checks the line that ships.
+  for (const [key, kind] of [
+    ["Tagline", "tagline"],
+    ["Subheader", "subheader"],
+    ["CTA", "cta"],
+    ["Closing Line", "closing"],
+  ] as const) {
+    if (str(key).trim()) out.push({ id: elementKey(section.id, key), kind, text: str(key) });
+  }
 
   const body = str("Body Copy") || str("Body");
   if (body.trim()) {

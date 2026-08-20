@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { DEFAULT_TONE_DIAL } from "@/lib/schemas";
 
 export interface VariationItem {
   label: string;
@@ -42,7 +43,7 @@ export default function VariationsModal({
   title,
   chips,
   showTone = false,
-  defaultTone = 3,
+  defaultTone = DEFAULT_TONE_DIAL,
   onFetch,
   onApply,
   onClose,
