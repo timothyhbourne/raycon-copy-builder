@@ -1,20 +1,25 @@
 "use client";
 import { useState } from "react";
-import type { SectionSpec, SectionType, BundleMode, UspSlot, UspSource } from "@/lib/schemas";
+import type { SectionSpec, SectionType, BundleMode, UspSlot, UspSource, ReviewSlot, ReviewSource } from "@/lib/schemas";
 import {
   OPTIONAL_ELEMENTS, REMOVABLE_ELEMENTS, isProductCardType, BUNDLE_TEMPLATES,
   uspSlotsOf, USP_SLOT_MIN, USP_SLOT_MAX,
+  reviewSlotsOf, REVIEW_SLOT_MIN, REVIEW_SLOT_MAX,
 } from "@/lib/schemas";
 import { PRODUCT_CATEGORIES, getProductName } from "@/lib/products";
 import { hasUspBank } from "@/lib/usps-coverage";
 import { RAYCON_BUNDLES, getBundle, bundleContentsLabel } from "@/lib/bundles";
+import { ALL_SECTION_TYPES, SECTION_META } from "@/lib/section-catalogue-meta";
+import { classifyReviewUrl } from "@/lib/reviews/url-tiers";
 import { nanoid } from "@/lib/nanoid";
 
 const ALL_CATALOGUE_PRODUCTS = PRODUCT_CATEGORIES.flatMap((c) => c.products);
 
-const SECTION_TYPES: SectionType[] = [
-  "header", "body", "free_form", "usps", "product_card", "product_card_review", "product_grid", "reviews", "cta_bridge", "footer_cta",
-];
+// Every type, in the shared picker order. "bundle" was missing here AND from the
+// canvas insert menu, which meant a fully built feature (schema, 4 layout
+// templates, prompt allocation, config UI) was unreachable from anywhere in the
+// app (spec 3.3).
+const SECTION_TYPES: SectionType[] = ALL_SECTION_TYPES;
 
 interface Props {
   sections: SectionSpec[];
@@ -109,6 +114,44 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
     setSlots(id, cur.filter((_, i) => i !== idx));
   };
 
+  // ---- Review slots -------------------------------------------------------
+  // Same shape as the USP slot plan above, for the same reason: the section's
+  // review COUNT is the length of this list, and each slot decides independently
+  // where its review comes from. Editing always writes an explicit review_slots
+  // array (reviewSlotsOf materialises the legacy 3-slot default first) so a touched
+  // section stops depending on the fallback.
+  const setReviewSlots = (id: string, next: ReviewSlot[]) => patchSection(id, { review_slots: next });
+  const updateReviewSlot = (id: string, idx: number, patch: Partial<ReviewSlot>) => {
+    const sec = sections.find((x) => x.id === id);
+    if (!sec) return;
+    setReviewSlots(id, reviewSlotsOf(sec).map((slot, i) => (i === idx ? { ...slot, ...patch } : slot)));
+  };
+  const setReviewSlotSource = (id: string, idx: number, source: ReviewSource) => {
+    // Switching source drops the other sources' fields rather than leaving them
+    // stale — a slot that says "manual" must not still carry a URL.
+    updateReviewSlot(id, idx, {
+      source,
+      product_slug: source === "product" ? undefined : undefined,
+      source_url: source === "url" ? "" : undefined,
+      manual_text: source === "manual" ? "" : undefined,
+      manual_author: undefined,
+    });
+  };
+  const addReviewSlot = (id: string) => {
+    const sec = sections.find((x) => x.id === id);
+    if (!sec) return;
+    const cur = reviewSlotsOf(sec);
+    if (cur.length >= REVIEW_SLOT_MAX) return;
+    setReviewSlots(id, [...cur, { source: "product" }]);
+  };
+  const removeReviewSlot = (id: string, idx: number) => {
+    const sec = sections.find((x) => x.id === id);
+    if (!sec) return;
+    const cur = reviewSlotsOf(sec);
+    if (cur.length <= REVIEW_SLOT_MIN) return;
+    setReviewSlots(id, cur.filter((_, i) => i !== idx));
+  };
+
   // Removable elements are the inverse of optional ones: active by default,
   // clicked OFF. That is what lets a USPs section sit under a product card with
   // no subheader of its own.
@@ -135,7 +178,13 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
   };
 
   const addSection = (type: SectionType) => {
-    onChange([...sections, { id: nanoid(), type }]);
+    // Bundles start on a valid layout so the section is configurable immediately
+    // rather than rendering its "needs 2 products" warning against empty controls.
+    const defaults: Partial<SectionSpec> =
+      type === "bundle" ? { bundle_mode: "custom", bundle_template: "unified", bundle_products: [] }
+      : type === "product_grid" ? { grid_cols: 2, grid_rows: 2 }
+      : {};
+    onChange([...sections, { id: nanoid(), type, ...defaults }]);
     setShowAddMenu(false);
   };
 
@@ -321,6 +370,109 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                   </div>
                 );
               })()}
+              {s.type === "reviews" && (() => {
+                const slots = reviewSlotsOf(s);
+                return (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-ink-tertiary">Reviews</span>
+                      <span className="text-xs text-ink-muted">{slots.length} of {REVIEW_SLOT_MAX}</span>
+                    </div>
+                    {slots.map((slot, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-ink-tertiary w-3 shrink-0">{idx + 1}</span>
+                          <select
+                            value={slot.source}
+                            onChange={(e) => setReviewSlotSource(s.id, idx, e.target.value as ReviewSource)}
+                            className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong"
+                          >
+                            <option value="product">Product</option>
+                            <option value="url">URL</option>
+                            <option value="manual">Paste</option>
+                          </select>
+                          {slot.source === "product" && (
+                            <select
+                              value={slot.product_slug ?? ""}
+                              onChange={(e) => updateReviewSlot(s.id, idx, { product_slug: e.target.value || undefined })}
+                              className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong min-w-0 flex-1"
+                            >
+                              <option value="">Auto (hero product)</option>
+                              {(selectedProducts.length ? selectedProducts : ALL_CATALOGUE_PRODUCTS).map((p) => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          )}
+                          {slot.source === "url" && (
+                            <input
+                              type="url"
+                              value={slot.source_url ?? ""}
+                              onChange={(e) => updateReviewSlot(s.id, idx, { source_url: e.target.value })}
+                              placeholder="https://rayconglobal.com/products/…"
+                              className="text-xs border border-line rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-line-strong min-w-0 flex-1"
+                            />
+                          )}
+                          {slot.source === "manual" && (
+                            <span className="text-xs text-ink-muted flex-1">pasted below</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeReviewSlot(s.id, idx)}
+                            disabled={slots.length <= REVIEW_SLOT_MIN}
+                            title={slots.length <= REVIEW_SLOT_MIN ? `A reviews section keeps at least ${REVIEW_SLOT_MIN}` : "Remove this review"}
+                            className="text-xs text-ink-muted hover:text-danger-600 disabled:opacity-30 disabled:hover:text-ink-muted transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {slot.source === "url" && !!slot.source_url?.trim() && (() => {
+                          const tier = classifyReviewUrl(slot.source_url);
+                          const bad = "error" in tier;
+                          const blocked = !bad && tier.tier === "blocked";
+                          return (
+                            <div className={`text-xs rounded px-2 py-1 ml-4 border ${
+                              bad || blocked
+                                ? "text-warning-600 bg-warning-50 border-warning-200"
+                                : "text-ink-tertiary bg-sunken border-line"
+                            }`}>
+                              {bad ? tier.error : tier.note}
+                            </div>
+                          );
+                        })()}
+                        {slot.source === "manual" && (
+                          <div className="ml-4 space-y-1">
+                            <textarea
+                              value={slot.manual_text ?? ""}
+                              onChange={(e) => updateReviewSlot(s.id, idx, { manual_text: e.target.value })}
+                              rows={2}
+                              placeholder="Paste the review text exactly as the customer wrote it"
+                              className="w-full text-xs border border-line rounded px-2 py-1 focus:outline-none focus:border-line-strong bg-sunken resize-none"
+                            />
+                            <input
+                              type="text"
+                              value={slot.manual_author ?? ""}
+                              onChange={(e) => updateReviewSlot(s.id, idx, { manual_author: e.target.value || undefined })}
+                              placeholder="First name (optional), e.g. Jordan M."
+                              className="w-full text-xs border border-line rounded px-2 py-1 focus:outline-none focus:border-line-strong bg-sunken"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addReviewSlot(s.id)}
+                      disabled={slots.length >= REVIEW_SLOT_MAX}
+                      className="text-xs text-ink-tertiary hover:text-ink-secondary disabled:opacity-40 disabled:hover:text-ink-tertiary transition-colors"
+                    >
+                      + Add review
+                    </button>
+                    <div className="text-xs text-ink-muted leading-relaxed">
+                      Reviews are always real: fetched from the storefront, pulled from a URL and verified verbatim, or pasted by you. The model never writes one.
+                    </div>
+                  </div>
+                );
+              })()}
               {s.type === "product_grid" && (() => {
                 const cols = s.grid_cols ?? 2;
                 const rows = s.grid_rows ?? 2;
@@ -490,9 +642,10 @@ export default function SectionBuilder({ sections, onChange, productsCount, sele
                 type="button"
                 key={t}
                 onClick={() => addSection(t)}
-                className="w-full text-left px-3 py-1.5 text-xs text-ink-secondary hover:bg-sunken transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-sunken transition-colors"
               >
-                {t}
+                <div className="text-xs text-ink-secondary">{SECTION_META[t].label}</div>
+                <div className="text-[11px] text-ink-muted leading-snug">{SECTION_META[t].description}</div>
               </button>
             ))}
           </div>

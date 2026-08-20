@@ -269,8 +269,11 @@ select:focus-visible {
   box-shadow: var(--shadow-card);
   padding: 0.25rem 2.5rem;
 }
-/* Hairline between consecutive sections in the connected sheet. */
-.rc-canvas-sheet > div + div .section-block { border-top: 1px solid var(--color-line); }
+/* Sections in the connected sheet are separated by the insert divider that sits
+   above each one (see InsertDivider) — it renders its own hairline, so a
+   border-top here would double it. The dividers also mean the separator is now a
+   control rather than decoration, which is the point: every boundary between two
+   sections is a place you can add one. */
 
 /* Hover-revealed section controls — reveal for pointer users, but also whenever
    focus lands inside so keyboard users can reach them. */
@@ -290,8 +293,11 @@ select:focus-visible {
   opacity: 0;
   transition: opacity 0.15s var(--ease-out-soft);
 }
+/* Visible at rest, not hover-to-discover: an opacity-0 hairline is a control
+   only findable by someone who already knows it exists (spec: blank canvas +
+   section insert, 3.1). Quiet enough at .35 not to compete with the copy. */
 .insert-divider {
-  opacity: 0;
+  opacity: 0.35;
   transition: opacity 0.15s var(--ease-out-soft);
 }
 .insert-divider:hover,

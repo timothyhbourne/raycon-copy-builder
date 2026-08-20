@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPlannerRows, getPlannerRow, upsertPlannerRow, deletePlannerRow } from "@/lib/planner";
+import { refreshCorpusSafely } from "@/lib/corpus/ingest";
 import { parseBody } from "@/lib/validation/api";
 import { plannerUpsertBody } from "@/lib/validation/requests";
 import type { PlannerRow } from "@/lib/planner-types";
@@ -27,6 +28,11 @@ export async function POST(req: NextRequest) {
     if (parsed.error) return parsed.error;
     const body = parsed.data as Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"] };
     const row = await upsertPlannerRow({ ...body, name: body.name, channel: body.channel });
+    // status: "scheduled" IS the approval signal the corpus is tiered on
+    // (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §2.2), so a write that touches a
+    // scheduled row re-tiers the corpus. Cheap, low-frequency, never blocks the
+    // save (refreshCorpusSafely swallows its own failures).
+    if (row.status === "scheduled") await refreshCorpusSafely("planner scheduled-row write");
     return NextResponse.json({ row });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Save failed";

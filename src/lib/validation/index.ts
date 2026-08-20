@@ -6,7 +6,10 @@ import {
   SCHEMA_VERSION,
   plannerRowSchema, libraryCampaignSchema, savedCampaignSchema,
   smsCampaignSchema, flowSchema, weeklyReportSchema,
+  corpusRecordSchema, guidanceClaimSchema,
 } from "./schemas";
+import type { CorpusRecord } from "../corpus/types";
+import type { GuidanceClaim } from "../corpus/ledger-types";
 
 export { SCHEMA_VERSION } from "./schemas";
 
@@ -132,3 +135,9 @@ export const parseFlows = (raw: unknown): Flow[] =>
 
 export const parseWeeklyReports = (raw: unknown): WeeklyReport[] =>
   parseList<WeeklyReport>(weeklyReportSchema, raw, "weekly_report");
+
+export const parseCorpusRecords = (raw: unknown): CorpusRecord[] =>
+  parseList<CorpusRecord>(corpusRecordSchema, raw, "corpus_record");
+
+export const parseGuidanceClaims = (raw: unknown): GuidanceClaim[] =>
+  parseList<GuidanceClaim>(guidanceClaimSchema, raw, "guidance_claim");

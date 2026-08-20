@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getAnthropic, MODEL, CREATIVE_TEMPERATURE } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { flowRoleInstruction, flowUserPrompt, type FlowEmailContext } from "@/lib/prompts/flows";
 import { fetchProductReviews } from "@/lib/reviews/fetch";
 import { getProductName } from "@/lib/products";
+import { buildLearningBlocks } from "@/lib/corpus/inject";
 import { parseBody } from "@/lib/validation/api";
 import { flowGenerateBody } from "@/lib/validation/requests";
 import type { SectionSpec, FlowType } from "@/lib/schemas";
@@ -79,11 +80,23 @@ export async function POST(req: NextRequest) {
       .filter((slug) => !reviewsBySlug[slug]?.length)
       .map((slug) => ({ slug, name: getProductName(slug) }));
 
-    const userPrompt = flowUserPrompt(ctx, sectionStructure, "", reviewsBySlug);
+    // Repulsion + account-level performance context. withReference: false — a flow
+    // email is evergreen and has no campaign brief to score reference relevance
+    // against, so the rotating broadcast sample would be noise here.
+    const learning = await buildLearningBlocks({}, {
+      withReference: false,
+      channel: ctx.channel === "sms" ? "sms" : "email",
+    });
+    const userPrompt = flowUserPrompt(ctx, sectionStructure, "", reviewsBySlug, {
+      formBudget: learning.formBudget,
+      inFlight: learning.inFlight,
+      performance: learning.performance,
+    });
 
     const anthropicStream = getAnthropic().messages.stream({
       model: MODEL,
       max_tokens: 8192,
+      temperature: CREATIVE_TEMPERATURE,
       system: systemBlocks,
       messages: [{ role: "user", content: userPrompt }],
     });

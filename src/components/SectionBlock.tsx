@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import type { GeneratedSection, ProductInGrid, SectionType } from "@/lib/schemas";
-import { SECTION_CATALOGUE, OPTIONAL_ELEMENTS } from "@/lib/schemas";
+import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
+import type { GeneratedSection, ProductInGrid, HeadlineVariant, ReviewProvenance } from "@/lib/schemas";
+import { SECTION_CATALOGUE, OPTIONAL_ELEMENTS, DEFAULT_TONE_DIAL } from "@/lib/schemas";
 import type { ProductReview } from "@/lib/reviews/fetch";
 import {
   visibleElementKeys, addableElements, deleteElement, addElement, canDeleteElement,
@@ -9,15 +10,8 @@ import {
 } from "@/lib/element-families";
 import EditableField from "./EditableField";
 import RepetitionChip from "./RepetitionChip";
+import ReviewProvenanceLine from "./ReviewProvenanceLine";
 import { elementKey, gridProductKey, type RepetitionFlag } from "@/lib/repetition-client";
-
-// Section types offered in the "insert section" dropdown. product_grid and
-// bundle are omitted on purpose: they need dimensions / product+template config
-// that is only chosen in the pre-generation Section Structure builder, so a
-// blank one inserted here would have nothing meaningful to show.
-const INSERTABLE_TYPES: SectionType[] = [
-  "header", "body", "free_form", "usps", "product_card", "product_card_review", "reviews", "cta_bridge", "footer_cta",
-];
 
 interface Props {
   section: GeneratedSection;
@@ -37,7 +31,13 @@ interface Props {
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  onInsertAfter: (type: SectionType) => void;
+  /** Drag handle bindings from the canvas's Draggable. Absent = no drag (the
+   * arrow buttons stay, and remain the keyboard-accessible path). */
+  dragHandleProps?: DraggableProvidedDragHandleProps | null;
+  /** Set when the AI assists cannot run yet (a scratch canvas with no brief).
+   * The controls render DISABLED with this as their tooltip — a stated reason,
+   * never a dead button (spec 2.3). */
+  assistsDisabledReason?: string;
   /** Product SKU this section's Review is about — drives the Review refresh
    * control (product_card_review: the card's product; reviews: the campaign's
    * featured product). Absent → no refresh control. */
@@ -49,7 +49,7 @@ interface Props {
     elementKey: string,
     steering?: string,
     tone?: number
-  ) => Promise<{ value?: string; variants?: string[] } | null>;
+  ) => Promise<{ value?: string; variants?: string[]; headline_variants?: HeadlineVariant[] } | null>;
   /** Delete the whole section — offered when the user tries to remove its last element. */
   onRequestDeleteSection?: () => void;
   /** Repetition-flag keys to migrate after a family renumber (old key → new key). */
@@ -70,15 +70,15 @@ export default function SectionBlock({
   onDelete,
   onMoveUp,
   onMoveDown,
-  onInsertAfter,
+  dragHandleProps,
+  assistsDisabledReason,
   productSlug,
   onRegenerateElement,
   onRequestDeleteSection,
   onRenameFlags,
-  defaultTone = 3,
+  defaultTone = DEFAULT_TONE_DIAL,
 }: Props) {
   const [hovered, setHovered] = useState(false);
-  const [insertOpen, setInsertOpen] = useState(false);
   const [draggingProduct, setDraggingProduct] = useState<number | null>(null);
   const [dragOverProduct, setDragOverProduct] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -92,7 +92,15 @@ export default function SectionBlock({
   // Previous value held for a one-click revert after a regenerate — per-element
   // regeneration invites experimentation, and without undo a good line is lost.
   const [undo, setUndo] = useState<{
-    key: string; value: string | ProductInGrid[]; variants?: string[]; selected?: number;
+    key: string;
+    value: string | ProductInGrid[];
+    variants?: string[];
+    selected?: number;
+    headlineVariants?: HeadlineVariant[];
+    headlineSelected?: number;
+    tagline?: string | ProductInGrid[];
+    /** Review elements only: the record that made the previous text saveable. */
+    provenance?: ReviewProvenance;
   } | null>(null);
   const [confirmLast, setConfirmLast] = useState<string | null>(null);
 
@@ -111,7 +119,15 @@ export default function SectionBlock({
   const addable = addableElements(section, section.type, catalogue, OPTIONAL_ELEMENTS[section.type] ?? []);
 
   const updateElement = (key: string, value: string | ProductInGrid[]) => {
-    onChange({ ...section, elements: { ...section.elements, [key]: value } });
+    const next: GeneratedSection = { ...section, elements: { ...section.elements, [key]: value } };
+    // Headline and Tagline are a PAIR held in headline_variants. Editing the
+    // Tagline field by hand has to write back into the selected candidate, or the
+    // edit silently disappears the next time the writer switches candidates.
+    if (key === "Tagline" && typeof value === "string" && section.headline_variants?.length) {
+      const i = section.headline_selected ?? 0;
+      next.headline_variants = section.headline_variants.map((v, idx) => (idx === i ? { ...v, tagline: value } : v));
+    }
+    onChange(next);
   };
 
   // Review refresh: cycle through real fetched reviews for this product; on
@@ -123,19 +139,43 @@ export default function SectionBlock({
   // section never shows the same review twice: each slot skips any review already
   // placed in a sibling slot.
   const [reviewList, setReviewList] = useState<ProductReview[] | null>(null);
+  const [reviewProv, setReviewProv] = useState<ReviewProvenance[] | null>(null);
   const [reviewIdxByKey, setReviewIdxByKey] = useState<Record<string, number>>({});
   const fmtReview = (r: ProductReview) => (r.author ? `${r.text} — ${r.author}` : r.text);
 
-  const cycleReview = async (key = "Review") => {
+  /** Place a real review AND its provenance. The two always move together: a
+   * review element without a provenance record cannot be saved (it blocks Save
+   * Final), so writing the text alone would produce copy that looks fine and
+   * refuses to ship. */
+  const applyReview = (key: string, text: string, provenance: ReviewProvenance) => {
+    onChange({
+      ...section,
+      elements: { ...section.elements, [key]: text },
+      review_provenance: { ...(section.review_provenance ?? {}), [key]: provenance },
+    });
+  };
+
+  const fetchReviews = async (refresh: boolean): Promise<{ list: ProductReview[]; prov: ReviewProvenance[] }> => {
+    const res = await fetch(`/api/reviews?product=${encodeURIComponent(productSlug as string)}&limit=8${refresh ? "&refresh=1" : ""}`);
+    const data = (await res.json()) as { reviews?: ProductReview[]; provenance?: ReviewProvenance[] };
+    const list = data.reviews ?? [];
+    const prov = data.provenance ?? [];
+    setReviewList(list);
+    setReviewProv(prov);
+    return { list, prov };
+  };
+
+  const cycleReview = async (key = "Review", opts: { refresh?: boolean } = {}) => {
     if (!productSlug || busyKey) return;
     setBusyKey(key);
     setErrorKey(null);
     try {
-      let list = reviewList;
+      let list = opts.refresh ? null : reviewList;
+      let prov = opts.refresh ? null : reviewProv;
       if (!list) {
-        const res = await fetch(`/api/reviews?product=${encodeURIComponent(productSlug)}&limit=8`);
-        list = ((await res.json())?.reviews ?? []) as ProductReview[];
-        setReviewList(list);
+        const fetched = await fetchReviews(!!opts.refresh);
+        list = fetched.list;
+        prov = fetched.prov;
       }
       if (!list.length) {
         setErrorKey({ key, message: "No real reviews available for this product yet. Leaving it empty." });
@@ -147,6 +187,8 @@ export default function SectionBlock({
           .filter(([k, v]) => k !== key && isReviewElement(k) && typeof v === "string" && v.trim())
           .map(([, v]) => (v as string).trim())
       );
+      const provFor = (i: number): ReviewProvenance =>
+        prov?.[i] ?? { origin: "fetched", fetched_at: new Date().toISOString() };
       const start = (reviewIdxByKey[key] ?? -1) + 1;
       let chosen = -1;
       for (let step = 0; step < list.length; step++) {
@@ -155,22 +197,20 @@ export default function SectionBlock({
       }
       if (chosen === -1) {
         // Every cached review is already on screen — pull a fresh page.
-        const res = await fetch(`/api/reviews?product=${encodeURIComponent(productSlug)}&limit=8&refresh=1`);
-        const fresh = ((await res.json())?.reviews ?? []) as ProductReview[];
-        setReviewList(fresh);
-        const next = fresh.findIndex((r) => !taken.has(fmtReview(r).trim()));
+        const fresh = await fetchReviews(true);
+        const next = fresh.list.findIndex((r) => !taken.has(fmtReview(r).trim()));
         if (next === -1) {
           setErrorKey({ key, message: "No other distinct review available for this product." });
           return;
         }
         setReviewIdxByKey((m) => ({ ...m, [key]: next }));
-        setUndo({ key, value: section.elements[key] ?? "" });
-        updateElement(key, fmtReview(fresh[next]));
+        setUndo({ key, value: section.elements[key] ?? "", provenance: section.review_provenance?.[key] });
+        applyReview(key, fmtReview(fresh.list[next]), fresh.prov[next] ?? { origin: "fetched", fetched_at: new Date().toISOString() });
         return;
       }
       setReviewIdxByKey((m) => ({ ...m, [key]: chosen }));
-      setUndo({ key, value: section.elements[key] ?? "" });
-      updateElement(key, fmtReview(list[chosen]));
+      setUndo({ key, value: section.elements[key] ?? "", provenance: section.review_provenance?.[key] });
+      applyReview(key, fmtReview(list[chosen]), provFor(chosen));
     } catch {
       setErrorKey({ key, message: "Couldn't reach the review service. The current review is unchanged." });
     } finally { setBusyKey(null); }
@@ -195,6 +235,9 @@ export default function SectionBlock({
         value: section.elements[key] ?? "",
         variants: section.subheader_variants,
         selected: section.subheader_selected,
+        headlineVariants: section.headline_variants,
+        headlineSelected: section.headline_selected,
+        tagline: section.elements["Tagline"],
       });
       if (key === "Subheader" && result.variants?.length) {
         onChange({
@@ -203,6 +246,11 @@ export default function SectionBlock({
           subheader_selected: 0,
           elements: { ...section.elements, Subheader: result.variants[0] },
         });
+      } else if (key === "Headline" && result.headline_variants?.length) {
+        const first = result.headline_variants[0];
+        const elements: GeneratedSection["elements"] = { ...section.elements, Headline: first.text };
+        if (first.tagline && section.elements["Tagline"] !== undefined) elements["Tagline"] = first.tagline;
+        onChange({ ...section, headline_variants: result.headline_variants, headline_selected: 0, elements });
       } else if (result.value !== undefined) {
         updateElement(key, result.value);
       }
@@ -220,6 +268,25 @@ export default function SectionBlock({
     if (undo.key === "Subheader") {
       if (undo.variants) { next.subheader_variants = undo.variants; next.subheader_selected = undo.selected ?? 0; }
       else { delete next.subheader_variants; delete next.subheader_selected; }
+    }
+    if (isReviewElement(undo.key)) {
+      // Put the provenance back with the text; dropping it would leave a real
+      // review looking unverified and blocking the save.
+      const provenance = { ...(section.review_provenance ?? {}) };
+      if (undo.provenance) provenance[undo.key] = undo.provenance;
+      else delete provenance[undo.key];
+      next.review_provenance = provenance;
+    }
+    if (undo.key === "Headline") {
+      if (undo.headlineVariants) {
+        next.headline_variants = undo.headlineVariants;
+        next.headline_selected = undo.headlineSelected ?? 0;
+      } else {
+        delete next.headline_variants;
+        delete next.headline_selected;
+      }
+      // The pair moves together, so a headline revert has to put its tagline back.
+      if (undo.tagline !== undefined) next.elements = { ...next.elements, Tagline: undo.tagline };
     }
     onChange(next);
     setUndo(null);
@@ -244,18 +311,25 @@ export default function SectionBlock({
     setAddOpen(false);
   };
 
-  // Subheader variant picker: elements.Subheader always mirrors the selected variant.
-  const selectVariant = (i: number) => {
-    const variants = section.subheader_variants ?? [];
+  // ---- Slate pickers -------------------------------------------------------
+  // Two elements arrive as a slate of candidates: Subheader (3 option strings) and
+  // Headline (4 pattern-labelled candidates, each carrying its paired tagline).
+  // elements.<key> always mirrors the selection so downstream consumers see plain
+  // strings; for the headline that means mirroring the TAGLINE too, because the
+  // pair is one thought (data/copy-system.md craft rule 8).
+  const subheaderVariants = section.subheader_variants ?? [];
+  const headlineVariants = section.headline_variants ?? [];
+
+  const selectSubheader = (i: number) => {
     onChange({
       ...section,
       subheader_selected: i,
-      elements: { ...section.elements, Subheader: variants[i] ?? "" },
+      elements: { ...section.elements, Subheader: subheaderVariants[i] ?? "" },
     });
   };
-  const editSelectedVariant = (text: string) => {
+  const editSelectedSubheader = (text: string) => {
     const selected = section.subheader_selected ?? 0;
-    const variants = [...(section.subheader_variants ?? [])];
+    const variants = [...subheaderVariants];
     variants[selected] = text;
     onChange({
       ...section,
@@ -264,41 +338,91 @@ export default function SectionBlock({
     });
   };
 
-  const renderSubheaderVariants = () => {
-    const variants = section.subheader_variants ?? [];
-    const selected = section.subheader_selected ?? 0;
-    return (
-      <div className="space-y-1">
-        {variants.map((v, i) => {
-          const isSelected = i === selected;
-          return (
-            <div
-              key={i}
-              onClick={() => { if (!isSelected) selectVariant(i); }}
-              className={`flex items-start gap-2 rounded border transition-colors ${
-                isSelected
-                  ? "border-line-strong bg-sunken"
-                  : "border-transparent hover:border-line hover:bg-sunken/60 cursor-pointer"
+  const selectHeadline = (i: number) => {
+    const pick = headlineVariants[i];
+    if (!pick) return;
+    const elements: GeneratedSection["elements"] = { ...section.elements, Headline: pick.text };
+    // Only move the Tagline when this section HAS one and the candidate carries
+    // one — never invent a tagline field a section did not ask for.
+    if (pick.tagline && section.elements["Tagline"] !== undefined) elements["Tagline"] = pick.tagline;
+    onChange({ ...section, headline_selected: i, elements });
+  };
+  const editSelectedHeadline = (text: string) => {
+    const selected = section.headline_selected ?? 0;
+    const variants = headlineVariants.map((v, i) => (i === selected ? { ...v, text } : v));
+    onChange({
+      ...section,
+      headline_variants: variants,
+      elements: { ...section.elements, Headline: text },
+    });
+  };
+
+  /** One radio row per candidate. `label` is the pattern name for a headline
+   * slate; subheaders have no pattern, so it stays blank. */
+  const renderSlate = (
+    variants: { text: string; label?: string; sub?: string }[],
+    selected: number,
+    onSelect: (i: number) => void,
+    onEdit: (text: string) => void,
+  ) => (
+    <div className="space-y-1">
+      {variants.map((v, i) => {
+        const isSelected = i === selected;
+        return (
+          <div
+            key={i}
+            onClick={() => { if (!isSelected) onSelect(i); }}
+            className={`flex items-start gap-2 rounded border transition-colors ${
+              isSelected
+                ? "border-line-strong bg-sunken"
+                : "border-transparent hover:border-line hover:bg-sunken/60 cursor-pointer"
+            }`}
+          >
+            <span
+              className={`mt-2.5 ml-2 w-3 h-3 shrink-0 rounded-full border ${
+                isSelected ? "border-ink-secondary bg-ink-secondary" : "border-line-strong bg-white"
               }`}
-            >
-              <span
-                className={`mt-2.5 ml-2 w-3 h-3 shrink-0 rounded-full border ${
-                  isSelected ? "border-ink-secondary bg-ink-secondary" : "border-line-strong bg-white"
-                }`}
-              />
-              {isSelected ? (
-                <div className="flex-1 min-w-0">
-                  <EditableField value={v} onChange={editSelectedVariant} multiline={false} />
+            />
+            <div className="flex-1 min-w-0">
+              {v.label && (
+                <div className="t-label text-action-600 normal-case tracking-normal pt-1.5 px-2">
+                  {v.label.replace(/_/g, " ")}
                 </div>
+              )}
+              {isSelected ? (
+                <EditableField value={v.text} onChange={onEdit} multiline={false} />
               ) : (
-                <div className="flex-1 min-w-0 text-sm text-ink-tertiary px-2 py-1.5 leading-relaxed">{v}</div>
+                <div className="text-sm text-ink-tertiary px-2 py-1.5 leading-relaxed">{v.text}</div>
+              )}
+              {v.sub && (
+                <div className="text-xs text-ink-muted px-2 pb-1.5 leading-relaxed">{v.sub}</div>
               )}
             </div>
-          );
-        })}
-      </div>
-    );
-  };
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderSubheaderVariants = () => renderSlate(
+    subheaderVariants.map((text) => ({ text })),
+    section.subheader_selected ?? 0,
+    selectSubheader,
+    editSelectedSubheader,
+  );
+
+  const renderHeadlineVariants = () => renderSlate(
+    headlineVariants.map((v) => ({
+      text: v.text,
+      label: v.pattern && v.pattern !== "unclassified" ? v.pattern : undefined,
+      // The tagline is shown under its headline so the pair reads as one thought
+      // while the writer is choosing. It stays editable in its own Tagline field.
+      sub: v.tagline ? `\u21b3 ${v.tagline}` : undefined,
+    })),
+    section.headline_selected ?? 0,
+    selectHeadline,
+    editSelectedHeadline,
+  );
 
   const renderElement = (key: string, value: string | ProductInGrid[], placeholder?: string) => {
     if (key === "Products" && Array.isArray(value)) {
@@ -407,7 +531,10 @@ export default function SectionBlock({
     <div className="relative group section-block" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       <div className="py-9">
         {/* Section label + controls — float quietly, revealed on hover/focus. */}
-        <div className={`flex items-center justify-between mb-4 transition-opacity ${hovered || insertOpen || addOpen ? "opacity-100" : "opacity-0"}`}>
+        {/* focus-within matters for more than politeness: the drag handle lives in
+            here, and @hello-pangea/dnd's keyboard drag (space to lift, arrows to
+            move) starts by focusing it — an invisible focused control is unusable. */}
+        <div className={`flex items-center justify-between mb-4 transition-opacity focus-within:opacity-100 ${hovered || addOpen ? "opacity-100" : "opacity-0"}`}>
           <span className="t-label">{section.type.replace(/_/g, " ")}</span>
           <div className="flex items-center gap-1">
             {addable.length > 0 && (
@@ -438,6 +565,17 @@ export default function SectionBlock({
                 )}
               </div>
             )}
+            {dragHandleProps && (
+              <span
+                {...dragHandleProps}
+                role="button"
+                aria-label="Drag to reorder section"
+                title="Drag to reorder"
+                className="text-xs text-ink-tertiary hover:text-ink-secondary px-1.5 py-0.5 rounded hover:bg-sunken transition-colors cursor-grab active:cursor-grabbing select-none"
+              >
+                ⠿
+              </span>
+            )}
             {index > 0 && (
               <button onClick={onMoveUp} className="text-xs text-ink-tertiary hover:text-ink-secondary px-1.5 py-0.5 rounded hover:bg-sunken transition-colors" title="Move up">↑</button>
             )}
@@ -446,7 +584,9 @@ export default function SectionBlock({
             )}
             <button
               onClick={onRegenerate}
-              className="text-xs text-ink-tertiary hover:text-ink px-2 py-0.5 rounded hover:bg-sunken transition-colors"
+              disabled={!!assistsDisabledReason}
+              title={assistsDisabledReason || "Rewrite this whole section"}
+              className="text-xs text-ink-tertiary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed px-2 py-0.5 rounded hover:bg-sunken transition-colors"
             >
               ↻ regenerate
             </button>
@@ -463,20 +603,27 @@ export default function SectionBlock({
         <div className="space-y-4">
           {elementKeys.map((key) => {
             const value = section.elements[key] ?? "";
-            const isSubheaderWithVariants = key === "Subheader" && (section.subheader_variants?.length ?? 0) > 1;
+            const isSubheaderWithVariants = key === "Subheader" && subheaderVariants.length > 1;
+            const isHeadlineWithVariants = key === "Headline" && headlineVariants.length > 1;
+            const slateCount = isSubheaderWithVariants ? subheaderVariants.length : isHeadlineWithVariants ? headlineVariants.length : 0;
             const flag = flagFor(elementKey(section.id, key));
             const isReview = isReviewElement(key);
             const busy = busyKey === key;
             // A Review's regenerate means "fetch another real one", so it needs a
-            // product to pull from; everything else needs the LLM route.
-            const canRegen = isReview ? !!productSlug : !!onRegenerateElement;
+            // product to pull from; everything else needs the LLM route. When the
+            // brief is too thin to compile, the control is shown DISABLED with the
+            // reason instead of vanishing (spec 2.3).
+            const canRegen = isReview ? !!productSlug : (!!onRegenerateElement || !!assistsDisabledReason);
+            const regenBlocked = !isReview && !onRegenerateElement;
             const isArrayValue = Array.isArray(value);
             return (
               <div key={key} className="group/el">
                 <div className="t-label mb-1 flex items-center gap-2">
                   {key}
-                  {isSubheaderWithVariants && (
-                    <span className="text-action-600 normal-case tracking-normal">· {section.subheader_variants!.length} options, pick one</span>
+                  {slateCount > 0 && (
+                    <span className="text-action-600 normal-case tracking-normal">
+                      · {slateCount} {isHeadlineWithVariants ? "patterns" : "options"}, pick one
+                    </span>
                   )}
                   {flag && <RepetitionChip flag={flag} onDismiss={() => onDismissFlag?.(elementKey(section.id, key))} />}
 
@@ -491,17 +638,18 @@ export default function SectionBlock({
                       </button>
                     )}
                     {canRegen && !isArrayValue && (
-                      <button type="button" onClick={() => runRegenerateElement(key)} disabled={!!busyKey}
-                        title={isReview ? "Show a different real review" : `Rewrite the ${key}`}
-                        className="normal-case tracking-normal text-xs text-ink-tertiary hover:text-ink disabled:opacity-40 px-1.5 py-0.5 rounded hover:bg-sunken transition-colors inline-flex items-center gap-1">
+                      <button type="button" onClick={() => runRegenerateElement(key)} disabled={!!busyKey || regenBlocked}
+                        title={regenBlocked ? assistsDisabledReason : isReview ? "Show a different real review" : `Rewrite the ${key}`}
+                        className="normal-case tracking-normal text-xs text-ink-tertiary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-sunken transition-colors inline-flex items-center gap-1">
                         <span className={busy ? "animate-spin inline-block" : "inline-block"}>↻</span>
                         {isReview && <span>another review</span>}
                       </button>
                     )}
                     {canRegen && !isReview && !isArrayValue && (
                       <button type="button" onClick={() => { setSteerKey(steerKey === key ? null : key); setSteerText(""); setSteerTone(defaultTone); }}
-                        disabled={!!busyKey} title="Rewrite with steering"
-                        className="text-xs text-ink-tertiary hover:text-ink disabled:opacity-40 px-1.5 py-0.5 rounded hover:bg-sunken transition-colors">
+                        disabled={!!busyKey || regenBlocked}
+                        title={regenBlocked ? assistsDisabledReason : "Rewrite with steering"}
+                        className="text-xs text-ink-tertiary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-sunken transition-colors">
                         ⋯
                       </button>
                     )}
@@ -550,7 +698,21 @@ export default function SectionBlock({
 
                 {isSubheaderWithVariants
                   ? renderSubheaderVariants()
-                  : renderElement(key, value as string | ProductInGrid[], `Write the ${key.toLowerCase()}…`)}
+                  : isHeadlineWithVariants
+                    ? renderHeadlineVariants()
+                    : renderElement(key, value as string | ProductInGrid[], `Write the ${key.toLowerCase()}…`)}
+
+                {/* Where this review came from — visible without clicking, because
+                    "is this real?" is the question a writer has about every review. */}
+                {isReview && (
+                  <ReviewProvenanceLine
+                    provenance={section.review_provenance?.[key]}
+                    hasText={typeof value === "string" && !!value.trim()}
+                    busy={busy}
+                    onFetch={productSlug ? () => cycleReview(key) : undefined}
+                    onRefresh={productSlug ? () => cycleReview(key, { refresh: true }) : undefined}
+                  />
+                )}
               </div>
             );
           })}
@@ -577,40 +739,8 @@ export default function SectionBlock({
         </div>
       )}
 
-      {/* Insert-after affordance: a hairline that appears on hover, with a
-          dropdown to choose which kind of section to drop in. */}
-      <div className="insert-divider relative flex items-center gap-2 py-1" style={insertOpen ? { opacity: 1 } : undefined}>
-        <div className="flex-1 h-px bg-line" />
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setInsertOpen((o) => !o)}
-            className="text-xs text-ink-tertiary hover:text-ink-secondary px-2 py-0.5 rounded hover:bg-sunken transition-colors whitespace-nowrap"
-          >
-            + insert section
-          </button>
-          {insertOpen && (
-            <>
-              {/* click-away backdrop */}
-              <div className="fixed inset-0 z-10" onClick={() => setInsertOpen(false)} />
-              <div className="absolute z-20 left-1/2 -translate-x-1/2 mt-1 bg-white border border-line rounded-md shadow-lg py-1 min-w-[190px]">
-                <div className="t-label px-3 py-1 text-ink-tertiary">Insert…</div>
-                {INSERTABLE_TYPES.map((t) => (
-                  <button
-                    type="button"
-                    key={t}
-                    onClick={() => { onInsertAfter(t); setInsertOpen(false); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-ink-secondary hover:bg-sunken transition-colors"
-                  >
-                    {t.replace(/_/g, " ")}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="flex-1 h-px bg-line" />
-      </div>
+      {/* Insertion is the canvas's job now (it renders a divider at every
+          boundary, including above the first section — see InsertDivider). */}
     </div>
   );
 }

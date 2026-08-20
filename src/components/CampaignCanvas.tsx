@@ -1,13 +1,19 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { GeneratedCampaign, GeneratedSection, ExpandedBrief, Conceit, SectionSpec, LibraryCampaign, SectionType } from "@/lib/schemas";
-import { SECTION_CATALOGUE, sectionElementNames } from "@/lib/schemas";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
+import type { GeneratedCampaign, GeneratedSection, ExpandedBrief, Conceit, SectionSpec, LibraryCampaign, SectionType, HeadlineVariant } from "@/lib/schemas";
+import { sectionElementNames } from "@/lib/schemas";
+import { specForSection } from "@/lib/campaign-sections";
 import type { ProductReview } from "@/lib/reviews/fetch";
-import { nanoid } from "@/lib/nanoid";
+import type { ReviewProvenance } from "@/lib/schemas";
 import SectionBlock from "./SectionBlock";
 import MetaBlock from "./MetaBlock";
 import VariationsModal from "./VariationsModal";
+import SectionPicker from "./SectionPicker";
+import InsertDivider from "./InsertDivider";
+import Button from "./ui/Button";
 import Skeleton from "./ui/Skeleton";
+import EmptyState from "./ui/EmptyState";
 import type { RepetitionFlag } from "@/lib/repetition-client";
 
 const SECTION_CHIPS = ["Warmer", "Punchier", "More playful", "More premium", "Less salesy", "More specific"];
@@ -67,6 +73,32 @@ interface Props {
   /** Fired after a manual regenerate settles, so the parent can re-check. */
   onRegenerated?: (updated: GeneratedCampaign) => void;
   onChange: (c: GeneratedCampaign) => void;
+
+  // ---- Section mutations (spec 4) ----------------------------------------
+  // These come from the page's useCampaignSections hook rather than living here,
+  // because every one of them has to update `campaign.sections` AND
+  // `sectionStructure` together, and this component only ever receives the
+  // structure read-only. Doing it locally is what made inserted sections inherit
+  // the wrong spec.
+  onInsertAt: (index: number, type: SectionType, specPatch?: Partial<SectionSpec>) => void;
+  onDeleteSection: (id: string) => void;
+  onMoveSection: (id: string, dir: "up" | "down") => void;
+  onReorder: (from: number, to: number) => void;
+  /** A section id to scroll into view once (after an insert), then forget. */
+  scrollToId?: string | null;
+  onScrolledTo?: () => void;
+
+  // ---- Scratch canvases (spec 2) -----------------------------------------
+  /** Editable minimum-viable brief, shown in the brief bar instead of the
+   * compiled conceit. Present only for a hand-written (scratch) canvas. */
+  scratchBrief?: { name: string; offer: string; heroProduct?: string } | null;
+  onScratchBriefChange?: (patch: { name?: string; offer?: string; heroProduct?: string }) => void;
+  /** Why the AI assists are disabled, if they are. Set on a scratch canvas whose
+   * brief is still too thin to compile. Renders as a tooltip on the disabled
+   * controls — never a dead button (spec 2.3). */
+  assistsDisabledReason?: string;
+  /** Products offered for section config + the hero picker. */
+  productOptions?: { id: string; name: string }[];
 }
 
 export default function CampaignCanvas({
@@ -83,39 +115,44 @@ export default function CampaignCanvas({
   onRenameFlags,
   onRegenerated,
   onChange,
+  onInsertAt,
+  onDeleteSection,
+  onMoveSection,
+  onReorder,
+  scrollToId,
+  onScrolledTo,
+  scratchBrief,
+  onScratchBriefChange,
+  assistsDisabledReason,
+  productOptions = [],
 }: Props) {
   const [regenModal, setRegenModal] = useState<{ sectionId: string; type: string } | null>(null);
   const [regeneratingMeta, setRegeneratingMeta] = useState(false);
+  // Which boundary the picker is inserting at. null = closed.
+  const [pickerAt, setPickerAt] = useState<number | null>(null);
+  const assistsEnabled = !assistsDisabledReason;
 
   const updateSection = (id: string, s: GeneratedSection) => {
     onChange({ ...campaign, sections: campaign.sections.map((sec) => (sec.id === id ? s : sec)) });
   };
 
-  const deleteSection = (id: string) => {
-    onChange({ ...campaign, sections: campaign.sections.filter((s) => s.id !== id) });
+  // Insert / delete / move / reorder are the page's (see Props) so the section
+  // list and the spec list can never drift apart.
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    onReorder(result.source.index, result.destination.index);
   };
 
-  const moveSection = (id: string, dir: "up" | "down") => {
-    const idx = campaign.sections.findIndex((s) => s.id === id);
-    if (dir === "up" && idx === 0) return;
-    if (dir === "down" && idx === campaign.sections.length - 1) return;
-    const updated = [...campaign.sections];
-    const swap = dir === "up" ? idx - 1 : idx + 1;
-    [updated[idx], updated[swap]] = [updated[swap], updated[idx]];
-    onChange({ ...campaign, sections: updated });
-  };
-
-  const insertAfter = (afterId: string, type: SectionType) => {
-    const idx = campaign.sections.findIndex((s) => s.id === afterId);
-    const newSection: GeneratedSection = {
-      id: nanoid(),
-      type,
-      elements: Object.fromEntries((SECTION_CATALOGUE[type] ?? []).map((el) => [el, ""])),
-    };
-    const updated = [...campaign.sections];
-    updated.splice(idx + 1, 0, newSection);
-    onChange({ ...campaign, sections: updated });
-  };
+  // Scroll a freshly inserted section into view. Without this, "Add section" from
+  // the toolbar appends somewhere below the fold and looks like it did nothing.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!scrollToId) return;
+    const el = sheetRef.current?.querySelector<HTMLElement>(`[data-section-id="${scrollToId}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    onScrolledTo?.();
+  }, [scrollToId, onScrolledTo]);
 
   const handleRegenerateMeta = async () => {
     if (!expandedBrief || !chosenConceit) return;
@@ -159,13 +196,12 @@ export default function CampaignCanvas({
     elementKey: string,
     steering?: string,
     tone?: number
-  ): Promise<{ value?: string; variants?: string[] } | null> => {
-    const idx = campaign.sections.findIndex((s) => s.id === sectionId);
-    const section = campaign.sections[idx];
+  ): Promise<{ value?: string; variants?: string[]; headline_variants?: HeadlineVariant[] } | null> => {
+    const section = campaign.sections.find((s) => s.id === sectionId);
     if (!section || !expandedBrief || !chosenConceit) return null;
-    const spec = sectionStructure[idx]?.type === section.type
-      ? sectionStructure[idx]
-      : sectionStructure.find((s) => s.type === section.type);
+    // By id. The old position-then-type lookup posted another section's spec the
+    // moment anything had been inserted above this one.
+    const spec = specForSection(sectionStructure, section);
     try {
       const res = await fetch("/api/regenerate-element", {
         method: "POST",
@@ -184,6 +220,7 @@ export default function CampaignCanvas({
       });
       if (!res.ok) return null;
       const data = await res.json();
+      if (Array.isArray(data.headline_variants)) return { headline_variants: data.headline_variants as HeadlineVariant[] };
       if (typeof data.value === "string") return { value: data.value };
       if (Array.isArray(data.variants)) return { variants: data.variants as string[] };
       return null;
@@ -192,45 +229,74 @@ export default function CampaignCanvas({
     }
   };
 
-  // Standalone `reviews` sections auto-fill their Review 1/2/3 slots with REAL
-  // reviews for the campaign's highlighted product — the model never writes them
-  // (never-fabricate rule leaves them empty), so we fetch and place them here.
-  // Only empty slots are filled (edits are never clobbered); each (product,
-  // section-set) is attempted once so onChange can't spin the effect.
-  const REVIEW_KEYS = ["Review 1", "Review 2", "Review 3"];
+  // Standalone `reviews` sections auto-fill their empty Review slots with REAL
+  // reviews — the model never writes them (the server strips anything it does), so
+  // an empty slot is a data gap this fills.
+  //
+  // The slot list is derived from the SECTION, not hardcoded: it used to be
+  // ["Review 1","Review 2","Review 3"] with limit=3, so adding Review 4 on the
+  // canvas produced a slot the auto-fill could never reach and it stayed empty
+  // forever (docs/REVIEWS_MODULE_SPEC.md §2.1). Only empty slots are filled — edits
+  // and manual reviews are never clobbered — and each fill records its provenance,
+  // without which the review cannot be saved.
   const reviewFillRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (isGenerating || !featuredProduct) return;
-    const emptySlot = (s: GeneratedSection, k: string) =>
-      String((s.elements as Record<string, unknown>)[k] ?? "").trim() === "";
-    const needsFill = (s: GeneratedSection) =>
-      s.type === "reviews" && REVIEW_KEYS.some((k) => emptySlot(s, k));
+    const reviewKeys = (sec: GeneratedSection) =>
+      Object.keys(sec.elements ?? {}).filter((k) => /^Review \d+$/.test(k))
+        .sort((a, b) => Number(a.split(" ")[1]) - Number(b.split(" ")[1]));
+    const emptySlot = (sec: GeneratedSection, k: string) =>
+      String((sec.elements as Record<string, unknown>)[k] ?? "").trim() === "";
+    const needsFill = (sec: GeneratedSection) =>
+      sec.type === "reviews" && reviewKeys(sec).some((k) => emptySlot(sec, k));
+
     const targets = campaign.sections.filter(needsFill);
     if (!targets.length) return;
-    const attemptKey = `${featuredProduct}:${targets.map((t) => t.id).join(",")}`;
+    // How many reviews the whole canvas needs, so the fetch limit follows the
+    // section's real slot count instead of a hardcoded 3.
+    const needed = targets.reduce((n, sec) => n + reviewKeys(sec).filter((k) => emptySlot(sec, k)).length, 0);
+    const attemptKey = `${featuredProduct}:${needed}:${targets.map((t) => t.id).join(",")}`;
     if (reviewFillRef.current.has(attemptKey)) return;
     reviewFillRef.current.add(attemptKey);
 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/reviews?product=${encodeURIComponent(featuredProduct)}&limit=3`);
+        const res = await fetch(`/api/reviews?product=${encodeURIComponent(featuredProduct)}&limit=${Math.min(Math.max(needed, 1), 10)}`);
         if (!res.ok || cancelled) return;
-        const list = ((await res.json())?.reviews ?? []) as ProductReview[];
+        const data = (await res.json()) as { reviews?: ProductReview[]; provenance?: ReviewProvenance[] };
+        const list = data.reviews ?? [];
         if (!list.length || cancelled) return;
         const fmt = (r: ProductReview) => (r.author ? `${r.text} — ${r.author}` : r.text);
-        const sections = campaign.sections.map((s) => {
-          if (!needsFill(s)) return s;
-          const elements = { ...s.elements };
-          let ri = 0;
-          for (const k of REVIEW_KEYS) {
-            if (emptySlot(s, k) && ri < list.length) elements[k] = fmt(list[ri++]);
+        // Don't place a review that is already on screen in another slot.
+        const taken = new Set(
+          campaign.sections.flatMap((sec) =>
+            Object.entries(sec.elements ?? {})
+              .filter(([k, v]) => /^Review( \d+)?$/.test(k) && typeof v === "string" && v.trim())
+              .map(([, v]) => (v as string).trim()),
+          ),
+        );
+        let cursor = 0;
+        const sections = campaign.sections.map((sec) => {
+          if (!needsFill(sec)) return sec;
+          const elements = { ...sec.elements };
+          const provenance = { ...(sec.review_provenance ?? {}) };
+          for (const key of reviewKeys(sec)) {
+            if (!emptySlot(sec, key)) continue;
+            while (cursor < list.length && taken.has(fmt(list[cursor]).trim())) cursor++;
+            if (cursor >= list.length) break;
+            const chosen = list[cursor];
+            elements[key] = fmt(chosen);
+            taken.add(fmt(chosen).trim());
+            // The provenance record is what makes this review saveable at all.
+            provenance[key] = data.provenance?.[cursor] ?? { origin: "fetched", fetched_at: new Date().toISOString() };
+            cursor++;
           }
-          return { ...s, elements };
+          return { ...sec, elements, review_provenance: provenance };
         });
         if (!cancelled) onChange({ ...campaign, sections });
       } catch {
-        /* network hiccup — slots stay empty, user can retry via regenerate */
+        /* network hiccup — slots stay empty, the writer can fetch per slot */
       }
     })();
     return () => { cancelled = true; };
@@ -239,21 +305,71 @@ export default function CampaignCanvas({
 
   return (
     <div className="space-y-4">
-      {/* Brief bar — the deterministically compiled angle/thesis (read-only). */}
+      {/* Brief bar. For a generated campaign this is the compiled angle, read-only.
+          For a hand-written (scratch) canvas it is the minimum viable brief, live
+          and editable: a name and an offer are all compileBrief() needs to switch
+          the AI assists on, and collecting them inline means the writer can start
+          typing sections immediately instead of clearing a modal first (spec 2.3). */}
       <div className="bg-white border border-line rounded-lg px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="t-label mb-1">Brief</div>
-            {chosenConceit ? (
-              <>
-                <div className="font-semibold text-ink">{chosenConceit.name}</div>
-                <div className="text-sm text-ink-tertiary mt-0.5 leading-relaxed">{chosenConceit.description}</div>
-              </>
-            ) : (
-              <div className="text-sm text-ink-tertiary">Compiling…</div>
-            )}
+        {scratchBrief ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="t-label">Brief</div>
+              {assistsDisabledReason ? (
+                <span className="text-[11px] text-warning-600">{assistsDisabledReason}</span>
+              ) : (
+                <span className="text-[11px] text-ink-muted">
+                  {chosenConceit?.name ? `Compiled: ${chosenConceit.name}` : "Compiled"}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="block">
+                <span className="t-label text-ink-secondary">Campaign name</span>
+                <input
+                  value={scratchBrief.name}
+                  onChange={(e) => onScratchBriefChange?.({ name: e.target.value })}
+                  placeholder="Back to School — Launch"
+                  className="mt-1 w-full text-sm text-ink border-b border-line focus:border-accent focus:outline-none py-1 bg-transparent"
+                />
+              </label>
+              <label className="block">
+                <span className="t-label text-ink-secondary">Offer</span>
+                <input
+                  value={scratchBrief.offer}
+                  onChange={(e) => onScratchBriefChange?.({ offer: e.target.value })}
+                  placeholder="20% off sitewide"
+                  className="mt-1 w-full text-sm text-ink border-b border-line focus:border-accent focus:outline-none py-1 bg-transparent"
+                />
+              </label>
+              <label className="block">
+                <span className="t-label text-ink-secondary">Hero product <span className="normal-case tracking-normal text-ink-muted">(optional)</span></span>
+                <select
+                  value={scratchBrief.heroProduct ?? ""}
+                  onChange={(e) => onScratchBriefChange?.({ heroProduct: e.target.value })}
+                  className="mt-1 w-full text-sm text-ink border-b border-line focus:border-accent focus:outline-none py-1 bg-transparent"
+                >
+                  <option value="">None</option>
+                  {productOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="t-label mb-1">Brief</div>
+              {chosenConceit ? (
+                <>
+                  <div className="font-semibold text-ink">{chosenConceit.name}</div>
+                  <div className="text-sm text-ink-tertiary mt-0.5 leading-relaxed">{chosenConceit.description}</div>
+                </>
+              ) : (
+                <div className="text-sm text-ink-tertiary">Compiling…</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Meta block */}
@@ -264,59 +380,102 @@ export default function CampaignCanvas({
         regenerating={regeneratingMeta}
         flags={repetitionFlags}
         onDismissFlag={onDismissFlag}
+        disabledReason={assistsDisabledReason}
       />
 
       {/* Email body — one connected sheet so the sections read as a single
           document, not a stack of isolated cards. */}
-      <div className="rc-canvas-sheet">
-        {campaign.sections.map((section, i) => {
-          // Find the matching spec to carry grid dimensions into the renderer.
-          // Match by position first (most accurate), fall back to type.
-          const spec = sectionStructure[i] ?? sectionStructure.find((s) => s.type === section.type);
-          const gridCols = section.type === "product_grid" ? (spec?.grid_cols ?? 2) : undefined;
-          // Product the Review refresh control should pull for: the card's own
-          // product for product_card_review; the campaign's first featured product
-          // for a plain reviews section.
-          const reviewSlug = section.type === "product_card_review"
-            ? spec?.product_slug
-            : section.type === "reviews"
-              ? (featuredProduct ?? expandedBrief?.products_featured?.[0])
-              : undefined;
-          // The elements this section is SUPPOSED to have, per its spec: N USP
-          // slots, plus/minus optional and switched-off elements. Without this the
-          // renderer falls back to the raw catalogue and would resurrect a
-          // Subheader the user removed, or show only 3 slots on a 5-USP section.
-          const catalogueElements = spec ? sectionElementNames(spec) : undefined;
-          const isNewest = isGenerating && i === campaign.sections.length - 1;
-          return (
-            <div key={section.id} className={`relative ${isNewest ? "rc-section-enter" : ""}`}>
-              <SectionBlock
-                section={section}
-                index={i}
-                total={campaign.sections.length}
-                gridCols={gridCols}
-                catalogueElements={catalogueElements}
-                flags={repetitionFlags}
-                onDismissFlag={onDismissFlag}
-                onChange={(s) => updateSection(section.id, s)}
-                onRegenerate={() => setRegenModal({ sectionId: section.id, type: section.type })}
-                onDelete={() => deleteSection(section.id)}
-                onMoveUp={() => moveSection(section.id, "up")}
-                onMoveDown={() => moveSection(section.id, "down")}
-                onInsertAfter={(type) => insertAfter(section.id, type)}
-                productSlug={reviewSlug}
-                defaultTone={toneDial}
-                onRegenerateElement={
-                  expandedBrief && chosenConceit
-                    ? (key, steering, tone) => regenerateElement(section.id, key, steering, tone)
-                    : undefined
-                }
-                onRequestDeleteSection={() => deleteSection(section.id)}
-                onRenameFlags={onRenameFlags}
-              />
-            </div>
-          );
-        })}
+      <div className="rc-canvas-sheet" ref={sheetRef}>
+        {/* An empty canvas is nothing but add-section actions, so it says so
+            plainly rather than rendering a blank sheet with a hairline on it. */}
+        {campaign.sections.length === 0 && !isGenerating ? (
+          <div className="px-10 py-12">
+            <EmptyState
+              icon={
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="7" rx="1.5" />
+                  <path d="M3 15h18M3 19h12" />
+                </svg>
+              }
+              title="Add your first section"
+              description="Build the email module by module — a header to hook, a body to sell, cards for the products. You can reorder and rewrite any of it later."
+              action={<Button variant="primary" size="sm" onClick={() => setPickerAt(0)}>Add section</Button>}
+            />
+          </div>
+        ) : (
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="canvas-sections">
+              {(droppable) => (
+                <div ref={droppable.innerRef} {...droppable.droppableProps}>
+                  {campaign.sections.map((section, i) => {
+                    // The spec is resolved BY ID (spec 4). No positional or
+                    // type-based fallback: a wrong spec silently renders the wrong
+                    // slot count, grid size or product binding.
+                    const spec = specForSection(sectionStructure, section);
+                    const gridCols = section.type === "product_grid" ? (spec?.grid_cols ?? 2) : undefined;
+                    // Product the Review refresh control should pull for: the card's own
+                    // product for product_card_review; the campaign's first featured product
+                    // for a plain reviews section.
+                    const reviewSlug = section.type === "product_card_review"
+                      ? spec?.product_slug
+                      : section.type === "reviews"
+                        ? (featuredProduct ?? expandedBrief?.products_featured?.[0])
+                        : undefined;
+                    // The elements this section is SUPPOSED to have, per its spec: N USP
+                    // slots, plus/minus optional and switched-off elements. Without this the
+                    // renderer falls back to the raw catalogue and would resurrect a
+                    // Subheader the user removed, or show only 3 slots on a 5-USP section.
+                    const catalogueElements = spec ? sectionElementNames(spec) : undefined;
+                    const isNewest = isGenerating && i === campaign.sections.length - 1;
+                    return (
+                      <Draggable key={section.id} draggableId={section.id} index={i} isDragDisabled={isGenerating}>
+                        {(draggable, snapshot) => (
+                          <div
+                            ref={draggable.innerRef}
+                            {...draggable.draggableProps}
+                            data-section-id={section.id}
+                            className={`relative bg-surface ${isNewest ? "rc-section-enter" : ""} ${snapshot.isDragging ? "shadow-pop rounded-md" : ""}`}
+                          >
+                            {/* n + 1 dividers for n sections: this one is the
+                                boundary ABOVE the section, which is how a section
+                                can finally be added at the top. */}
+                            <InsertDivider onClick={() => setPickerAt(i)} />
+                            <SectionBlock
+                              section={section}
+                              index={i}
+                              total={campaign.sections.length}
+                              gridCols={gridCols}
+                              catalogueElements={catalogueElements}
+                              flags={repetitionFlags}
+                              onDismissFlag={onDismissFlag}
+                              onChange={(s) => updateSection(section.id, s)}
+                              onRegenerate={() => setRegenModal({ sectionId: section.id, type: section.type })}
+                              onDelete={() => onDeleteSection(section.id)}
+                              onMoveUp={() => onMoveSection(section.id, "up")}
+                              onMoveDown={() => onMoveSection(section.id, "down")}
+                              productSlug={reviewSlug}
+                              defaultTone={toneDial}
+                              onRegenerateElement={
+                                assistsEnabled && expandedBrief && chosenConceit
+                                  ? (key, steering, tone) => regenerateElement(section.id, key, steering, tone)
+                                  : undefined
+                              }
+                              assistsDisabledReason={assistsDisabledReason}
+                              dragHandleProps={draggable.dragHandleProps}
+                              onRequestDeleteSection={() => onDeleteSection(section.id)}
+                              onRenameFlags={onRenameFlags}
+                            />
+                          </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {droppable.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        )}
 
         {/* "more coming" affordance while streaming */}
         {isGenerating && (
@@ -327,15 +486,35 @@ export default function CampaignCanvas({
             <Skeleton className="h-4 w-5/6" />
           </div>
         )}
+
+        {/* The trailing boundary. Appending is also always available from the
+            toolbar (and Cmd-Shift-A), so the writer never has to hunt for this. */}
+        {campaign.sections.length > 0 && !isGenerating && (
+          <InsertDivider onClick={() => setPickerAt(campaign.sections.length)} label="Add section at the end" />
+        )}
       </div>
+
+      <SectionPicker
+        open={pickerAt !== null}
+        position={
+          pickerAt === null ? null
+            : pickerAt === 0 && campaign.sections.length > 0 ? { index: 0, label: "at the top" }
+            : pickerAt >= campaign.sections.length ? { index: pickerAt, label: "at the end" }
+            : { index: pickerAt, label: `before section ${pickerAt + 1}` }
+        }
+        onClose={() => setPickerAt(null)}
+        onInsert={(type, specPatch) => {
+          onInsertAt(pickerAt ?? campaign.sections.length, type, specPatch);
+          setPickerAt(null);
+        }}
+        selectedProducts={productOptions}
+      />
 
       {regenModal && (() => {
         const sectionId = regenModal.sectionId;
-        const idx = campaign.sections.findIndex((s) => s.id === sectionId);
-        const section = campaign.sections[idx];
-        const sectionSpec = sectionStructure[idx]?.type === section?.type
-          ? sectionStructure[idx]
-          : sectionStructure.find((s) => s.type === section?.type) || { id: "", type: regenModal.type as SectionType };
+        const section = campaign.sections.find((s) => s.id === sectionId);
+        const sectionSpec = (section && specForSection(sectionStructure, section))
+          || { id: sectionId, type: regenModal.type as SectionType };
         return (
           <VariationsModal
             title={`${regenModal.type} section`}

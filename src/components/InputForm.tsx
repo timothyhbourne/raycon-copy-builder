@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { nanoid } from "nanoid";
 import type { BriefInput, CampaignType, AudienceType, SectionSpec, Angle, SendStage } from "@/lib/schemas";
-import { DEFAULT_SECTION_STRUCTURE } from "@/lib/schemas";
+import { DEFAULT_SECTION_STRUCTURE, DEFAULT_TONE_DIAL } from "@/lib/schemas";
+import { stripPlannerLinkFromRestoredForm } from "@/lib/planner-link-decision";
 import { PRODUCT_CATEGORIES, VALID_PRODUCT_IDS, PRODUCT_NAME_BY_ID, getProductSlugByName } from "@/lib/products";
 import type { Promotion } from "@/lib/promo/consolidate";
 import { deriveSendStage, deadlineLanguage } from "@/lib/brief/compile";
@@ -72,7 +73,7 @@ const DEFAULT_FORM: BriefInput = {
   products_featured: [],
   section_structure: DEFAULT_SECTION_STRUCTURE,
   campaign_specific_rules: "",
-  tone_dial: 1,
+  tone_dial: DEFAULT_TONE_DIAL,
 };
 
 const STAGE_LABELS: Record<SendStage, string> = {
@@ -147,7 +148,17 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
           if (Array.isArray(parsed.products_featured)) {
             parsed.products_featured = parsed.products_featured.filter((id: string) => VALID_PRODUCT_IDS.has(id));
           }
-          setForm(parsed);
+          // And strip the planner association, for the same class of reason. This
+          // form is persisted on every keystroke, `planner_row_id` included, so a
+          // single visit to ?planner=<row> used to contaminate every campaign
+          // written afterwards on this machine: the save resolved that row id out of
+          // ambient state and stamped it, which — the link being single-owner — also
+          // unlinked whatever copy the row legitimately owned.
+          //
+          // A restored draft is a CONTENT draft; its planner association died with
+          // the session. `planner_notes` deliberately survives: it is text the writer
+          // was working with, and it stamps nothing.
+          setForm(stripPlannerLinkFromRestoredForm(parsed));
         } catch { /* */ }
       }
     }
@@ -335,7 +346,7 @@ export default function InputForm({ onSubmit, loading, seed, seedLabel, onClearS
   };
 
   const pf = productFilter.trim().toLowerCase();
-  const tone = form.tone_dial ?? 1;
+  const tone = form.tone_dial ?? DEFAULT_TONE_DIAL;
 
   return (
     <form

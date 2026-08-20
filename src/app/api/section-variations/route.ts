@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getAnthropic, MODEL, CREATIVE_TEMPERATURE } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
 import { regenerateSectionRoleInstruction, regenerateSectionUserPrompt } from "@/lib/prompts/regenerate-section";
-import { toneDirective } from "@/lib/prompts/generate";
+import { toneDirective, DEFAULT_TONE_DIAL } from "@/lib/prompts/generate";
 import { REGISTERS, registerSteering } from "@/lib/prompts/variations";
 import { buildAvoidBlock } from "@/lib/constructions";
 import { isProductCardType } from "@/lib/schemas";
 import { autoFixMechanical } from "@/lib/hard-rules-check";
-import { extractSubheaderVariants } from "@/lib/normalize-section";
+import { normalizeSectionElements } from "@/lib/normalize-section";
+import { verifiedIndex, verifiedFromSection, stripUnprovenancedReviews } from "@/lib/reviews/provenance";
+import { isReviewElement } from "@/lib/element-families";
 import { nanoid } from "@/lib/nanoid";
 import { parseBody } from "@/lib/validation/api";
 import { regenerateSectionBody } from "@/lib/validation/requests";
@@ -19,6 +21,10 @@ import type { TextBlockParam } from "@anthropic-ai/sdk/resources/messages";
 function scrubSectionElements(elements: Record<string, unknown>): SectionElements {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(elements)) {
+    // Never scrub a review: it is a customer's words, and the punctuation autofix
+    // rewrites the em dash in "… — Jordan M." — which both edits what they said and
+    // breaks the verbatim match the provenance check relies on.
+    if (isReviewElement(k)) { out[k] = v; continue; }
     if (typeof v === "string") out[k] = autoFixMechanical(v);
     else if (Array.isArray(v)) {
       out[k] = v.map((item) =>
@@ -49,13 +55,16 @@ export async function POST(req: NextRequest) {
       prior_variations?: Array<{ label: string; preview: string }>;
     };
 
-    const roleInstruction = regenerateSectionRoleInstruction + toneDirective(body.tone_dial ?? 3);
+    const roleInstruction = regenerateSectionRoleInstruction + toneDirective(body.tone_dial ?? DEFAULT_TONE_DIAL);
     const systemBlocks: TextBlockParam[] = buildSystemBlocks(getBrandContext(), roleInstruction);
     const sec = body.section_to_regenerate;
     const avoidBlock = isProductCardType(sec.type) && sec.product_slug
       ? await buildAvoidBlock({ productsFeatured: [sec.product_slug] })
       : await buildAvoidBlock({});
     const currentId = sec.current_content.id || nanoid();
+    // The reviews already on the section are the only reviews any variation is
+    // allowed to contain (resolved once, used by all five registers).
+    const verifiedReviews = verifiedIndex(verifiedFromSection(sec.current_content));
 
     // Sets after the first carry every card the user already rejected, so the
     // model is told what NOT to restate. Without this, "Regenerate a new set"
@@ -86,19 +95,27 @@ Do not restate any of these. Change the opener, the angle, the sentence shape. I
             max_tokens: 1536,
             // Explicit, not the SDK default: five prompts that differ by one
             // block need full sampling range to come back reading differently.
-            temperature: 1,
+            temperature: CREATIVE_TEMPERATURE,
             system: systemBlocks,
             messages: [{ role: "user", content: userPrompt }],
           });
           const text = response.content[0]?.type === "text" ? response.content[0].text : "";
           const json = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
           const parsed = JSON.parse(json);
-          const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(parsed.elements);
+          const { elements, ...slates } = normalizeSectionElements(parsed.elements);
+          // Same guard as the single-section rewrite: a variation may keep the real
+          // reviews and may not write new ones. Without this, running the five
+          // registers on a reviews section produced five sets of fabricated quotes.
+          const guarded = stripUnprovenancedReviews(
+            scrubSectionElements(elements as Record<string, unknown>) as GeneratedSection["elements"],
+            verifiedReviews,
+          );
           const section: GeneratedSection = {
             type: parsed.type ?? sec.type,
-            elements: scrubSectionElements(elements as Record<string, unknown>),
+            elements: guarded.elements,
             id: currentId,
-            ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
+            ...slates,
+            ...(Object.keys(guarded.review_provenance).length ? { review_provenance: guarded.review_provenance } : {}),
           };
           return { label: register.label, section };
         } catch (err) {

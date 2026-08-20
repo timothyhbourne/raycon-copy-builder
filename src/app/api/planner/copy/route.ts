@@ -55,6 +55,29 @@ function resolveSubheader(s: GeneratedSection, raw: string): string {
   return raw;
 }
 
+/**
+ * Resolve the Headline (and the Tagline it is paired with) to the SELECTED slate
+ * candidate. elements.Headline already mirrors the selection, but preferring the
+ * explicit slate metadata means the design handoff can never show one of the three
+ * candidates that were not chosen.
+ */
+function resolveHeadlinePair(s: GeneratedSection): { Headline?: string; Tagline?: string } {
+  if (!s.headline_variants?.length) return {};
+  const pick = s.headline_variants[s.headline_selected ?? 0] ?? s.headline_variants[0];
+  return { Headline: pick.text, ...(pick.tagline ? { Tagline: pick.tagline } : {}) };
+}
+
+/**
+ * The chosen subject line / preview text FIRST, the alternatives after it. The
+ * design handoff needs to know which one to build for; the others are still worth
+ * seeing, so they are ordered behind it rather than dropped.
+ */
+function selectedFirst(lines: string[] | undefined, selected: number | undefined): string[] {
+  if (!lines?.length) return [];
+  const idx = selected != null && lines[selected] ? selected : 0;
+  return [lines[idx], ...lines.filter((_, i) => i !== idx)];
+}
+
 function sectionToFields(s: GeneratedSection): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const [key, value] of Object.entries(s.elements)) {
@@ -71,14 +94,18 @@ function sectionToFields(s: GeneratedSection): Record<string, string> {
   if (s.subheader_variants?.length) {
     fields["Subheader"] = s.subheader_variants[s.subheader_selected ?? 0] ?? s.subheader_variants[0];
   }
+  const pair = resolveHeadlinePair(s);
+  if (pair.Headline) fields["Headline"] = pair.Headline;
+  // Only overwrite a Tagline the section actually has.
+  if (pair.Tagline && fields["Tagline"] !== undefined) fields["Tagline"] = pair.Tagline;
   return fields;
 }
 
 function fromStructured(campaign: GeneratedCampaign, base: CopyBase): CopyPreview {
   return {
     ...base,
-    subject_lines: campaign.meta?.subject_lines ?? [],
-    preview_texts: campaign.meta?.preview_texts ?? [],
+    subject_lines: selectedFirst(campaign.meta?.subject_lines, campaign.meta?.subject_selected),
+    preview_texts: selectedFirst(campaign.meta?.preview_texts, campaign.meta?.preview_selected),
     sections: (campaign.sections ?? []).map((s) => ({ type: s.type, fields: sectionToFields(s) })),
   };
 }
@@ -113,6 +140,11 @@ function fullSection(s: GeneratedSection, spec: SectionSpec | undefined): FullSe
       continue;
     }
     if (key === "Subheader") { elements.push({ label: key, value: resolveSubheader(s, String(value)) }); continue; }
+    if (key === "Headline" || key === "Tagline") {
+      const resolved = resolveHeadlinePair(s)[key] ?? String(value);
+      if (resolved.length) elements.push({ label: key, value: resolved });
+      continue;
+    }
     if (value != null && String(value).length) elements.push({ label: key, value: String(value) });
   }
   const out: FullSection = { type: s.type, elements };
@@ -134,8 +166,8 @@ function fromStructuredFull(
   return {
     ...base,
     conceit_name: conceitName || undefined,
-    subject_lines: campaign.meta?.subject_lines ?? [],
-    preview_texts: campaign.meta?.preview_texts ?? [],
+    subject_lines: selectedFirst(campaign.meta?.subject_lines, campaign.meta?.subject_selected),
+    preview_texts: selectedFirst(campaign.meta?.preview_texts, campaign.meta?.preview_selected),
     // campaign.sections and section_structure are generated in the same order;
     // zip by index to recover product-grid dimensions.
     sections: (campaign.sections ?? []).map((s, i) => fullSection(s, specs[i])),

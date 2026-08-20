@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveToLibrary, getLibraryCampaignById } from "@/lib/library";
 import { updateCampaign } from "@/lib/constructions";
+import { refreshCorpusSafely } from "@/lib/corpus/ingest";
 import { deleteCampaign } from "@/lib/campaigns";
 import { parseBody } from "@/lib/validation/api";
 import { finalizeBody } from "@/lib/validation/requests";
@@ -26,6 +27,11 @@ export async function POST(req: NextRequest) {
     // entry so extraction sees the persisted structured snapshot + date.
     const saved = await getLibraryCampaignById(body.id);
     if (saved) await updateCampaign(saved);
+
+    // Keep the tiered corpus in step too (L1/L2). Rate-limited: the library
+    // autosave also posts here on a debounce, and a rebuild per keystroke would be
+    // absurd. Never fails the save.
+    await refreshCorpusSafely("finalize", { minAgeMs: 60_000 });
 
     // Delete the draft from /generated/ if it exists
     if (body.draft_id) {

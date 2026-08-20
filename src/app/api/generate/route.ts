@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic, MODEL } from "@/lib/anthropic";
+import { getAnthropic, MODEL, CREATIVE_TEMPERATURE } from "@/lib/anthropic";
 import { getBrandContext, buildSystemBlocks } from "@/lib/data";
-import { generateRoleInstruction, generateUserPrompt, toneDirective } from "@/lib/prompts/generate";
+import { generateRoleInstruction, generateUserPrompt, toneDirective, DEFAULT_TONE_DIAL } from "@/lib/prompts/generate";
 import { legacyGenerateRoleInstruction, legacyToneDirective } from "@/lib/prompts/legacy-generate";
 import { buildAvoidBlock, recentUspsBySlug } from "@/lib/constructions";
+import { buildLearningBlocks } from "@/lib/corpus/inject";
 import { uspSlotsOf } from "@/lib/schemas";
-import { fetchProductReviews } from "@/lib/reviews/fetch";
+import { fetchProductReviewsWithOrigin } from "@/lib/reviews/fetch";
+import { resolveSectionReviews } from "@/lib/reviews/resolve";
+import { verifiedIndex, guardReviewLine } from "@/lib/reviews/provenance";
 import { getProductName } from "@/lib/products";
 import { compileBrief } from "@/lib/brief/compile";
 import { readPromoStore } from "@/lib/promo/store";
@@ -37,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     // ROLLBACK LEVER: COPY_PROMPT_LEGACY=1 reverts to the pre-rebuild prompt
     // (src/lib/prompts/legacy-generate.ts) if the new voice ever regresses.
-    const dial = input.tone_dial ?? 1;
+    const dial = input.tone_dial ?? DEFAULT_TONE_DIAL;
     const useLegacy = process.env.COPY_PROMPT_LEGACY === "1";
     const roleInstruction = useLegacy
       ? legacyGenerateRoleInstruction + legacyToneDirective(dial)
@@ -55,21 +58,50 @@ export async function POST(req: NextRequest) {
         .map((s) => s.product_slug as string)
     ));
     const reviewsBySlug: Record<string, string[]> = {};
+    // Every review handed to the model, with where it came from. This is the set the
+    // server-side strip below checks the model's output against, so a review that
+    // was not resolved here cannot survive generation.
+    const verifiedReviews: { text: string; provenance: import("@/lib/schemas").ReviewProvenance }[] = [];
     await Promise.all(reviewSlugs.map(async (slug) => {
       try {
         // Fetch a small ranked list so the UI's refresh control has alternatives;
         // the top one is placed by default. Each review carries its real reviewer
         // name as embedded attribution ("… — Jordan M."); never invent a name.
-        const reviews = await fetchProductReviews(slug, { limit: 5 });
-        if (reviews.length) reviewsBySlug[slug] = reviews.map((r) => (r.author ? `${r.text} — ${r.author}` : r.text));
+        const { reviews, origin } = await fetchProductReviewsWithOrigin(slug, { limit: 5 });
+        if (reviews.length) {
+          reviewsBySlug[slug] = reviews.map((r) => (r.author ? `${r.text} — ${r.author}` : r.text));
+          const stamped = new Date().toISOString();
+          for (const r of reviews) {
+            verifiedReviews.push({
+              text: r.author ? `${r.text} — ${r.author}` : r.text,
+              provenance: {
+                origin, fetched_at: stamped,
+                ...(r.author ? { author: r.author } : {}),
+                ...(r.rating != null ? { rating: r.rating } : {}),
+              },
+            });
+          }
+        }
       } catch { /* no review → Review element stays empty + flagged */ }
     }));
-    // Which review cards will come back EMPTY. Surfaced to the client so an empty
+
+    // Standalone `reviews` sections: resolve each SLOT (product / url / manual).
+    // This was the fabrication hole — the section was named Review 1/2/3 and handed
+    // nothing, so the model filled it in.
+    const heroProduct = input.hero_product_slug || input.products_featured?.[0];
+    const sectionReviews = await resolveSectionReviews(input.section_structure, heroProduct);
+    verifiedReviews.push(...sectionReviews.verified);
+    const verified = verifiedIndex(verifiedReviews);
+
+    // Which review slots will come back EMPTY. Surfaced to the client so an empty
     // Review field reads as "no eligible review found" rather than a silent gap.
-    // (We never fabricate — an empty card is always a real data gap.)
-    const reviewGaps = reviewSlugs
-      .filter((slug) => !reviewsBySlug[slug]?.length)
-      .map((slug) => ({ slug, name: getProductName(slug) }));
+    // (We never fabricate — an empty slot is always a real data gap.)
+    const reviewGaps = [
+      ...reviewSlugs
+        .filter((slug) => !reviewsBySlug[slug]?.length)
+        .map((slug) => ({ slug, name: getProductName(slug) })),
+      ...sectionReviews.gaps.map((g) => ({ slug: `${g.section_id}:${g.slot}`, name: `Review ${g.slot} — ${g.reason}` })),
+    ];
 
     // USPs sections: the live offer goes ONLY to company-sourced slots (so offer
     // mechanics are woven into a brand benefit and never appended to a product
@@ -88,6 +120,29 @@ export async function POST(req: NextRequest) {
         .filter(Boolean)
     ));
 
+    // The recursive-learning blocks: a rotating Tier-A reference sample, the
+    // headline-pattern form budget, and the approved-but-unsent repulsion set
+    // (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §2.6). All of them fail open —
+    // an empty corpus yields no blocks and generation is unaffected.
+    const learning = await buildLearningBlocks({
+      campaign_type: input.campaign_type,
+      audience: input.audience,
+      occasion: input.occasion,
+      products_featured: input.products_featured,
+    }, { campaignType: input.campaign_type, channel: "email" });
+    // One line per generation recording what the model was actually shown, so a
+    // "why is this headline like that" question has an answer.
+    console.log(
+      `[learning] corpus=${learning.diagnostics.records} measured=${learning.diagnostics.measured}/${learning.diagnostics.floor} ` +
+      `rotation=${learning.diagnostics.rotation} refs=[${learning.diagnostics.reference_ids.join(",")}] ` +
+      `blocks=${[
+        learning.reference ? "reference" : "",
+        learning.formBudget ? "formBudget" : "",
+        learning.inFlight ? "inFlight" : "",
+        learning.performance ? "performance" : "",
+      ].filter(Boolean).join("+") || "none"}`,
+    );
+
     const userPrompt = generateUserPrompt(
       expanded_brief,
       conceit,
@@ -96,17 +151,41 @@ export async function POST(req: NextRequest) {
       await buildAvoidBlock({
         productsFeatured: input.products_featured,
         campaignType: input.campaign_type,
+        // Tier-weighted: in-flight copy first, drafts last and trimmed first.
+        tiers: learning.tiers,
       }),
       reviewsBySlug,
-      { offerContext, recentUspsBySlug: await recentUspsBySlug(uspKeys) }
+      { offerContext, recentUspsBySlug: await recentUspsBySlug(uspKeys), reviewsBySection: sectionReviews.textBySection },
+      learning
     );
 
     const anthropicStream = getAnthropic().messages.stream({
       model: MODEL,
       max_tokens: 8192,
+      temperature: CREATIVE_TEMPERATURE,
       system: systemBlocks,
       messages: [{ role: "user", content: userPrompt }],
     });
+
+    /**
+     * SERVER-SIDE REVIEW STRIP (spec §5.2 point 2). Every section line the model
+     * emits passes through here on its way to the client: any Review element whose
+     * text does not match a review we actually resolved is emptied, and the
+     * provenance of the ones that survive is attached to the line.
+     *
+     * This is deliberately a filter on the wire rather than an instruction in the
+     * prompt. An instruction the model can ignore is not a control — and this one
+     * had been ignored for every standalone `reviews` section, silently, because
+     * nothing downstream checked. The logic is in src/lib/reviews/provenance.ts so
+     * it is unit-tested without needing a generation.
+     */
+    const guardReviews = (line: string): string => {
+      const { line: guarded, stripped } = guardReviewLine(line, verified);
+      if (stripped.length) {
+        console.warn(`[reviews] stripped ${stripped.length} model-written review(s) from a generated section: ${stripped.join(", ")}`);
+      }
+      return guarded;
+    };
 
     const encoder = new TextEncoder();
     let lineBuffer = "";
@@ -135,7 +214,7 @@ export async function POST(req: NextRequest) {
                 for (const line of ready.split("\n")) {
                   const trimmed = line.trim();
                   if (trimmed) {
-                    controller.enqueue(encoder.encode(`data: ${trimmed}\n\n`));
+                    controller.enqueue(encoder.encode(`data: ${guardReviews(trimmed)}\n\n`));
                   }
                 }
               }
@@ -143,7 +222,7 @@ export async function POST(req: NextRequest) {
           }
           // Flush any remaining buffer content
           if (lineBuffer.trim()) {
-            controller.enqueue(encoder.encode(`data: ${lineBuffer.trim()}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${guardReviews(lineBuffer.trim())}\n\n`));
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (e) {

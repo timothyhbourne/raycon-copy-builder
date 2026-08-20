@@ -1,6 +1,26 @@
 export type CampaignType = "promo" | "launch" | "restock" | "story" | "seasonal" | "winback" | "newsletter";
 export type AudienceType = "all" | "engaged" | "lapsed" | "post_purchase" | "vip";
 
+/**
+ * The ONE tone-dial default. Every entry point (the brief form, the planner seed,
+ * /api/generate, /api/regenerate-section, /api/regenerate-element,
+ * /api/section-variations) resolves a missing dial through this constant, so a
+ * campaign and a single-element rewrite can never silently run at two different
+ * voices — which is exactly what used to happen (generate fell back to 1,
+ * regenerate-element to 3).
+ *
+ * It is 4 ("Creative"), not 1. Dial 1 is labelled "By the book" and instructs the
+ * model to "use no phrasing that is absent from the references" — i.e. to trace
+ * the 11 canonical reference headlines. That tracing was the single largest cause
+ * of dull, repetitive headlines. Nothing about the safety envelope changes with
+ * the dial: the ban lists, cliche list, length caps and honesty rules are hard
+ * rules at every dial (data/copy-system.md). Re-exported from
+ * src/lib/prompts/generate.ts, where the dial's instructions live; it is declared
+ * HERE because this module is pure (no fs) and safe to import from client
+ * components. See docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md 1.1-1.2.
+ */
+export const DEFAULT_TONE_DIAL = 4;
+
 // Selection-driven brief model (deterministic compiler — see src/lib/brief/).
 // `angle` is how the arc is shaped; `SendStage`/`UrgencyTier` are COMPUTED by the
 // compiler from the promotion dates, never hand-entered (a manual override is
@@ -48,6 +68,59 @@ export interface UspSlot {
   focus?: string;
 }
 
+/**
+ * Where one review slot gets its review from.
+ *   product — pull from a SKU's real Judge.me reviews (the default)
+ *   url     — fetch from a page (see src/lib/reviews/url.ts for the tiers)
+ *   manual  — text the writer pasted; always wins, never fetched over
+ */
+export type ReviewSource = "product" | "url" | "manual";
+
+/**
+ * One review slot in a `reviews` section. The slot list is what makes the section
+ * configurable: its LENGTH is the review count, and each entry decides
+ * independently where that review comes from. Mirrors UspSlot deliberately — the
+ * USP slot plan already solved this exact problem.
+ */
+export interface ReviewSlot {
+  source: ReviewSource;
+  /** source "product": which SKU's reviews to pull. Undefined = the campaign's
+   * hero / first featured product. */
+  product_slug?: string;
+  /** source "url": the page to fetch a review from. */
+  source_url?: string;
+  /** source "manual": pasted text and an optional first name. */
+  manual_text?: string;
+  manual_author?: string;
+}
+
+/** A reviews section holds between 1 and 6 reviews (mirrors REPEATABLE_ELEMENTS). */
+export const REVIEW_SLOT_MIN = 1;
+export const REVIEW_SLOT_MAX = 6;
+/** The count a section falls back to with no `review_slots` (the legacy shape). */
+export const REVIEW_SLOT_DEFAULT = 3;
+
+/**
+ * Where a review element's text actually came from. THE control that replaces
+ * "the model shouldn't invent reviews" (an instruction) with "a review without
+ * provenance cannot ship" (a check).
+ *
+ *   fetched    — pulled live from a storefront / widget / verified URL extraction
+ *   curated    — from the committed data/reviews/<sku>.json cache
+ *   manual     — pasted by the writer; trusted, but not machine-verified
+ *   unverified — no fetch created this record, so the text is model-written.
+ *                Anything in a Review slot with no provenance record is this by
+ *                definition, and it blocks Save Final.
+ */
+export interface ReviewProvenance {
+  origin: "fetched" | "manual" | "curated" | "unverified";
+  source_url?: string;
+  /** ISO timestamp of the fetch, for the canvas's age display. */
+  fetched_at?: string;
+  author?: string;
+  rating?: number;
+}
+
 /** A usps section must keep at least 2 slots and at most 5. */
 export const USP_SLOT_MIN = 2;
 export const USP_SLOT_MAX = 5;
@@ -67,6 +140,9 @@ export interface SectionSpec {
   /** `usps` sections only: the per-USP plan. Its length is the USP count.
    * Absent = the legacy shape (3 product-sourced USPs, product auto-resolved). */
   usp_slots?: UspSlot[];
+  /** `reviews` sections only: the per-review plan. Its length is the review
+   * count. Absent = the legacy shape (3 product-sourced slots). */
+  review_slots?: ReviewSlot[];
   /** Product grid layout — only meaningful for product_grid sections */
   grid_cols?: number;
   grid_rows?: number;
@@ -157,6 +233,28 @@ export interface ProductInGrid {
 
 export type SectionElements = Record<string, string | ProductInGrid[]>;
 
+/**
+ * One candidate in a headline slate. The Headline is the highest-stakes element
+ * in the email and used to be the only one with no visible candidate slate: the
+ * prompt asked the model to "draft one per pattern internally and pick the
+ * strongest", which is unverifiable and weakly followed
+ * (docs/RECURSIVE_LEARNING_FRAMEWORK_SPEC.md §1.3). Now it emits four, one per
+ * named pattern, and the writer picks.
+ *
+ * Each candidate carries the TAGLINE that pays it off: headline and tagline are a
+ * PAIR (data/copy-system.md craft rule 8), so switching headline without
+ * switching tagline breaks the one-thought rule.
+ */
+export interface HeadlineVariant {
+  /** One of the four named headline patterns: idiom_remix | product_truth |
+   * rhyme | bold_claim. Kept as a string so an unknown label from the model is
+   * carried rather than dropped. */
+  pattern: string;
+  text: string;
+  /** Present only when the section also has a Tagline element. */
+  tagline?: string;
+}
+
 export interface GeneratedSection {
   id: string;
   type: SectionType;
@@ -167,6 +265,25 @@ export interface GeneratedSection {
   subheader_variants?: string[];
   /** Index into subheader_variants of the currently-selected option. Defaults to 0. */
   subheader_selected?: number;
+  /** Four headline candidates, one per named pattern, each paired with its
+   * tagline. elements.Headline (and elements.Tagline, where the section has one)
+   * always mirror the selected pair so every downstream consumer sees plain
+   * strings. Absent for sections with no Headline. */
+  headline_variants?: HeadlineVariant[];
+  /** Index into headline_variants of the selected pair. Defaults to 0. This is
+   * the record of WHAT ACTUALLY SHIPPED, which the corpus needs: without it every
+   * candidate enters the corpus equally weighted when only one was ever seen by a
+   * customer (spec §2.7). */
+  headline_selected?: number;
+  /**
+   * Where each Review element's text came from, keyed by element name
+   * ("Review 1", "Review"). Written by the fetch path, the manual path and the
+   * curated cache; ABSENT means nothing verified this text, which is what the
+   * review-provenance hard rule looks for. Round-trips through the draft store and
+   * the library snapshot, so a reloaded campaign still knows which reviews are
+   * real.
+   */
+  review_provenance?: Record<string, ReviewProvenance>;
   /**
    * Elements deleted ON THE CANVAS, after generation.
    *
@@ -185,6 +302,11 @@ export interface GeneratedSection {
 export interface CampaignMeta {
   subject_lines: string[];
   preview_texts: string[];
+  /** Which subject line / preview text the writer picked to send. Same purpose as
+   * headline_selected: the corpus must know which of three candidates a customer
+   * actually saw (spec §2.7, "Capture what actually shipped"). Defaults to 0. */
+  subject_selected?: number;
+  preview_selected?: number;
 }
 
 export interface GeneratedCampaign {
@@ -501,6 +623,26 @@ export function uspSlotsOf(s: Pick<SectionSpec, "usp_slots">): UspSlot[] {
   return slots;
 }
 
+/**
+ * The effective review slot plan for a section. A section saved before review
+ * slots existed (no `review_slots`) yields REVIEW_SLOT_DEFAULT product-sourced
+ * slots — i.e. exactly today's behaviour. Length is clamped to [MIN, MAX].
+ */
+export function reviewSlotsOf(s: Pick<SectionSpec, "review_slots">): ReviewSlot[] {
+  const productSlot = (): ReviewSlot => ({ source: "product" });
+  const slots = s.review_slots?.length
+    ? s.review_slots.slice(0, REVIEW_SLOT_MAX)
+    : Array.from({ length: REVIEW_SLOT_DEFAULT }, productSlot);
+  while (slots.length < REVIEW_SLOT_MIN) slots.push(productSlot());
+  return slots;
+}
+
+/** The base elements of a `reviews` section with `n` slots: Subheader, Review 1…N. */
+export function reviewsElements(n: number): string[] {
+  const count = Math.max(REVIEW_SLOT_MIN, Math.min(REVIEW_SLOT_MAX, n || REVIEW_SLOT_DEFAULT));
+  return ["Subheader", ...Array.from({ length: count }, (_, i) => `Review ${i + 1}`)];
+}
+
 /** The base elements of a `usps` section with `n` USP slots: Subheader, USP 1…N, CTA. */
 export function uspsElements(n: number): string[] {
   const count = Math.max(USP_SLOT_MIN, Math.min(USP_SLOT_MAX, n || USP_SLOT_DEFAULT));
@@ -520,11 +662,12 @@ export function uspsElements(n: number): string[] {
  * type, and a removal is never allowed to empty a section.
  */
 export function sectionElementNames(
-  s: Pick<SectionSpec, "type" | "bundle_template" | "bundle_products" | "usp_slots" | "optional_elements" | "removed_elements">
+  s: Pick<SectionSpec, "type" | "bundle_template" | "bundle_products" | "usp_slots" | "review_slots" | "optional_elements" | "removed_elements">
 ): string[] {
   const base =
     s.type === "bundle" ? bundleElements(s.bundle_template ?? "unified", (s.bundle_products ?? []).length)
     : s.type === "usps" ? uspsElements(uspSlotsOf(s).length)
+    : s.type === "reviews" ? reviewsElements(reviewSlotsOf(s).length)
     : (SECTION_CATALOGUE[s.type] ?? []);
 
   const withOptional = [...base, ...(s.optional_elements ?? [])];

@@ -4,10 +4,12 @@ import type {
   Flow, FlowEmail, FlowType, GeneratedCampaign, GeneratedSection, Conceit, CampaignMeta,
 } from "@/lib/schemas";
 import type { FlowSplit } from "@/lib/schemas";
-import { FLOW_TYPES, FLOW_TYPE_META } from "@/lib/schemas";
+import { FLOW_TYPES, FLOW_TYPE_META, DEFAULT_TONE_DIAL } from "@/lib/schemas";
+import * as canvasSections from "@/lib/campaign-sections";
+import type { CanvasSections } from "@/lib/campaign-sections";
 import { FLOW_PLAYBOOKS, scaffoldSections, DEFAULT_EMAIL_STRUCTURE } from "@/lib/flow-playbooks";
 import { nanoid } from "@/lib/nanoid";
-import { extractSubheaderVariants } from "@/lib/normalize-section";
+import { normalizeSectionElements } from "@/lib/normalize-section";
 import { scrubElements, scrubMeta } from "@/lib/hard-rules-client";
 import CampaignCanvas from "@/components/CampaignCanvas";
 import FlowMap, { SplitFork } from "./FlowMap";
@@ -300,12 +302,12 @@ export default function FlowsPage() {
               meta = scrubMeta(parsed.meta);
               updateEmail(email.id, { campaign: { meta, sections: [...sections] } });
             } else if (parsed.type) {
-              const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(scrubElements(parsed.elements));
+              const { elements, ...slates } = normalizeSectionElements(scrubElements(parsed.elements));
               const newSection: GeneratedSection = {
                 id: nanoid(),
                 type: parsed.type,
                 elements,
-                ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
+                ...slates,
               };
               sections = [...sections, newSection];
               updateEmail(email.id, { campaign: { meta, sections } });
@@ -340,6 +342,22 @@ export default function FlowsPage() {
   const onCanvasChange = useCallback((c: GeneratedCampaign) => {
     if (!selectedEmailId) return;
     updateEmail(selectedEmailId, { campaign: c });
+    setDirty(true);
+  }, [selectedEmailId, updateEmail]);
+
+  // Section mutations for a flow email. Flow canvases are out of scope for the
+  // blank-canvas work, but they render the SAME CampaignCanvas, so they use the
+  // same pure helpers — which means a flow email's specs stay attached to their
+  // own sections too, instead of shifting by one on every insert.
+  const canvasState = useMemo(
+    () => (selectedEmail?.campaign
+      ? { campaign: selectedEmail.campaign, sectionStructure: selectedEmail.section_structure ?? [] }
+      : null),
+    [selectedEmail],
+  );
+  const commitSections = useCallback((next: CanvasSections) => {
+    if (!selectedEmailId) return;
+    updateEmail(selectedEmailId, { campaign: next.campaign, section_structure: next.sectionStructure });
     setDirty(true);
   }, [selectedEmailId, updateEmail]);
 
@@ -530,9 +548,15 @@ export default function FlowsPage() {
                 chosenConceit={conceit}
                 retrievedExamples={[]}
                 sectionStructure={selectedEmail.section_structure}
-                toneDial={1}
+                toneDial={DEFAULT_TONE_DIAL}
                 isGenerating={generatingEmailId === selectedEmail.id}
                 onChange={onCanvasChange}
+                onInsertAt={(index, type, specPatch) => {
+                  if (canvasState) commitSections(canvasSections.insertAt(canvasState, index, type, specPatch));
+                }}
+                onDeleteSection={(id) => { if (canvasState) commitSections(canvasSections.removeSection(canvasState, id)); }}
+                onMoveSection={(id, dir) => { if (canvasState) commitSections(canvasSections.moveSection(canvasState, id, dir)); }}
+                onReorder={(from, to) => { if (canvasState) commitSections(canvasSections.reorderSections(canvasState, from, to)); }}
               />
             ) : (
               <EmptyState
