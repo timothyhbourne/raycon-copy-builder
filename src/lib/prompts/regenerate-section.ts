@@ -67,10 +67,19 @@ export function regenerateSectionUserPrompt(
     ? `\n\nPRODUCT MAPPING , this card features: ${getProductName(sectionToRegenerate.product_slug)} (SKU ${sectionToRegenerate.product_slug}). Every element of the rewrite must be about this exact product and no other. The One-Liner leads with a concrete use-case framing , a scene, a need, an audience, or a moment that grounds the product , then follows with 2-3 specs. Do NOT default to "For the [audience] who [verbs]…" , that template has been overused; pick a different opener shape unless the campaign genuinely calls for it AND the other cards in this campaign use different openers.`
     : "";
 
-  // A product_card_review carries a REAL customer review. Regeneration/variations
-  // reword the copy but must keep that Review element exactly as-is.
+  // A product_card_review carries a REAL customer review, and so does every slot of
+  // a standalone `reviews` section. Regeneration/variations reword the copy around
+  // them and must keep those elements exactly as-is.
+  //
+  // The `reviews` case used to be missing entirely, so "rewrite this section" on a
+  // reviews section rewrote real customer quotes — and all five register variations
+  // did too, since they share this prompt builder. Belt and braces: the server
+  // strips any review it can't verify regardless (src/lib/reviews/provenance.ts), so
+  // an ignored instruction costs an empty slot rather than a fabricated quote.
   const reviewFixedNote = sectionToRegenerate.type === "product_card_review"
     ? `\n\nREVIEW IS FIXED , the "Review" element is a real customer review. Preserve it EXACTLY as it appears in the current version above. Never reword, replace, shorten, or invent it. Only rewrite the other elements (Subheader, One-Liner, etc.).`
+    : sectionToRegenerate.type === "reviews"
+    ? `\n\nEVERY REVIEW IS FIXED , each "Review N" element above is a REAL customer review, quoted verbatim from the storefront. Copy each one across into your output CHARACTER FOR CHARACTER, including its "— Name" attribution. Never reword, shorten, merge, reorder, replace or invent one, and never fill an empty review slot: if a slot is empty above, return it empty. The only element you are rewriting in this section is the Subheader.`
     : "";
 
   const exampleSummary = examples.slice(0, 3).map((e) => `${e.title} (${e.campaign_type}): ${e.conceit}`).join("\n");

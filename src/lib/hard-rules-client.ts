@@ -9,6 +9,7 @@
 //      human summary.
 import type { GeneratedCampaign, GeneratedSection, CampaignMeta, ProductInGrid } from "./schemas";
 import { autoFixMechanical, type HardRuleElement, type HardRuleReport, type CheckKind } from "./hard-rules-check";
+import { isReviewElement } from "./element-families";
 
 export { autoFixMechanical };
 export type { HardRuleReport };
@@ -25,8 +26,14 @@ function kindForKey(key: string): CheckKind {
     case "Closing Line": return "closing";
     case "CTA": return "cta";
     case "Product Name": return "product_name"; // must equal a catalogue name
-    case "Review": return "review"; // real customer text — exempt from all scans
-    default: return "generic";
+    default:
+      // A reviews section's slots are "Review 1".."Review 6". Matching only the
+      // literal "Review" classified every one of them as `generic`, so a real
+      // customer quote was run through the length caps, the ban list and the
+      // cliché list as if it were our copy — and the provenance rule, which is
+      // scoped to the `review` kind, never saw them at all.
+      if (isReviewElement(key)) return "review";
+      return "generic";
   }
 }
 
@@ -35,7 +42,11 @@ export function scrubElements(elements: Record<string, unknown>): Record<string,
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(elements)) {
     // Reviews are real customer text — kept verbatim, never punctuation-scrubbed.
-    if (k === "Review") { out[k] = v; continue; }
+    // isReviewElement, not `k === "Review"`: a reviews section's slots are named
+    // "Review 1".."Review 6", and scrubbing those mangled the em dash in their
+    // "… — Jordan M." attribution, which both rewrote a customer's words and broke
+    // the verbatim match that provenance depends on.
+    if (isReviewElement(k)) { out[k] = v; continue; }
     if (typeof v === "string") {
       out[k] = autoFixMechanical(v);
     } else if (Array.isArray(v)) {
@@ -55,6 +66,7 @@ export function scrubElements(elements: Record<string, unknown>): Record<string,
 
 export function scrubMeta(meta: CampaignMeta): CampaignMeta {
   return {
+    ...meta,
     subject_lines: (meta.subject_lines ?? []).map(autoFixMechanical),
     preview_texts: (meta.preview_texts ?? []).map(autoFixMechanical),
   };
@@ -67,9 +79,33 @@ export function collectHardRuleElements(campaign: GeneratedCampaign): HardRuleEl
   (campaign.meta.preview_texts ?? []).forEach((t, i) => { if (t?.trim()) out.push({ id: `preview:${i}`, kind: "preview", text: t }); });
 
   campaign.sections.forEach((section: GeneratedSection) => {
+    // Slate candidates the writer has NOT selected. elements.<key> mirrors only the
+    // selected one, so without this a length cap or a banned word in candidate 3
+    // goes unreported until the moment someone picks it.
+    const selectedSubheader = section.subheader_selected ?? 0;
+    (section.subheader_variants ?? []).forEach((text, i) => {
+      if (i !== selectedSubheader && text?.trim()) {
+        out.push({ id: `${section.id}::Subheader:variant:${i}`, kind: "subheader", text });
+      }
+    });
+    const selectedHeadline = section.headline_selected ?? 0;
+    (section.headline_variants ?? []).forEach((variant, i) => {
+      if (i === selectedHeadline) return;
+      if (variant.text?.trim()) out.push({ id: `${section.id}::Headline:variant:${i}`, kind: "headline", text: variant.text });
+      if (variant.tagline?.trim()) out.push({ id: `${section.id}::Tagline:variant:${i}`, kind: "tagline", text: variant.tagline });
+    });
+
     for (const [k, v] of Object.entries(section.elements as Record<string, unknown>)) {
       if (typeof v === "string" && v.trim()) {
-        out.push({ id: `${section.id}::${k}`, kind: kindForKey(k), text: v });
+        const kind = kindForKey(k);
+        out.push({
+          id: `${section.id}::${k}`,
+          kind,
+          text: v,
+          // A review is judged on WHERE IT CAME FROM, not on how it reads, so the
+          // provenance record has to travel with it to the checker.
+          ...(kind === "review" ? { provenance: section.review_provenance?.[k] } : {}),
+        });
       } else if (Array.isArray(v)) {
         v.forEach((item, i) => {
           if (typeof item === "string") {

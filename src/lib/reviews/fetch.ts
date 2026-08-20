@@ -37,7 +37,7 @@ export interface ProductReview {
 
 const CACHE_DIR = path.join(process.cwd(), "data", "reviews");
 const SHOP_STOREFRONT = process.env.RAYCON_STOREFRONT || "https://rayconglobal.com";
-const FETCH_TIMEOUT_MS = 8000;
+export const FETCH_TIMEOUT_MS = 8000;
 
 function safeId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id);
@@ -89,7 +89,7 @@ async function fetchProductPage(handle: string): Promise<{ html: string; finalUr
 }
 
 // A substantive review is a sentence or two (not "Great!") and mostly latin.
-function isSubstantive(text: string): boolean {
+export function isSubstantive(text: string): boolean {
   const t = (text || "").trim();
   if (t.length < 40 || t.length > 600) return false;
   if (!/[.!?]/.test(t)) return false;
@@ -112,13 +112,13 @@ const NEGATIVE_SIGNALS: RegExp[] = [
   /\bused to\b|\bthe old ones\b|\bprevious ones?\b|\bunlike\b/i,
   /\bnot as good\b|\bworse\b|\bstopped working\b/i,
 ];
-function hasNegativeSignal(text: string): boolean {
+export function hasNegativeSignal(text: string): boolean {
   return NEGATIVE_SIGNALS.some((re) => re.test(text));
 }
 
 // First name + optional initial only ("Jordan M." / "William"). Strips surnames
 // / anything longer (PII). Empty → undefined.
-function sanitizeAuthor(name: string | undefined): string | undefined {
+export function sanitizeAuthor(name: string | undefined): string | undefined {
   const n = (name || "").replace(/\s+/g, " ").trim();
   if (!n) return undefined;
   const parts = n.split(" ");
@@ -128,13 +128,13 @@ function sanitizeAuthor(name: string | undefined): string | undefined {
   return initial ? `${first} ${initial}.` : first;
 }
 
-function normDate(raw: string | undefined): string | undefined {
+export function normDate(raw: string | undefined): string | undefined {
   const m = (raw || "").match(/(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : undefined;
 }
 
 // Minimal HTML entity decode + tag strip.
-function decodeAndStrip(html: string): string {
+export function decodeAndStrip(html: string): string {
   return (html || "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
@@ -182,12 +182,12 @@ async function fetchWidgetPage(productId: string, page: number): Promise<string 
   }
 }
 
-interface ParsedReview extends ProductReview { productUrl?: string; lang?: string }
+export interface ParsedReview extends ProductReview { productUrl?: string; lang?: string }
 
 // Parse per review block (not by zipping separate arrays) so score/body/author/
 // date never misalign, and each block's data-product-url is available for
 // scoping. Split on the review container class.
-function parseJudgeMeReviews(html: string): ParsedReview[] {
+export function parseJudgeMeReviews(html: string): ParsedReview[] {
   const blocks = html.split(/class='jdgm-rev /).slice(1);
   const out: ParsedReview[] = [];
   for (const block of blocks) {
@@ -224,7 +224,7 @@ function namesOtherProduct(text: string, featuredId: string): boolean {
 // FAST_MODEL call: returns the indices that are (a) about THIS product,
 // (b) wholly positive, (c) free of any negative statement/comparison about any
 // Raycon product. On any error, fall back to the deterministically-filtered set.
-async function llmPositivityScreen(reviews: ProductReview[], productName: string): Promise<ProductReview[]> {
+export async function llmPositivityScreen(reviews: ProductReview[], productName: string): Promise<ProductReview[]> {
   if (reviews.length === 0) return [];
   const list = reviews.map((r, i) => `${i}. "${r.text}"`).join("\n");
   // NOTE: do NOT ask "is this about the product?" — these reviews come from the
@@ -260,6 +260,24 @@ JSON array of passing indices only, e.g. [0,2]:`;
 }
 
 /**
+ * The deterministic half of eligibility: substantive, 4-5 stars, English, no
+ * negative signal. Extracted so a review fetched from a URL clears exactly the
+ * same bar as one pulled from a SKU — the whole point of the tiered URL support is
+ * that it reuses these screens rather than inventing softer ones.
+ *
+ * Product SCOPING (this-product-only, names-no-other-product) is deliberately not
+ * here: it needs a SKU, and a generic URL has none.
+ */
+export function isEligibleReview(r: ParsedReview): boolean {
+  return (
+    (!r.lang || r.lang === "en") &&
+    isSubstantive(r.text) &&
+    (r.rating === undefined || r.rating >= 4) &&
+    !hasNegativeSignal(r.text)
+  );
+}
+
+/**
  * Real, eligible reviews for a product SKU, ranked newest-first. Curated cache
  * (data/reviews/<id>.json) wins; otherwise fetch live, screen, and cache.
  * Returns [] when nothing qualifies — the caller must NEVER fabricate a review.
@@ -273,6 +291,9 @@ export async function fetchProductReviews(
 
   if (!opts?.refresh) {
     const cached = readCache(productId);
+    // A cache hit is the "curated" origin for provenance purposes: committed,
+    // human-reviewed content rather than a live fetch. Callers that need to tell
+    // the two apart use fetchProductReviewsWithOrigin() below.
     if (cached && cached.length) return cached.slice(0, limit);
   }
 
@@ -287,10 +308,7 @@ export async function fetchProductReviews(
   // Deterministic eligibility (everything except the LLM positivity screen).
   const passes = (r: ParsedReview) =>
     (!r.productUrl || r.productUrl.endsWith(`/products/${handle}`)) &&
-    (!r.lang || r.lang === "en") &&
-    isSubstantive(r.text) &&
-    (r.rating === undefined || r.rating >= 4) &&
-    !hasNegativeSignal(r.text) &&
+    isEligibleReview(r) &&
     !namesOtherProduct(r.text, productId);
 
   // The product page server-renders only the FIRST page of reviews (~5). When
@@ -321,4 +339,21 @@ export async function fetchProductReviews(
     .slice(0, limit);
   if (top.length) writeCache(productId, top);
   return top;
+}
+
+/**
+ * Same as fetchProductReviews, but reports whether the result came from the
+ * committed cache or a live fetch. Callers stamp that onto ReviewProvenance so the
+ * canvas can show "curated" vs "fetched" and an age.
+ */
+export async function fetchProductReviewsWithOrigin(
+  productId: string,
+  opts?: { limit?: number; refresh?: boolean },
+): Promise<{ reviews: ProductReview[]; origin: "fetched" | "curated" }> {
+  if (!opts?.refresh) {
+    const limit = Math.max(1, Math.min(opts?.limit ?? 3, 10));
+    const cached = safeId(productId) ? readCache(productId) : null;
+    if (cached && cached.length) return { reviews: cached.slice(0, limit), origin: "curated" };
+  }
+  return { reviews: await fetchProductReviews(productId, opts), origin: "fetched" };
 }

@@ -9,6 +9,7 @@
 // model's self-check.
 
 import { PRODUCT_NAME_BY_ID } from "@/lib/products";
+import type { ReviewProvenance } from "@/lib/schemas";
 
 export type CheckKind =
   | "subject"
@@ -28,12 +29,22 @@ export interface HardRuleElement {
   id: string;
   kind: CheckKind;
   text: string;
+  /** `review` elements only: where the text came from. Real customer text stays
+   * exempt from the STYLE rules (it legitimately breaks the voice), but a review
+   * with no provenance is model-written, and that is a rule of its own — see the
+   * review-provenance check in checkHardRules. */
+  provenance?: ReviewProvenance;
 }
 
 export interface Violation {
   rule: string;
   detail: string;
   fixable: boolean; // true if autoFixMechanical() resolves it
+  /** BLOCKS Save Final rather than being advisory. Reserved for claims of fact —
+   * today only review-provenance. Everything else in this report is craft, where
+   * interrupting the writer costs more than it saves; an unattributed review is a
+   * statement about a customer who may not exist. */
+  blocking?: boolean;
 }
 
 export interface ElementResult {
@@ -46,6 +57,9 @@ export interface HardRuleReport {
   ok: boolean;
   elements: ElementResult[];
   emailLevel: Violation[]; // rules that span the whole email (e.g. exclamation budget)
+  /** How many violations block shipping. 0 for everything except an unverified
+   * review. */
+  blockingCount?: number;
 }
 
 // --- Ban lists (mirror data/copy-system.md RULES) -------------------------
@@ -274,9 +288,31 @@ export function checkHardRules(elements: HardRuleElement[]): HardRuleReport {
   let totalExclamations = 0;
 
   for (const el of elements) {
-    // Reviews are real customer text, not our copy — exempt from every scan
-    // (banned phrases, structure, length, clichés) and the exclamation budget.
-    if (el.kind === "review") continue;
+    // Reviews are real customer text, not our copy — exempt from every STYLE scan
+    // (banned phrases, structure, length, clichés) and from the exclamation budget.
+    //
+    // But the exemption used to be unconditional, which was catastrophic for a
+    // review the MODEL wrote: a fabricated quote passed every gate in the app in
+    // silence. So the one rule that does apply is where the text came from.
+    if (el.kind === "review") {
+      const text = (el.text ?? "").trim();
+      const origin = el.provenance?.origin;
+      if (text && (!origin || origin === "unverified")) {
+        results.push({
+          id: el.id,
+          kind: el.kind,
+          violations: [{
+            rule: "review-provenance",
+            detail: origin === "unverified"
+              ? "This review is marked unverified — it was written by the model, not by a customer. Fetch a real one or paste one in."
+              : "This review has no source on record, so nothing verified a customer said it. Fetch a real one or paste one in.",
+            fixable: false,
+            blocking: true,
+          }],
+        });
+      }
+      continue;
+    }
     const text = el.text ?? "";
     totalExclamations += (text.match(/!/g) ?? []).length;
     const violations = [
@@ -296,7 +332,12 @@ export function checkHardRules(elements: HardRuleElement[]): HardRuleReport {
     });
   }
 
+  const blockingCount =
+    results.reduce((n, r) => n + r.violations.filter((v) => v.blocking).length, 0) +
+    emailLevel.filter((v) => v.blocking).length;
+
   return {
+    blockingCount,
     ok: results.length === 0 && emailLevel.length === 0,
     elements: results,
     emailLevel,
