@@ -5,12 +5,13 @@ import type {
   BriefInput, ExpandedBrief, Conceit, GeneratedCampaign, GeneratedSection,
   LibraryCampaign, SavedCampaign, SectionType, SectionSpec, SmsCampaign, SmsBrief
 } from "@/lib/schemas";
+import { DEFAULT_TONE_DIAL } from "@/lib/schemas";
 import type { PlannerRow } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
 import { compileBrief } from "@/lib/brief/compile";
-import { extractSubheaderVariants } from "@/lib/normalize-section";
+import { normalizeSectionElements } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
 import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
 import {
@@ -30,10 +31,17 @@ import { ConfirmModal } from "@/components/ui/Modal";
 import { toast } from "@/components/ui/Toast";
 import {
   LS_DRAFT, makeSlug, resetState,
+  blankCampaign, blankBriefInput, scratchBriefReady, SCRATCH_ASSISTS_DISABLED_REASON,
   type Stage, type CanvasSource, type PlannerLinkContext,
   type StepKey, type LibraryMeta, type SavedMeta,
 } from "./helpers";
+import { useCampaignSections } from "./useCampaignSections";
+import { alignSpecIds } from "@/lib/campaign-sections";
+import { unverifiedReviews, describeUnverified, migrateLegacyProvenance } from "@/lib/reviews/provenance";
+import { decideLink, stripPlannerLinkFromRestoredForm } from "@/lib/planner-link-decision";
+import { PRODUCT_CATEGORIES } from "@/lib/products";
 import { DeepLinkReader, Stepper, AutosaveStatus, CollapseIcon, PanelIcon, LibraryIcon } from "./components";
+import SectionPicker from "@/components/SectionPicker";
 
 // One recently-touched campaign, whichever store it came from.
 interface RecentItem {
@@ -63,6 +71,14 @@ export default function Home() {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; kind: "saved" | "library" | "sms" } | null>(null);
   const [pendingBriefInput, setPendingBriefInput] = useState<BriefInput | null>(null);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
+  // Same guard as showNewConfirm, for the blank-canvas branch of the New menu.
+  const [pendingBlankCanvas, setPendingBlankCanvas] = useState(false);
+  // Blank-canvas + insertion state (spec 2, 3).
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  // A freshly inserted section to scroll to, so "Add section" from the toolbar
+  // never looks like it did nothing.
+  const [scrollToSectionId, setScrollToSectionId] = useState<string | null>(null);
   // Stage-aware chrome: a collapsible brief panel beside the canvas, plus the
   // campaign browser as an on-demand WIDE drawer. It used to be a permanent
   // 240px column wedged between the nav and the brief, which truncated every
@@ -74,6 +90,25 @@ export default function Home() {
   const [canvasSource, setCanvasSource] = useState<CanvasSource>("new");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [currentLibraryId, setCurrentLibraryId] = useState<string | null>(null);
+
+  // Section mutations. These live in a hook because every one of them has to move
+  // `campaign.sections` and `sectionStructure` together — the canvas only receives
+  // the structure read-only, which is exactly why inserting used to leave every
+  // later section resolving another section's spec (spec 4).
+  const sectionOps = useCampaignSections({
+    campaign,
+    sectionStructure,
+    setCampaign,
+    setSectionStructure,
+    onInserted: setScrollToSectionId,
+  });
+
+  // A hand-written canvas: the brief is editable inline and the AI assists stay
+  // disabled (with a stated reason) until it carries enough to compile.
+  const isScratch = canvasSource === "scratch";
+  const briefReady = !isScratch || scratchBriefReady(currentBriefInput);
+  const assistsDisabledReason = briefReady ? undefined : SCRATCH_ASSISTS_DISABLED_REASON;
+  const productOptions = useMemo(() => PRODUCT_CATEGORIES.flatMap((c) => c.products), []);
 
   // --- Library autosave state/refs ---------------------------------------
   // A library canvas persists every edit automatically (see the autosave block
@@ -146,15 +181,24 @@ export default function Home() {
     const raw = localStorage.getItem(LS_DRAFT);
     if (raw) {
       try {
-        const { campaign: c, expandedBrief: eb, chosenConceit: cc, sectionStructure: ss, draftId, briefInput: bi, plannerLink: pl } = JSON.parse(raw);
+        // NOTE: plannerLink is deliberately NOT read back. A restored canvas is
+        // content, not a planner handoff — the association comes from the SAVED COPY
+        // RECORD on the load paths below, which is the only source that can't go
+        // stale (spec §3.1).
+        const { campaign: c, expandedBrief: eb, chosenConceit: cc, sectionStructure: ss, draftId, briefInput: bi } = JSON.parse(raw);
         if (c) {
-          setCampaign(c);
+          setCampaign(migrateLegacyProvenance(c));
           setExpandedBrief(eb);
           setChosenConceit(cc);
-          setSectionStructure(ss || []);
+          // Specs are resolved by id now, so a draft saved before that stamps its
+          // section ids onto them on the way in (spec 4.3).
+          setSectionStructure(alignSpecIds(c.sections ?? [], ss || [], "local draft"));
           setCurrentDraftId(draftId || null);
-          setCurrentBriefInput(bi || null);   // ← was missing — caused Save Draft to silently bail
-          setPlannerLink(pl || null);
+          // Restored briefs carry no planner association either — InputForm strips
+          // it on its own restore, and this one must agree or the two disagree about
+          // what this campaign is linked to.
+          setCurrentBriefInput(bi ? stripPlannerLinkFromRestoredForm(bi) : null);
+          setPlannerLink(null);
           setCanvasSource("draft");
           setStage("canvas");
         }
@@ -165,12 +209,15 @@ export default function Home() {
   // Persist in-progress work to localStorage
   useEffect(() => {
     if (campaign && canvasSource !== "library") {
+      // plannerLink is NOT persisted: it is a session-scoped intent carried by a
+      // deep link, and making it durable is what let it outlive the campaign that
+      // created it (spec §3.1).
       localStorage.setItem(LS_DRAFT, JSON.stringify({
         campaign, expandedBrief, chosenConceit, sectionStructure,
-        draftId: currentDraftId, briefInput: currentBriefInput, plannerLink,
+        draftId: currentDraftId, briefInput: currentBriefInput,
       }));
     }
-  }, [campaign, expandedBrief, chosenConceit, sectionStructure, currentDraftId, currentBriefInput, canvasSource, plannerLink]);
+  }, [campaign, expandedBrief, chosenConceit, sectionStructure, currentDraftId, currentBriefInput, canvasSource]);
 
   // Auto-collapse the brief panel on the canvas, auto-expand on the form. Runs
   // only on stage change, so a manual toggle persists within a stage.
@@ -179,17 +226,80 @@ export default function Home() {
     else if (stage === "form") setBriefOpen(true);
   }, [stage]);
 
+  // ---- Blank canvas (spec 2) ---------------------------------------------
+  // Straight to an empty, editable canvas. No brief form, no generation, no LLM
+  // call — the writer adds modules and types the copy themselves.
+  const startBlankCanvas = () => {
+    flushAutosaveRef.current();   // don't lose a pending library edit on the way out
+    setError(null);
+    setChannel("email");
+    setCampaign(blankCampaign());
+    setSectionStructure([]);
+    setCurrentBriefInput(blankBriefInput());
+    // Deliberately null: the brief compiles as soon as the writer types a name and
+    // an offer (see the effect below), and until then the assists say why.
+    setExpandedBrief(null);
+    setChosenConceit(null);
+    setRetrievedExamples([]);
+    setRepetitionFlags({});
+    setCurrentDraftId(null);
+    setCurrentLibraryId(null);
+    setPlannerLink(null);
+    setCanvasSource("scratch");
+    setStage("canvas");
+    setNewMenuOpen(false);
+  };
+
+  // Compile the scratch canvas's minimum viable brief, debounced. compileBrief is
+  // deterministic and has no LLM step, so re-running it on every edit is cheap —
+  // and it is what keeps element regeneration, section variations and meta
+  // regeneration alive on a hand-written canvas (spec 2.3). The same trick the
+  // library-load path already uses for records saved before the brief existed.
+  useEffect(() => {
+    if (canvasSource !== "scratch" || !currentBriefInput) return;
+    if (!scratchBriefReady(currentBriefInput)) {
+      // Went back to empty: drop the compiled brief so the assists re-disable
+      // rather than running against a half-brief.
+      setExpandedBrief(null);
+      setChosenConceit(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      try {
+        const compiled = compileBrief(currentBriefInput);
+        setExpandedBrief(compiled.expanded_brief);
+        setChosenConceit(compiled.conceit);
+      } catch {
+        /* a half-typed brief is not an error — the assists just stay off */
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [canvasSource, currentBriefInput]);
+
   // ⌘/Ctrl+S → Save Draft. Kept in a ref (refreshed each render) so the single
   // listener always sees current state without re-subscribing.
   const saveShortcutRef = useRef<() => void>(() => {});
   useEffect(() => {
     saveShortcutRef.current = () => { if (campaign && stage === "canvas" && savingStatus !== "saving") handleSaveDraft(); };
   });
+  // ⌘⇧A → Add section. Same ref trick, so the handler always sees the current
+  // stage without re-subscribing the listener.
+  const addSectionShortcutRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    addSectionShortcutRef.current = () => {
+      if (campaign && stage === "canvas" && channel === "email" && loadingPhase === null) setAddSectionOpen(true);
+    };
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         saveShortcutRef.current();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        addSectionShortcutRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -197,6 +307,22 @@ export default function Home() {
   }, []);
 
   // --- Planner handoff ---------------------------------------------------
+
+  /**
+   * Clear the planner handoff — ALL of it, in one place.
+   *
+   * Three call sites used to do this by hand, and softResetToForm forgot
+   * `plannerLink`: it cleared the brief, the campaign and the structure, then left
+   * the link behind so the next unrelated campaign stamped the old row (spec §3.2,
+   * hole c). One helper means a future reset path can't forget a field.
+   */
+  const clearPlannerHandoff = useCallback(() => {
+    setPlannerLink(null);
+    setFormSeed(null);
+    setFormSeedLabel(null);
+    setSeedAiFailed(false);
+    setSeedingProducts(false);
+  }, []);
 
   // Move to a clean brief form WITHOUT destroying the canvas draft in storage
   // (the persist effect only writes when a campaign exists, and we don't remove
@@ -214,6 +340,9 @@ export default function Home() {
     setCanvasSource("new");
     setCurrentDraftId(null);
     setCurrentLibraryId(null);
+    // This was hole (c): without it, a soft reset kept the planner handoff and the
+    // NEXT, unrelated campaign stamped the old row on save.
+    clearPlannerHandoff();
   };
 
   // Seed a new brief from a planner row: deterministic map instantly, then AI
@@ -335,36 +464,109 @@ export default function Home() {
     }
   }, [plannerLink, currentBriefInput]);
 
-  const handleClearSeed = () => {
-    setFormSeed(null);
-    setFormSeedLabel(null);
-    setPlannerLink(null);
-    setSeedAiFailed(false);
-    setSeedingProducts(false);
+  const handleClearSeed = () => clearPlannerHandoff();
+
+  // A pending reassignment awaiting the writer's answer (spec §3.3).
+  const [pendingReassign, setPendingReassign] = useState<{
+    rowId: string; copyCampaignId: string; copyStatus: "draft" | "final"; ownerName: string;
+  } | null>(null);
+
+  /**
+   * Detach the planner link from the Copy Builder (spec §3.4).
+   *
+   * Clears the pending handoff so the next save writes nothing, and — when the row
+   * has ALREADY been stamped with this copy — releases it server-side too. The
+   * writer was previously told about a link only after it had been written, with no
+   * way to undo it from here.
+   */
+  const detachPlannerLink = async () => {
+    const rowId = plannerLink?.rowId ?? currentBriefInput?.planner_row_id;
+    const savedCopyId = currentLibraryId ?? currentDraftId;
+    clearPlannerHandoff();
+    setCurrentBriefInput((prev) => (prev ? stripPlannerLinkFromRestoredForm(prev) : prev));
+    if (!rowId) return;
+    try {
+      // Only release the row if it actually points at THIS copy — never unlink
+      // someone else's campaign on our way out.
+      const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
+      const row = res.ok ? ((await res.json()).row ?? null) : null;
+      if (savedCopyId && row?.copy_campaign_id === savedCopyId) {
+        await fetch(`/api/planner/link?row_id=${encodeURIComponent(rowId)}`, { method: "DELETE" });
+        toast.success("Unlinked from the planner");
+        return;
+      }
+      toast.info("This campaign will no longer be linked to the planner.");
+    } catch {
+      toast.info("This campaign will no longer be linked to the planner.");
+    }
   };
 
-  // Stamp the planner row after a successful copy save. Fire-and-forget: a
-  // write-back failure must never surface as a copy-save failure (copy is saved).
-  const writeBackToPlanner = (copyCampaignId: string, copyStatus: "draft" | "final") => {
+  /** Post the link. `reassign` is sent only after the writer has agreed to take a
+   * row from another copy — without it the API answers 409 (spec §3.5). */
+  const postPlannerLink = async (
+    rowId: string,
+    copyCampaignId: string,
+    copyStatus: "draft" | "final",
+    reassign = false,
+  ) => {
+    try {
+      const res = await fetch("/api/planner/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row_id: rowId, copy_campaign_id: copyCampaignId, copy_status: copyStatus, reassign }),
+      });
+      if (res.ok) { toast.success("Linked to planner ✓"); return; }
+      if (res.status === 409) {
+        // The server's own guard caught what the client should have asked about.
+        const data = await res.json().catch(() => ({}));
+        const ownerName = data?.conflict?.owner_name ?? "another campaign";
+        setPendingReassign({ rowId, copyCampaignId, copyStatus, ownerName });
+        return;
+      }
+      console.error(`Planner write-back failed (HTTP ${res.status})`);
+    } catch (e) {
+      console.error("Planner write-back failed", e);
+    }
+  };
+
+  /**
+   * Stamp the planner row after a successful copy save.
+   *
+   * The link target used to be read straight out of ambient state and written:
+   * `plannerLink?.rowId ?? currentBriefInput?.planner_row_id`, both of which
+   * outlived the campaign that set them. Now the row is FETCHED and the decision is
+   * explicit (see decideLink): link only when the row is free or already ours, ask
+   * before taking one another copy owns, and clear the handoff when the row is gone.
+   *
+   * Still fire-and-forget with respect to the save: the copy is already saved, so a
+   * link problem must never present as a save failure.
+   */
+  const writeBackToPlanner = async (copyCampaignId: string, copyStatus: "draft" | "final") => {
     const rowId = plannerLink?.rowId ?? currentBriefInput?.planner_row_id;
     if (!rowId) return;
-    fetch("/api/planner/link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row_id: rowId, copy_campaign_id: copyCampaignId, copy_status: copyStatus }),
-    })
-      .then((res) => {
-        if (res.ok) {
-          toast.success("Linked to planner ✓");
-        } else {
-          console.error(`Planner write-back failed (HTTP ${res.status})`);
-        }
-      })
-      .catch((e) => console.error("Planner write-back failed", e));
+    try {
+      const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
+      const row = res.ok ? ((await res.json()).row ?? null) : null;
+      const decision = decideLink({ rowId, row, copyCampaignId });
+
+      if (decision.action === "none") return;
+      if (decision.action === "missing") {
+        // Don't link, and stop carrying the dead reference around.
+        clearPlannerHandoff();
+        toast.info("That planner row no longer exists, so nothing was linked.");
+        return;
+      }
+      // Both the "safe" and the "conflict" cases go through the same call: it is
+      // sent WITHOUT reassign, so the API resolves the current owner's real name and
+      // answers 409, and postPlannerLink raises the prompt from that. One code path,
+      // and the message names a campaign rather than an id.
+      await postPlannerLink(rowId, copyCampaignId, copyStatus);
+    } catch (e) {
+      console.error("Planner write-back skipped", e);
+    }
   };
 
-  // Full reset (canvas + planner handoff). Clearing the handoff matters: a stale
-  // plannerLink would otherwise make the next save stamp the wrong planner row.
+  // Full reset (canvas + planner handoff).
   const resetAll = () => {
     flushAutosaveRef.current();   // persist any pending library edit before clearing
     resetState({
@@ -373,10 +575,7 @@ export default function Home() {
       setCanvasSource, setCurrentDraftId, setCurrentLibraryId,
     });
     setChannel("email");   // "New" always returns to a fresh email brief
-    setPlannerLink(null);
-    setFormSeed(null);
-    setFormSeedLabel(null);
-    setSeedAiFailed(false);
+    clearPlannerHandoff();
     setRepetitionFlags({});
   };
 
@@ -483,7 +682,7 @@ export default function Home() {
               const gaps: { slug: string; name: string }[] = parsed.review_gaps ?? [];
               if (gaps.length) {
                 toast.info(
-                  `No eligible review found for ${gaps.map((g) => g.name).join(", ")} — that Review field stays empty. Add one to data/reviews/<SKU>.json or paste it in manually.`
+                  `${gaps.length} review slot${gaps.length === 1 ? "" : "s"} could not be filled with a real review, so ${gaps.length === 1 ? "it stays" : "they stay"} empty: ${gaps.map((g) => g.name).join("; ")}. Fetch one on the canvas, paste it in manually, or add it to data/reviews/<SKU>.json.`
                 );
               }
             } else if (parsed.meta) {
@@ -491,12 +690,22 @@ export default function Home() {
               meta = scrubMeta(parsed.meta);
               setCampaign({ meta, sections: [...sections] });
             } else if (parsed.type) {
-              const { elements, subheader_variants, subheader_selected } = extractSubheaderVariants(scrubElements(parsed.elements));
+              const { elements, ...slates } = normalizeSectionElements(scrubElements(parsed.elements));
+              // Take the id of the spec this section was generated FROM. Sections
+              // stream back in structure order, so index alignment is exact here —
+              // and adopting the id is what lets everything downstream resolve a
+              // section's spec by id instead of by position (spec 4.2).
+              const specForThis = expandedStructure[sections.length];
               const newSection: GeneratedSection = {
-                id: nanoid(),
+                id: specForThis?.type === parsed.type ? specForThis.id : nanoid(),
                 type: parsed.type,
                 elements,
-                ...(subheader_variants ? { subheader_variants, subheader_selected } : {}),
+                ...slates,
+                // Provenance for the reviews the SERVER verified. Anything the model
+                // invented was already emptied on the wire, so a Review that arrives
+                // with text but no record cannot happen on this path — and if it ever
+                // does, the Save Final gate catches it.
+                ...(parsed.review_provenance ? { review_provenance: parsed.review_provenance } : {}),
               };
               sections = [...sections, newSection];
               setCampaign({ meta, sections });
@@ -563,7 +772,7 @@ export default function Home() {
     if (!campaignToCheck?.sections || !brief || !conceit) return;
 
     const excludeId = currentLibraryId ?? undefined;
-    const toneDial = currentBriefInput?.tone_dial ?? 1;
+    const toneDial = currentBriefInput?.tone_dial ?? DEFAULT_TONE_DIAL;
 
     const postCheck = async (elements: CheckElement[]): Promise<CheckMatch[]> => {
       if (!elements.length) return [];
@@ -599,9 +808,17 @@ export default function Home() {
         match_campaign_title: m.match_campaign_title,
         match_date: m.match_date,
         score: m.score,
+        reason: m.reason,
+        construction: m.construction,
       });
       const dedupNote = (m: CheckMatch) => {
         const prev = textById.get(m.id) ?? "";
+        // A form match must name the SHAPE. Telling the model "this duplicates a
+        // past campaign" when no words are shared invites it to reword and land on
+        // the same construction again.
+        if (m.reason === "form") {
+          return `Your previous version of this element ("${prev}") is built on the same construction as a past send ("${m.match_text}", ${m.match_campaign_title}, ${m.match_date}) — shared shape: ${m.construction ?? "same build"}. The words are already different and that is not enough. Change the CONSTRUCTION: a different pattern, a different opening move, a different rhythm.`;
+        }
         return `Your previous version of this element ("${prev}") duplicates a past campaign ("${m.match_text}", ${m.match_campaign_title}, ${m.match_date}). Write a structurally different construction.`;
       };
 
@@ -712,7 +929,8 @@ export default function Home() {
     setSavingStatus("saving");
     setError(null);
     try {
-      const id = currentDraftId || `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name)}-${nanoid().slice(0, 6)}`;
+      const id = currentDraftId
+        || `${new Date().toISOString().split("T")[0]}-${makeSlug(bi.campaign_name) || "untitled"}-${nanoid().slice(0, 6)}`;
       const saved: SavedCampaign = {
         id,
         campaign_name: bi.campaign_name,
@@ -749,7 +967,7 @@ export default function Home() {
       setCurrentDraftId(id);
       setCanvasSource("draft");
       setSavingStatus("idle");
-      writeBackToPlanner(id, "draft");   // stamp the planner row (fire-and-forget)
+      void writeBackToPlanner(id, "draft");   // stamp the planner row (fire-and-forget)
       await refreshBrowseLists();
       toast.success("Draft saved");
     } catch (e) {
@@ -760,7 +978,24 @@ export default function Home() {
 
   const handleSaveFinal = async () => {
     if (!campaign) { setError("Nothing to save yet — generate a campaign first."); return; }
+    // THE ONE BLOCKING GATE. Everything else in the hard-rules report is craft and
+    // stays advisory; a review nothing verified is a factual claim about a customer
+    // who may not exist, and this is the one case where shipping is worse than
+    // being interrupted (docs/REVIEWS_MODULE_SPEC.md §5.2 point 3). Checked from
+    // local state, so it is instant and cannot be skipped by a failed request.
+    const unverified = unverifiedReviews(campaign);
+    if (unverified.length) {
+      toast.error(
+        `Can't finalise: ${unverified.length} review${unverified.length === 1 ? "" : "s"} ${unverified.length === 1 ? "has" : "have"} no source on record (${describeUnverified(unverified)}). Fetch a real one on the canvas, paste one in, or clear the slot.`
+      );
+      return;
+    }
     const bi = currentBriefInput ?? deriveBriefFallback();
+    // Hand-written copy gets the same gate as generated copy. The generation path
+    // runs this as the stream finishes; a scratch canvas has no such moment, so
+    // Save Final is where it runs. The rules are about brand safety, not about who
+    // typed the words (spec 2.4).
+    if (canvasSource === "scratch") void runHardRulesCheck(campaign);
     setSavingStatus("saving");
     setError(null);
     try {
@@ -794,7 +1029,7 @@ export default function Home() {
       setCurrentDraftId(null);
       setCanvasSource("library");
       setSavingStatus("idle");
-      writeBackToPlanner(id, "final");   // flip the planner chip to "final"
+      void writeBackToPlanner(id, "final");   // flip the planner chip to "final"
       await refreshBrowseLists();
       toast.success("Saved to library");
     } catch (e) {
@@ -959,9 +1194,12 @@ export default function Home() {
       const data = await res.json();
       if (data.campaign) {
         const c = data.campaign as SavedCampaign;
-        setCampaign(c.campaign);
+        // Campaigns saved before provenance existed carry real reviews and no
+        // records; they migrate to "curated" so the new gate doesn't retroactively
+        // block every saved campaign (spec §6).
+        setCampaign(migrateLegacyProvenance(c.campaign));
         setRepetitionFlags({});
-        setSectionStructure(c.section_structure ?? []);
+        setSectionStructure(alignSpecIds(c.campaign?.sections ?? [], c.section_structure ?? [], `draft ${id}`));
         const savedBriefInput: BriefInput = {
           campaign_name: c.campaign_name,
           campaign_type: c.campaign_type,
@@ -1048,7 +1286,7 @@ export default function Home() {
 
     if (lib.structured?.campaign) {
       // Faithful reload — grids, section types, and element grouping intact.
-      setCampaign(lib.structured.campaign);
+      setCampaign(migrateLegacyProvenance(lib.structured.campaign));
       sectionStructureForView = lib.structured.section_structure ?? [];
     } else {
       // Legacy / doc-sourced entry: reconstruct best-effort from the flattened body.
@@ -1075,7 +1313,11 @@ export default function Home() {
       });
     }
 
-    setSectionStructure(sectionStructureForView);
+    // Library entries predate id-matched specs; pair them up on the way in so the
+    // canvas can resolve each section's spec by id (spec 4.3).
+    setSectionStructure(
+      alignSpecIds(lib.structured?.campaign?.sections ?? [], sectionStructureForView, `library ${id}`),
+    );
     setRepetitionFlags({});
 
     const libBriefInput: BriefInput = {
@@ -1339,7 +1581,7 @@ export default function Home() {
       setSmsCampaign(toSave);
       setSmsCurrentId(id);
       setSmsSource(status === "final" ? "final" : "draft");
-      writeBackToPlanner(id, status);
+      void writeBackToPlanner(id, status);
       await refreshBrowseLists();
       toast.success(status === "final" ? "SMS saved as final" : "SMS draft saved");
     } catch (e) {
@@ -1488,6 +1730,28 @@ export default function Home() {
               )}
               {canvasSource === "library" && <Chip tone="muted" className="shrink-0">library</Chip>}
               {canvasSource === "draft" && <Chip tone="warning" className="shrink-0">draft</Chip>}
+              {/* A hand-written canvas that has never been saved. Says so, so the
+                  writer knows this one is theirs and is not yet persisted. */}
+              {canvasSource === "scratch" && <Chip tone="accent" className="shrink-0">blank canvas</Chip>}
+              {/* The planner link, BEFORE it is written. It used to be invisible
+                  until the "Linked to planner ✓" toast fired after the save, which is
+                  the wrong moment to find out (spec §3.4). */}
+              {(plannerLink?.rowId || currentBriefInput?.planner_row_id) && stage === "canvas" && (
+                <span className="inline-flex items-center gap-1 shrink-0 max-w-[240px]" title={`This copy will be linked to the planner row "${plannerLink?.name ?? currentBriefInput?.planner_row_id}"`}>
+                  <Chip tone="accent" className="truncate">
+                    Linked to: {plannerLink?.name ?? currentBriefInput?.planner_row_id}
+                  </Chip>
+                  <button
+                    type="button"
+                    onClick={() => void detachPlannerLink()}
+                    aria-label="Detach this campaign from the planner row"
+                    title="Detach from the planner row"
+                    className="text-ink-muted hover:text-danger-600 text-xs leading-none px-0.5"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
             </>
           ) : (
             <>
@@ -1517,6 +1781,16 @@ export default function Home() {
                   Writing — section {Math.min((campaign?.sections.length ?? 0) + 1, sectionStructure.length || 99)} of {sectionStructure.length || "…"}
                 </span>
               )}
+              {/* Always-available append. This is what removes the "scroll to the
+                  bottom and hunt for an invisible strip" problem: the target no
+                  longer moves (spec 3.1). */}
+              {stage === "canvas" && campaign && loadingPhase === null && (
+                <Button variant="secondary" size="sm" onClick={() => setAddSectionOpen(true)}
+                  title="Add a section to the end (⌘⇧A)">
+                  <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                  Add section
+                </Button>
+              )}
               {campaign && (
                 <Button variant="ghost" size="sm" onClick={handleCopyCampaign} title="Copy campaign for Google Docs">
                   <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
@@ -1525,14 +1799,45 @@ export default function Home() {
               )}
               {renderSaveButtons()}
               {campaign && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => canvasSource === "library" ? resetAll() : setShowNewConfirm(true)}
-                  title="Start new campaign"
-                >
-                  New
-                </Button>
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setNewMenuOpen((o) => !o)}
+                    title="Start a new campaign"
+                  >
+                    New
+                  </Button>
+                  {newMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setNewMenuOpen(false)} />
+                      <div className="absolute z-20 right-0 mt-1 bg-white border border-line rounded-md shadow-lg py-1 w-64 text-left">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            if (canvasSource === "library") resetAll(); else setShowNewConfirm(true);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-sunken transition-colors"
+                        >
+                          <div className="text-sm text-ink">New from brief</div>
+                          <div className="text-xs text-ink-tertiary mt-0.5">Fill in the brief and generate the copy.</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewMenuOpen(false);
+                            if (canvasSource === "library") startBlankCanvas(); else setPendingBlankCanvas(true);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-sunken transition-colors"
+                        >
+                          <div className="text-sm text-ink">New blank canvas</div>
+                          <div className="text-xs text-ink-tertiary mt-0.5">Write it yourself. Add modules as you go.</div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -1644,13 +1949,19 @@ export default function Home() {
                   }
                   className="py-10"
                   title="Start a campaign"
-                  description="Fill in the brief on the left and hit Generate Brief. Or pick up something you've already written."
+                  description="Fill in the brief on the left and hit Generate Brief, start from a blank canvas and write it yourself, or pick up something you've already written."
                   action={
-                    browseCount > 0 ? (
-                      <Button variant="secondary" size="sm" onClick={() => setLibraryOpen(true)}>
-                        <LibraryIcon /> Browse all {browseCount}
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      <Button variant="primary" size="sm" onClick={startBlankCanvas}
+                        title="Write it yourself. Add modules as you go.">
+                        Start blank canvas
                       </Button>
-                    ) : undefined
+                      {browseCount > 0 && (
+                        <Button variant="secondary" size="sm" onClick={() => setLibraryOpen(true)}>
+                          <LibraryIcon /> Browse all {browseCount}
+                        </Button>
+                      )}
+                    </div>
                   }
                 />
                 {/* The canvas would otherwise be dead space until you generate —
@@ -1688,7 +1999,7 @@ export default function Home() {
                 chosenConceit={chosenConceit}
                 retrievedExamples={retrievedExamples}
                 sectionStructure={sectionStructure}
-                toneDial={currentBriefInput?.tone_dial ?? 1}
+                toneDial={currentBriefInput?.tone_dial ?? DEFAULT_TONE_DIAL}
                 isGenerating={loadingPhase === "generating"}
                 featuredProduct={
                   expandedBrief?.products_featured?.[0] ??
@@ -1714,8 +2025,49 @@ export default function Home() {
                 })}
                 onRegenerated={(updated) => void runRepetitionCheck(updated)}
                 onChange={setCampaign}
+                // Section mutations come from the hook so both arrays move together.
+                onInsertAt={sectionOps.insertAt}
+                onDeleteSection={sectionOps.deleteSection}
+                onMoveSection={sectionOps.moveSection}
+                onReorder={sectionOps.reorder}
+                scrollToId={scrollToSectionId}
+                onScrolledTo={() => setScrollToSectionId(null)}
+                scratchBrief={isScratch && currentBriefInput ? {
+                  name: currentBriefInput.campaign_name,
+                  offer: currentBriefInput.offer,
+                  heroProduct: currentBriefInput.hero_product_slug,
+                } : null}
+                onScratchBriefChange={(patch) => setCurrentBriefInput((prev) => prev ? {
+                  ...prev,
+                  ...(patch.name !== undefined ? { campaign_name: patch.name } : {}),
+                  ...(patch.offer !== undefined ? { offer: patch.offer } : {}),
+                  ...(patch.heroProduct !== undefined ? {
+                    hero_product_slug: patch.heroProduct || undefined,
+                    // The hero is also the featured product, which is what drives
+                    // review fetching and the product bindings on inserted cards.
+                    products_featured: patch.heroProduct ? [patch.heroProduct] : [],
+                  } : {}),
+                } : prev)}
+                assistsDisabledReason={assistsDisabledReason}
+                productOptions={productOptions}
               />
             )}
+
+            {/* The toolbar / ⌘⇧A path: same picker, always appending. */}
+            <SectionPicker
+              open={addSectionOpen}
+              position={{ index: campaign?.sections.length ?? 0, label: "at the end" }}
+              onClose={() => setAddSectionOpen(false)}
+              onInsert={(type, specPatch) => {
+                sectionOps.append(type, specPatch);
+                setAddSectionOpen(false);
+              }}
+              selectedProducts={
+                currentBriefInput?.products_featured?.length
+                  ? productOptions.filter((p) => currentBriefInput.products_featured.includes(p.id))
+                  : productOptions
+              }
+            />
           </div>
           </>)}
 
@@ -1793,6 +2145,30 @@ export default function Home() {
         title="Start a new campaign?"
         body="This will clear the canvas. Make sure you've saved anything you want to keep."
         confirmLabel="Yes, start fresh"
+      />
+      {/* Taking a planner row from another campaign is destructive (the link is
+          single-owner, so it unlinks that campaign), and it used to happen silently.
+          It now requires an answer, and "Leave it" writes nothing to either record. */}
+      <ConfirmModal
+        open={!!pendingReassign}
+        onClose={() => { setPendingReassign(null); toast.info("Left the planner link as it was."); }}
+        onConfirm={() => {
+          const p = pendingReassign;
+          setPendingReassign(null);
+          if (p) void postPlannerLink(p.rowId, p.copyCampaignId, p.copyStatus, true);
+        }}
+        title="That planner row is already linked"
+        body={`It currently points at "${pendingReassign?.ownerName ?? "another campaign"}". Moving the link here will detach it from that campaign.`}
+        confirmLabel="Move it here"
+        cancelLabel="Leave it"
+      />
+      <ConfirmModal
+        open={pendingBlankCanvas}
+        onClose={() => setPendingBlankCanvas(false)}
+        onConfirm={() => { setPendingBlankCanvas(false); startBlankCanvas(); }}
+        title="Start a blank canvas?"
+        body="This will clear the canvas. Make sure you've saved anything you want to keep."
+        confirmLabel="Yes, start blank"
       />
       <ConfirmModal
         open={!!pendingPlannerRowId}

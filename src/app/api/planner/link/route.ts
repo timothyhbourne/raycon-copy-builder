@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       copy_campaign_id?: string;
       copy_status?: string;
       unlink?: boolean;
+      reassign?: boolean;
     };
 
     // POST with unlink:true is an alias for DELETE (some clients can't send a body on DELETE).
@@ -51,6 +52,33 @@ export async function POST(req: NextRequest) {
     const { row_id, copy_campaign_id, copy_status } = body;
 
     const rows = await listPlannerRows();
+    const target = rows.find((r) => r.id === row_id);
+
+    // DEFENCE IN DEPTH (spec §3.5). Reassigning a row is destructive: because the
+    // link is single-owner, taking a row from another copy also clears THAT copy's
+    // back-reference. That happened silently and it is how one bad save corrupted
+    // two records. Now it requires stated intent, so the destructive path cannot be
+    // reached by accident even if a future client regresses — which, this being the
+    // second occurrence, is the point.
+    if (
+      target?.copy_campaign_id &&
+      target.copy_campaign_id !== copy_campaign_id &&
+      !body.reassign
+    ) {
+      const owner = target.copy_campaign_id;
+      const ownerName =
+        (await loadCampaign(owner))?.campaign_name
+        ?? (await getLibraryCampaignById(owner))?.title
+        ?? (await loadSmsCampaign(owner))?.name
+        ?? owner;
+      return NextResponse.json(
+        {
+          error: "That planner row is already linked to another copy.",
+          conflict: { row_id, owner_copy_campaign_id: owner, owner_name: ownerName },
+        },
+        { status: 409 },
+      );
+    }
 
     // Single-owner: unlink any OTHER row currently pointing at this copy.
     for (const r of rows) {
@@ -58,7 +86,7 @@ export async function POST(req: NextRequest) {
     }
     // If the target row previously pointed at a DIFFERENT copy, clear that copy's
     // stale back-reference so it doesn't claim ownership of a row it no longer has.
-    const target = rows.find((r) => r.id === row_id);
+    // Only reachable with reassign:true, per the guard above.
     if (target?.copy_campaign_id && target.copy_campaign_id !== copy_campaign_id) {
       await setCopyBackref(target.copy_campaign_id, null);
     }

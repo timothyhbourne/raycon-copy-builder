@@ -17,7 +17,8 @@
     "index:constructions": "tsx scripts/index-constructions.ts",
     "verify:usps": "tsx scripts/verify-usps.ts",
     "ingest:orders": "tsx scripts/ingest-orders.ts",
-    "backtest:lifecycle": "tsx scripts/backtest-lifecycle.ts"
+    "backtest:lifecycle": "tsx scripts/backtest-lifecycle.ts",
+    "audit:planner-links": "tsx scripts/audit-planner-links.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

@@ -37,6 +37,11 @@ export const plannerLinkBody = looseObj({
   copy_campaign_id: z.string().optional(),
   copy_status: z.string().optional(),
   unlink: z.boolean().optional(),
+  /** Explicit consent to TAKE a row that another copy already owns. Without it the
+   * route answers 409 rather than reassigning, because the link is single-owner and
+   * reassigning silently unlinks the other campaign
+   * (docs/PLANNER_AUTOLINK_BUGFIX_SPEC.md §3.5). */
+  reassign: z.boolean().optional(),
 });
 
 export const copySeedBody = looseObj({
