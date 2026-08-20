@@ -66,7 +66,13 @@ function markdownToCampaign(raw: string): SavedCampaign | null {
       campaign_name: data.campaign_name,
       campaign_type: data.campaign_type,
       offer: data.offer,
-      promo_code: data.promo_code,
+      // `?? undefined`, like every other optional field below. The frontmatter
+      // writer coerces undefined to null (js-yaml refuses to dump undefined), and
+      // savedCampaignSchema types promo_code as `string | undefined` — so reading
+      // the null straight back through made EVERY draft without a promo code fail
+      // validation and get dropped. The save returned 200 and the draft then
+      // vanished from the list, which looked like the save silently failing.
+      promo_code: data.promo_code ?? undefined,
       audience: data.audience,
       hero_angle: data.hero_angle ?? undefined,
       angle: data.angle ?? undefined,
