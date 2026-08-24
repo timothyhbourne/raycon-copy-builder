@@ -8,7 +8,7 @@
 // path.
 
 import { listPlannerRows } from "./planner";
-import { isEffectivelySent } from "./planner-types";
+import { isEffectivelySent, isSendableRow } from "./planner-types";
 import type { PlannerRow } from "./planner-types";
 import { loadCampaign } from "./campaigns";
 import { getLibraryCampaigns } from "./library";
@@ -45,6 +45,10 @@ export async function resolvePerformanceRecords(opts: ResolveOpts = {}): Promise
   const { start, end, channel = "all" } = opts;
   const rows = await listPlannerRows();
   const sentInRange = rows.filter((r) => {
+    // A flow-email row is a build/QA task, not a send: it has no real send date and
+    // no metrics, so counting it would inflate the denominator this dashboard's
+    // coverage figure is built on (docs/FLOW_BUILDER_FIXES_SPEC.md §3.2).
+    if (!isSendableRow(r)) return false;
     if (!isEffectivelySent(r)) return false;
     if (channel !== "all" && r.channel !== channel) return false;
     const d = sendYMD(r);

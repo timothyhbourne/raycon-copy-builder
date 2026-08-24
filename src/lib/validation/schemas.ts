@@ -29,7 +29,12 @@ import type { GuidanceClaim } from "../corpus/ledger-types";
 // both have defined fallbacks — reviewSlotsOf() materialises 3 product slots, and
 // migrateLegacyProvenance() reads existing reviews as "curated" so the new
 // provenance gate doesn't retroactively block every saved campaign.
-export const SCHEMA_VERSION = 2;
+//
+// 3 (2026-08-24): the flow GRAPH (docs/FLOW_CANVAS_REBUILD_SPEC.md). A v2 flow has
+// `emails` + `splits` and no `nodes`/`edges`; parseFlow migrates it on read
+// (migrateLinearFlowToGraph) and keeps the legacy arrays derived from the graph
+// for one release as a rollback path.
+export const SCHEMA_VERSION = 3;
 
 const schemaVersion = z.number().int().optional();
 
@@ -184,6 +189,8 @@ export const plannerRowSchema = z.looseObject({
   id: z.string(),
   name: z.string(),
   channel: z.enum(["email", "sms"]),
+  // Absent on every row written before flow-email links; rowKind() defaults it.
+  row_kind: z.enum(["campaign", "flow_email"]).optional(),
   offer_type: z.enum(["evergreen", "promo"]),
   offer: z.string(),
   promo_code: z.string().optional(),
@@ -292,16 +299,20 @@ const flowType = z.enum([
   "welcome", "abandoned_cart", "abandoned_checkout", "browse_abandonment", "site_abandonment",
   "post_purchase", "winback", "sunset", "back_in_stock", "custom",
 ]);
-const flowEmail = z.looseObject({
+// The email payload, shared by the legacy `emails` array (which has a `position`)
+// and the graph's email NODES (which don't — the graph carries order now).
+const flowEmailFields = {
   id: z.string(),
-  position: z.number(),
   job: z.string(),
   delay: z.string().optional(),
   highlights: z.string().optional(),
   campaign: generatedCampaign.optional(),
   section_structure: z.array(sectionSpec),
   status: z.enum(["empty", "draft", "final"]),
-});
+  planner_row_id: z.string().optional(),
+};
+const flowEmail = z.looseObject({ ...flowEmailFields, position: z.number() });
+const flowEmailNode = z.looseObject(flowEmailFields);
 const flowSplit = z.looseObject({
   id: z.string(),
   after_email_position: z.number(),
@@ -309,6 +320,34 @@ const flowSplit = z.looseObject({
   yes_label: z.string().optional(),
   no_label: z.string().optional(),
 });
+
+// ---- The flow graph (spec: FLOW_CANVAS_REBUILD_SPEC.md §3) -----------------
+// SAME GOTCHA as flowType/sectionType, and it bites harder here: `kind` is an
+// enum, so a node kind added to src/lib/schemas.ts and NOT added below makes the
+// whole flow fail validation and get dropped on read — i.e. it deletes people's
+// flows. Add the kind here in the same change.
+const flowNode = z.looseObject({
+  id: z.string(),
+  kind: z.enum(["trigger", "email", "split", "delay", "exit"]),
+  x: z.number(),
+  y: z.number(),
+  trigger: z.looseObject({ label: z.string() }).optional(),
+  email: flowEmailNode.optional(),
+  split: z.looseObject({
+    label: z.string(),
+    yes_label: z.string().optional(),
+    no_label: z.string().optional(),
+  }).optional(),
+  delay: z.looseObject({ label: z.string() }).optional(),
+  exit: z.looseObject({ label: z.string() }).optional(),
+});
+const flowEdge = z.looseObject({
+  id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  branch: z.enum(["yes", "no"]).optional(),
+});
+
 export const flowSchema = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -318,6 +357,10 @@ export const flowSchema = z.looseObject({
   klaviyo_flow_id: z.string().optional(),
   klaviyo_flow_name: z.string().optional(),
   goal: z.string().optional(),
+  // Optional so a v2 record still validates; parseFlow migrates it immediately
+  // afterwards, so nothing downstream of the read boundary sees them absent.
+  nodes: z.array(flowNode).optional(),
+  edges: z.array(flowEdge).optional(),
   emails: z.array(flowEmail),
   splits: z.array(flowSplit),
   created_at: z.string(),

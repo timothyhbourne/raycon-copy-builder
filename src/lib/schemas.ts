@@ -441,6 +441,12 @@ export interface FlowEmail {
   campaign?: GeneratedCampaign;
   section_structure: SectionSpec[];
   status: "empty" | "draft" | "final";
+  /** Back-reference to the Planner row this email was written for (if any), the
+   * same contract SavedCampaign / LibraryCampaign / SmsCampaign carry. The
+   * planner side addresses a flow email by the COMPOSITE id "<flowId>::<emailId>"
+   * (see parseFlowEmailId in lib/flows.ts) — a flow email is nested inside a Flow,
+   * so it has no top-level store entry of its own to resolve. */
+  planner_row_id?: string;
 }
 
 /** A free-text conditional split between emails — no logic engine. `label` is
@@ -453,6 +459,52 @@ export interface FlowSplit {
   label: string;
   yes_label?: string;
   no_label?: string;
+}
+
+// ---- The flow GRAPH (docs/FLOW_CANVAS_REBUILD_SPEC.md §3) ------------------
+// Flows used to be a linear sequence: FlowEmail.position ordered the emails, and
+// FlowSplit was two STRINGS describing what each branch would do. The fork never
+// forked — it was a drawing of a decision, not a decision. A single-column list
+// cannot represent a graph, so branching needed the model replaced, not extended.
+//
+// Nodes + edges carry the order now. `position` survives only on the DERIVED
+// legacy `emails` array (see deriveLegacy in lib/flow-graph.ts), kept for one
+// release as a rollback path.
+
+export type FlowNodeKind = "trigger" | "email" | "split" | "delay" | "exit";
+
+/** A flow email as it lives on a graph node: FlowEmail minus `position`, which
+ * the graph now determines. `delay` deliberately STAYS here rather than moving to
+ * the inbound edge (as the spec's §3.1 alternative proposed): keeping it on the
+ * email means an unconnected node can still carry its wait, there is exactly one
+ * home for the value, and the planner export / copy viewer keep reading it from
+ * the same place. A wait with no email to hang on is a `delay` NODE. */
+export type FlowEmailNode = Omit<FlowEmail, "position">;
+
+export interface FlowNode {
+  id: string;
+  kind: FlowNodeKind;
+  /** Canvas coordinates. User-draggable, persisted. */
+  x: number;
+  y: number;
+  /** kind: "trigger" — what fires the flow. */
+  trigger?: { label: string };
+  /** kind: "email" */
+  email?: FlowEmailNode;
+  /** kind: "split" — free text, no logic engine. */
+  split?: { label: string; yes_label?: string; no_label?: string };
+  /** kind: "delay" — a standalone wait between two non-email steps. */
+  delay?: { label: string };
+  /** kind: "exit" — the branch ends (left the flow, converted, suppressed). */
+  exit?: { label: string };
+}
+
+export interface FlowEdge {
+  id: string;
+  from: string;   // FlowNode.id
+  to: string;     // FlowNode.id
+  /** Set only on the two edges leaving a split node. */
+  branch?: "yes" | "no";
 }
 
 export interface Flow {
@@ -468,6 +520,20 @@ export interface Flow {
   klaviyo_flow_name?: string;
   /** The flow's overall goal, in the author's words (optional steering). */
   goal?: string;
+  /**
+   * The graph — the source of truth for structure. Optional on the TYPE only
+   * because a record written before the rebuild has neither; the storage READ
+   * boundary (parseFlow / parseFlows) migrates every flow, so anything loaded
+   * through the store always has both. Use ensureGraph() for a flow built
+   * in-memory.
+   */
+  nodes?: FlowNode[];
+  edges?: FlowEdge[];
+  /**
+   * DERIVED from the graph on write, and kept for one release as a rollback path
+   * (spec §6). Read the graph, not these — the only consumers that still may are
+   * the ones that predate the rebuild and are listed in flow-graph.ts.
+   */
   emails: FlowEmail[];
   splits: FlowSplit[];
   created_at: string;

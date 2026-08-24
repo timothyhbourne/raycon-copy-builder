@@ -103,4 +103,32 @@ describe("flowUserPrompt", () => {
     const prompt = flowUserPrompt(ctx, sections);
     expect(prompt).toMatch(/HARD RULES: FINAL GATE/);
   });
+
+  it("carries the reader's PATH, and instructs the writer not to contradict it", () => {
+    const prompt = flowUserPrompt({
+      ...ctx,
+      pathContext: 'Branch — "Opened Email 1?" → NO (quiet).\nThis is email 2 on this path.',
+    }, sections);
+    expect(prompt).toContain("THE READER'S PATH TO THIS EMAIL");
+    expect(prompt).toContain('Branch — "Opened Email 1?" → NO (quiet)');
+    // The instruction that makes the path actionable rather than decorative.
+    expect(prompt).toMatch(/did NOT open or click something, never write as though they did/);
+  });
+
+  it("omits the path block entirely when there is no graph to describe", () => {
+    const prompt = flowUserPrompt(ctx, sections);
+    expect(prompt).not.toContain("THE READER'S PATH");
+  });
+
+  it("frames siblings as what the reader HAS received, not the whole flow", () => {
+    // On a branched flow, "sibling emails in this flow" would include the other
+    // branch — messages this reader demonstrably never got.
+    const prompt = flowUserPrompt(ctx, sections);
+    expect(prompt).toContain("ALREADY RECEIVED on the way to this one");
+  });
+
+  it("says so plainly when the reader has received nothing yet", () => {
+    const prompt = flowUserPrompt({ ...ctx, siblings: [] }, sections);
+    expect(prompt).toContain("has not received any earlier email on this path");
+  });
 });

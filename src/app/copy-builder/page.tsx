@@ -11,6 +11,7 @@ import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
 import { compileBrief } from "@/lib/brief/compile";
+import { buildCopyExport, writeToClipboard } from "@/lib/copy-export";
 import { normalizeSectionElements } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
 import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
@@ -1354,136 +1355,19 @@ export default function Home() {
     if (currentBriefInput) setCurrentBriefInput({ ...currentBriefInput, campaign_name: name });
   };
 
-  // Build plain + HTML versions of the campaign for clipboard export
+  // Copy the whole campaign to the clipboard, in both flavours. The build lives
+  // in lib/copy-export.ts so the Flow Builder's Copy button produces the same
+  // document from the same code — two implementations would have drifted.
   const handleCopyCampaign = async () => {
     if (!campaign) return;
     const name = currentBriefInput?.campaign_name || "Campaign";
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const hr = "─────────────────────────────────────";
-
-    // ── Plain text ──────────────────────────────────────────────────────────
-    const plainParts: string[] = [];
-
-    plainParts.push(name.toUpperCase());
-    if (chosenConceit) plainParts.push(`Conceit: ${chosenConceit.name} — ${chosenConceit.description}`);
-    plainParts.push("");
-
-    campaign.meta.subject_lines.forEach((s, i) =>
-      plainParts.push(`SUBJECT LINE ${i + 1}: ${s}`)
-    );
-    campaign.meta.preview_texts.forEach((p, i) =>
-      plainParts.push(`PREVIEW TEXT ${i + 1}: ${p}`)
-    );
-
-    campaign.sections.forEach((sec) => {
-      plainParts.push(hr);
-      Object.entries(sec.elements).forEach(([k, v]) => {
-        if (Array.isArray(v)) {
-          v.forEach((prod, pi) => {
-            plainParts.push(`[${pi + 1}] ${prod.name}`);
-            plainParts.push(`    ${prod.one_liner}`);
-            plainParts.push(`    ${prod.cta}`);
-            plainParts.push("");
-          });
-        } else {
-          plainParts.push(`${k.toUpperCase()}: ${v}`);
-        }
-      });
-    });
-
-    const plain = plainParts.join("\n");
-
-    // ── HTML (Google Docs renders bold labels + <hr> as divider lines) ──────
-    const htmlParts: string[] = [];
-
-    // Header block — name + conceit + meta all in one paragraph each
-    htmlParts.push(`<p><strong>${esc(name.toUpperCase())}</strong></p>`);
-    if (chosenConceit) {
-      htmlParts.push(`<p>Conceit: <strong>${esc(chosenConceit.name)}</strong> — ${esc(chosenConceit.description)}</p>`);
-    }
-
-    // Subject lines and preview texts grouped into one paragraph each (no inter-line dividers)
-    const metaLines: string[] = [];
-    campaign.meta.subject_lines.forEach((s, i) =>
-      metaLines.push(`<strong>SUBJECT LINE ${i + 1}:</strong> ${esc(s)}`)
-    );
-    campaign.meta.preview_texts.forEach((p, i) =>
-      metaLines.push(`<strong>PREVIEW TEXT ${i + 1}:</strong> ${esc(p)}`)
-    );
-    if (metaLines.length) htmlParts.push(`<p>${metaLines.join("<br>")}</p>`);
-
-    // Each section = one <hr> divider.
-    // product_grid → HTML table with grid_cols columns.
-    // Everything else → one <p> with fields joined by <br><br>.
-    const tdStyle = "border:1px solid #e0e0e0;padding:10px;vertical-align:top;";
-
-    campaign.sections.forEach((sec, i) => {
-      htmlParts.push("<hr>");
-
-      if (sec.type === "product_grid") {
-        // Look up grid_cols from the section structure spec (by position, then type)
-        const spec = sectionStructure[i] ?? sectionStructure.find((s) => s.type === "product_grid");
-        const cols = spec?.grid_cols ?? 2;
-
-        // Separate subheader-type fields from the products array
-        const headerFields: string[] = [];
-        let products: { name: string; one_liner: string; cta: string }[] = [];
-        Object.entries(sec.elements).forEach(([k, v]) => {
-          if (Array.isArray(v)) {
-            products = v;
-          } else {
-            headerFields.push(`<strong>${esc(k.toUpperCase())}:</strong> ${esc(v as string)}`);
-          }
-        });
-        if (headerFields.length) {
-          htmlParts.push(`<p>${headerFields.join("<br><br>")}</p>`);
-        }
-
-        // Build table: slice products into rows of `cols` cells
-        const rows: string[] = [];
-        for (let r = 0; r < products.length; r += cols) {
-          const slice = products.slice(r, r + cols);
-          const cells = slice.map((prod) =>
-            `<td style="${tdStyle}"><strong>${esc(prod.name)}</strong><br><br>${esc(prod.one_liner)}<br><br><em>${esc(prod.cta)}</em></td>`
-          );
-          // Pad incomplete last row so table stays square
-          while (cells.length < cols) cells.push(`<td style="${tdStyle}"></td>`);
-          rows.push(`<tr>${cells.join("")}</tr>`);
-        }
-        htmlParts.push(
-          `<table style="border-collapse:collapse;width:100%">${rows.join("")}</table>`
-        );
-      } else {
-        const fieldLines: string[] = [];
-        Object.entries(sec.elements).forEach(([k, v]) => {
-          if (Array.isArray(v)) {
-            v.forEach((prod) => {
-              fieldLines.push(`<strong>PRODUCT:</strong> ${esc(prod.name)}`);
-              fieldLines.push(`<strong>ONE-LINER:</strong> ${esc(prod.one_liner)}`);
-              fieldLines.push(`<strong>CTA:</strong> ${esc(prod.cta)}`);
-            });
-          } else {
-            fieldLines.push(`<strong>${esc(k.toUpperCase())}:</strong> ${esc(v as string)}`);
-          }
-        });
-        htmlParts.push(`<p>${fieldLines.join("<br><br>")}</p>`);
-      }
-    });
-
-    const html = `<html><body>${htmlParts.join("")}</body></html>`;
-
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([plain], { type: "text/plain" }),
-        }),
-      ]);
-      toast.success("Copied for Google Docs");
-    } catch {
-      await navigator.clipboard.writeText(plain);
-      toast.success("Copied to clipboard");
-    }
+    const flavour = await writeToClipboard(buildCopyExport(campaign, sectionStructure, {
+      title: name,
+      ...(chosenConceit
+        ? { subtitle: { label: "Conceit", value: chosenConceit.name, note: chosenConceit.description } }
+        : {}),
+    }));
+    toast.success(flavour === "rich" ? "Copied for Google Docs" : "Copied to clipboard");
   };
 
   // --- SMS mode handlers -------------------------------------------------

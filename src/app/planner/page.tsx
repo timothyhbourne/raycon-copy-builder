@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
-import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent } from "@/lib/planner-types";
+import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent, rowKind } from "@/lib/planner-types";
+import { isFlowEmailId } from "@/lib/flow-email-id";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import { SegmentedToggle } from "@/components/ui/FilterBar";
@@ -112,10 +113,17 @@ export default function PlannerPage() {
 
   // Heal stale links: a row points at a copy campaign that no longer exists.
   // Render already treats it as unlinked (copyEntry below); this persists it.
+  //
+  // FLOW EMAILS ARE EXEMPT. copyIds is built from the drafts + library lists, and a
+  // flow email lives in neither — it is nested inside a Flow and addressed by a
+  // composite id. Healing on that set would delete every valid flow-email link the
+  // first time the planner loaded, which is the same shape of bug that made
+  // stale-healing email-only for SMS.
   useEffect(() => {
     if (!copyIdsLoaded) return;
     const stale = rows.filter((r) =>
-      r.channel === "email" && r.copy_campaign_id && !copyIds.has(r.copy_campaign_id) && !healedRef.current.has(r.id));
+      r.channel === "email" && r.copy_campaign_id && !isFlowEmailId(r.copy_campaign_id)
+      && !copyIds.has(r.copy_campaign_id) && !healedRef.current.has(r.id));
     if (stale.length === 0) return;
     stale.forEach((r) => healedRef.current.add(r.id));
     Promise.all(stale.map((r) =>
@@ -128,7 +136,8 @@ export default function PlannerPage() {
   const copyEntry = useCallback((row: PlannerRow): CopyEntry => {
     // SMS copy lives in its own store (ids not in copyIds); trust the backref.
     // Stale-healing stays email-only, so an SMS link is never wrongly wiped.
-    if (row.channel !== "email") {
+    // A flow email is the same situation: its own store, its own id shape.
+    if (row.channel !== "email" || isFlowEmailId(row.copy_campaign_id)) {
       if (!row.copy_campaign_id) return "unlinked";
       return row.copy_status === "final" ? "final" : "draft";
     }
@@ -575,7 +584,18 @@ function TableView({ rows, onEdit, onReschedule, onRowUpdated, fChannel, setFCha
                                 <ExpandToggle open={isOpen} onToggle={() => toggle(r.id)} />
                                 <ChannelGlyph channel={r.channel} className="shrink-0 mr-1.5" />
                                 <div className="min-w-0 flex flex-col">
-                                  <span className={`truncate ${r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}`}>{r.name}</span>
+                                  <span className="truncate flex items-baseline gap-1.5">
+                                    <span className={r.status === "cancelled" ? "line-through text-ink-muted" : "text-ink"}>{r.name}</span>
+                                    {/* A flow-email row is a build/QA task, not a send — it carries no
+                                        metrics and is excluded from sync and Copy Performance, so it
+                                        says so on the row rather than looking like a quiet zero. */}
+                                    {rowKind(r) === "flow_email" && (
+                                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-tertiary border border-line rounded px-1 py-px"
+                                        title="Flow email — triggered and evergreen. Excluded from metrics sync and Copy Performance.">
+                                        flow
+                                      </span>
+                                    )}
+                                  </span>
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} channel={r.channel} />
                                 </div>
                               </div>
@@ -717,6 +737,10 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [copyPreview, setCopyPreview] = useState<CopyPreview | null>(null);
   const [copyLoading, setCopyLoading] = useState(false);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  // A flow-email row is a build/QA task for a triggered, evergreen email: its copy
+  // lives in the Flow Builder, and a composite copy id means nothing to the Copy
+  // Builder, so the two links below point somewhere that works.
+  const isFlowRow = !!row && rowKind(row) === "flow_email";
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
 
@@ -1145,15 +1169,26 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
                     title="Mark ready for design and copy a Slack message with a link to the copy">
                     📋 Copy design handoff
                   </Button>
-                  <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>
+                  {/* A flow email lives in the Flow Builder, not the Copy Builder —
+                      pointing the Copy Builder at a composite id would just fail. */}
+                  {isFlowRow
+                    ? <Link href="/flows" className="text-[11px] text-accent hover:underline">Open in Flow Builder ↗</Link>
+                    : <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>}
                 </div>
               </>
             )
           ) : (
             <div className="flex items-center gap-2">
-              <Link href={channel === "sms" ? `/copy-builder?planner=${row.id}&channel=sms` : `/copy-builder?planner=${row.id}`}
-                className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
-              <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>Attach existing copy</Button>
+              {isFlowRow ? (
+                <Link href="/flows"
+                  className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Open Flow Builder</Link>
+              ) : (
+                <>
+                  <Link href={channel === "sms" ? `/copy-builder?planner=${row.id}&channel=sms` : `/copy-builder?planner=${row.id}`}
+                    className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
+                  <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>Attach existing copy</Button>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -43,10 +43,39 @@ export interface AudienceRef {
   type: "segment" | "list";
 }
 
+/**
+ * What a row actually represents. A PlannerRow models a SCHEDULED SEND — it has a
+ * planned_send_at, and isEffectivelySent() derives "sent" from that date passing.
+ * A flow email is TRIGGERED and evergreen: it has no send date and will send
+ * thousands of times. Linking one to an unmarked row would make it look, to every
+ * planner consumer, like a one-off send that happened on a particular day — feeding
+ * false rows into metrics sync and into Copy Performance, which counts planner rows
+ * as its denominator.
+ *
+ * So a flow-email row says so. It appears on the calendar as a build/QA task and is
+ * excluded from metrics sync and from Copy Performance. Absent = "campaign" (every
+ * row saved before this field existed).
+ */
+export type PlannerRowKind = "campaign" | "flow_email";
+
+/** A row's kind, defaulting legacy rows to "campaign". Use this rather than
+ * reading `row_kind` directly, so the default lives in exactly one place. */
+export function rowKind(row: Pick<PlannerRow, "row_kind">): PlannerRowKind {
+  return row.row_kind ?? "campaign";
+}
+
+/** True for rows that model a real scheduled send — the only ones metrics sync and
+ * Copy Performance may count. */
+export function isSendableRow(row: Pick<PlannerRow, "row_kind">): boolean {
+  return rowKind(row) === "campaign";
+}
+
 export interface PlannerRow {
   id: string;
   name: string;
   channel: PlannerChannel;
+  /** See PlannerRowKind. Absent on every row written before flow-email links. */
+  row_kind?: PlannerRowKind;
   // --- Human-entered plan fields ---
   offer_type: OfferType;
   offer: string;

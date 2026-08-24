@@ -10,6 +10,9 @@ import {
 } from "./schemas";
 import type { CorpusRecord } from "../corpus/types";
 import type { GuidanceClaim } from "../corpus/ledger-types";
+import { migrateLinearFlowToGraph, withGraph } from "../flow-graph";
+import { FLOW_PLAYBOOKS } from "../flow-playbooks";
+import { nanoid } from "../nanoid";
 
 export { SCHEMA_VERSION } from "./schemas";
 
@@ -127,11 +130,34 @@ export const parseSmsCampaign = (raw: unknown): SmsCampaign | null =>
 export const parseSmsCampaigns = (raw: unknown): SmsCampaign[] =>
   parseList<SmsCampaign>(smsCampaignSchema, raw, "sms_campaign");
 
-export const parseFlow = (raw: unknown): Flow | null =>
-  parseOne<Flow>(flowSchema, raw, "flow");
+// ---- Flows: validate, then MIGRATE to the graph model ----------------------
+// A flow written before docs/FLOW_CANVAS_REBUILD_SPEC.md is a linear `emails`
+// array plus `splits` whose branches were two strings. Migration happens HERE, at
+// the read boundary, so a flow gains its graph the first time it is opened and
+// every consumer downstream can assume `nodes`/`edges` are present.
+//
+// Order matters: validate FIRST (the graph is derived from the validated emails
+// and splits), then migrate. `ensureGraph` is idempotent, so a flow that already
+// has a graph passes through untouched.
+//
+// The legacy `emails`/`splits` are re-derived from the graph rather than left as
+// they were, so the rollback copy can never drift from the structure it mirrors.
+export const parseFlow = (raw: unknown): Flow | null => {
+  const flow = parseOne<Flow>(flowSchema, raw, "flow");
+  if (!flow) return null;
+  if (flow.nodes?.length) return flow;
+  return withGraph(flow, migrateLinearFlowToGraph(flow, nanoid, FLOW_PLAYBOOKS[flow.type]?.trigger));
+};
 
-export const parseFlows = (raw: unknown): Flow[] =>
-  parseList<Flow>(flowSchema, raw, "flow");
+export const parseFlows = (raw: unknown): Flow[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: Flow[] = [];
+  for (const item of raw) {
+    const flow = parseFlow(item);
+    if (flow) out.push(flow);
+  }
+  return out;
+};
 
 export const parseWeeklyReports = (raw: unknown): WeeklyReport[] =>
   parseList<WeeklyReport>(weeklyReportSchema, raw, "weekly_report");

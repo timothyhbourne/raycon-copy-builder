@@ -23,7 +23,7 @@ interface FullSection {
 }
 interface CopyFull {
   id: string;
-  source: "draft" | "library" | "sms";
+  source: "draft" | "library" | "sms" | "flow";
   campaign_name: string;
   updated_at: string;
   conceit_name?: string;

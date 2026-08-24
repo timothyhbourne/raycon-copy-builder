@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadCampaign } from "@/lib/campaigns";
 import { getLibraryCampaignById } from "@/lib/library";
 import { loadSmsCampaign } from "@/lib/sms";
-import { SMS_VARIANT_LABELS } from "@/lib/schemas";
+import { loadFlowEmail, parseFlowEmailId } from "@/lib/flows";
+import { FLOW_TYPE_META, SMS_VARIANT_LABELS } from "@/lib/schemas";
 import type { GeneratedCampaign, GeneratedSection, SectionSpec, ProductInGrid } from "@/lib/schemas";
 
-// Normalized copy payloads for the planner. Looks up the id in the drafts store
-// first, then the library (same fallthrough as the copy builder's load path).
+// Normalized copy payloads for the planner. Resolves the id against every copy
+// store: flow emails (composite ids) first, then the drafts store, the library,
+// and SMS (the same fallthrough as the copy builder's load path).
 //  - default: a COMPACT preview (drawer one-line summary).
 //  - ?full=1: the COMPLETE document, every section in order with all elements
 //    untruncated, for the full-copy viewer modal.
@@ -15,7 +17,10 @@ import type { GeneratedCampaign, GeneratedSection, SectionSpec, ProductInGrid } 
 
 interface CopyBase {
   id: string;
-  source: "draft" | "library";
+  /** "flow" is one email of a Flow, addressed by the composite id
+   * "<flowId>::<emailId>" (see lib/flows.ts). It comes back in the same shape as
+   * everything else, so CopyDocModal renders it with no changes. */
+  source: "draft" | "library" | "flow";
   campaign_name: string;
   updated_at: string;
 }
@@ -193,6 +198,35 @@ export async function GET(req: NextRequest) {
   const id = searchParams.get("id");
   const full = searchParams.get("full") === "1";
   if (!id) return NextResponse.json({ error: "id query param required" }, { status: 400 });
+
+  // Flow emails first: a composite id can't resolve anywhere else, so the check
+  // is both cheap and unambiguous.
+  if (parseFlowEmailId(id)) {
+    const resolved = await loadFlowEmail(id);
+    if (!resolved) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const { flow, email } = resolved;
+    const label = FLOW_TYPE_META[flow.type]?.label ?? flow.type;
+    const base: CopyBase = {
+      id,
+      source: "flow",
+      // A flow email pasted anywhere is meaningless without its flow and its
+      // position, so the name carries both.
+      campaign_name: `${flow.name} — Email ${email.position} of ${flow.emails.length}`,
+      updated_at: flow.updated_at,
+    };
+    // The "conceit" slot is where the viewer shows a one-line what-is-this; for a
+    // flow email that is its place in the arc plus when it fires.
+    const context = [`${label} flow`, email.delay?.trim()].filter(Boolean).join(" · ");
+    // An email linked before it was written (or rewritten back to empty) is an
+    // empty document, not an error — the viewer says "nothing here yet" instead
+    // of failing to open.
+    const campaign = email.campaign ?? { meta: { subject_lines: [], preview_texts: [] }, sections: [] };
+    return NextResponse.json(
+      full
+        ? fromStructuredFull(campaign, email.section_structure, context, base)
+        : fromStructured(campaign, base)
+    );
+  }
 
   const draft = await loadCampaign(id);
   if (draft) {

@@ -64,7 +64,19 @@ export interface FlowEmailContext {
   job: string;
   delay?: string;
   highlights?: string;
-  /** Compact view of the OTHER emails in the flow, for arc cohesion. */
+  /**
+   * The reader's journey to THIS email, branch conditions included — built by
+   * pathContext() in lib/flow-graph.ts (spec §5). On a branched flow this is the
+   * difference between writing to someone who read the last email and writing to
+   * someone who demonstrably did not, which the brain previously had no way to
+   * know. Absent for a flow with no graph yet.
+   */
+  pathContext?: string;
+  /**
+   * The emails BEFORE this one, for arc cohesion. On a branched flow these come
+   * from this email's own path — feeding it the other branch's emails would tell
+   * the writer the reader received messages they never did.
+   */
   siblings: { position: number; job: string; summary?: string }[];
 }
 
@@ -86,10 +98,17 @@ export function flowUserPrompt(
   const exampleLines = buildSectionExampleLines(sectionStructure);
 
   const siblingBlock = ctx.siblings.length
-    ? `Sibling emails in this flow (for arc cohesion — do NOT restate these; advance from them):\n${ctx.siblings
+    ? `Emails this reader has ALREADY RECEIVED on the way to this one (for arc cohesion — do NOT restate these; advance from them):\n${ctx.siblings
         .map((s) => `- Email ${s.position} , job: ${s.job}${s.summary ? `\n    what it says: ${s.summary}` : " (not written yet)"}`)
         .join("\n")}`
-    : "This is the only email in the flow so far.";
+    : "This reader has not received any earlier email on this path — this is the first thing they get.";
+
+  // The path block replaces "position N of M" as the primary orientation on a
+  // branched flow: which branch this email sits on, and what the reader did (or
+  // didn't do) to get here, is the thing that changes how it must be written.
+  const pathBlock = ctx.pathContext?.trim()
+    ? `\nTHE READER'S PATH TO THIS EMAIL (follow it literally — it says what they have and have not done):\n${ctx.pathContext.trim()}\nWrite to that state. If the path says they did NOT open or click something, never write as though they did.\n`
+    : "";
 
   const highlightBlock = ctx.highlights?.trim()
     ? `\nWHAT THIS EMAIL MUST EMPHASIZE (the writer's instruction for THIS email — treat it as the spine, lead with it):\n${ctx.highlights.trim()}\n`
@@ -102,7 +121,7 @@ ${ctx.trigger ? `\nThis flow fires when: ${ctx.trigger}. Write to the reader's s
 THIS EMAIL:
 - Position: ${ctx.position} of ${ctx.totalEmails}${ctx.delay ? ` (fires ${ctx.delay})` : ""}
 - Its job in the sequence: ${ctx.job}
-${highlightBlock}
+${pathBlock}${highlightBlock}
 ${siblingBlock}
 ${avoidBlock ? `\n${avoidBlock}\n` : ""}${learning.formBudget ? `\n${learning.formBudget}\n` : ""}${learning.inFlight ? `\n${learning.inFlight}\n` : ""}${learning.performance ? `\n${learning.performance}\n` : ""}
 Section structure to produce (in order):

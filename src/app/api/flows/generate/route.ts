@@ -28,6 +28,9 @@ interface RawContext {
   job: string;
   delay?: string;
   highlights?: string;
+  /** The reader's journey to this email, branch conditions included (spec §5).
+   * Built client-side by pathContext() over the flow graph. */
+  path_context?: string;
   siblings?: { position: number; job: string; summary?: string }[];
 }
 
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
       job: rc.job,
       delay: rc.delay,
       highlights: rc.highlights,
+      pathContext: rc.path_context,
       siblings: rc.siblings ?? [],
     };
 

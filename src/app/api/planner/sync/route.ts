@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listPlannerRows, writeSyncedMetrics } from "@/lib/planner";
+import { isSendableRow } from "@/lib/planner-types";
 import type { PlannerRow, SyncedMetrics, SyncResult } from "@/lib/planner-types";
 import { dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
 import { getCampaignValuesCached } from "@/lib/klaviyo-cache";
@@ -48,8 +49,13 @@ export async function POST() {
     // SMS platform metrics are MANUAL entry (Postscript's public API has no
     // campaign/analytics endpoints — see recipients.ts / the SMS spec); SMS rows
     // only participate in the Northbeam pass, joined by northbeam_campaign_name.
-    const emailRows = rows.filter((r) => r.channel === "email" && r.klaviyo_campaign_id);
-    const smsRows = rows.filter((r) => r.channel === "sms");
+    // Flow-email rows are excluded from BOTH passes. A flow email is triggered
+    // and evergreen — it has no send date and sends thousands of times — so it has
+    // no metrics window to sync, and counting one as a send would put a phantom
+    // campaign into the numbers (docs/FLOW_BUILDER_FIXES_SPEC.md §3.2).
+    const sendable = rows.filter(isSendableRow);
+    const emailRows = sendable.filter((r) => r.channel === "email" && r.klaviyo_campaign_id);
+    const smsRows = sendable.filter((r) => r.channel === "sms");
 
     // ---- Email → Klaviyo ----
     if (emailRows.length > 0) {

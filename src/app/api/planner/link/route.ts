@@ -3,6 +3,7 @@ import { linkCopyCampaign, unlinkCopyCampaign, listPlannerRows, getPlannerRow } 
 import { loadCampaign, setCampaignPlannerRow } from "@/lib/campaigns";
 import { getLibraryCampaignById, setLibraryPlannerRow } from "@/lib/library";
 import { loadSmsCampaign, setSmsPlannerRow } from "@/lib/sms";
+import { loadFlowEmail, setFlowEmailPlannerRow, parseFlowEmailId } from "@/lib/flows";
 import { parseBody } from "@/lib/validation/api";
 import { plannerLinkBody } from "@/lib/validation/requests";
 
@@ -15,17 +16,36 @@ import { plannerLinkBody } from "@/lib/validation/requests";
 //    row unlinks that other row.
 // All writes go through the store modules — no direct fs here.
 
-// Write (or clear) the copy record's planner_row_id back-reference, trying the
-// drafts store first, then the library, then the SMS store.
+// Write (or clear) the copy record's planner_row_id back-reference: flow emails
+// first (their composite id is unmistakable), then the drafts store, the SMS
+// store, and the library.
 async function setCopyBackref(copyCampaignId: string, plannerRowId: string | null): Promise<void> {
+  // Flows FIRST: a composite "<flowId>::<emailId>" id cannot be anything else
+  // (parseFlowEmailId rejects every other id shape), and the check is cheap.
+  if (parseFlowEmailId(copyCampaignId)) {
+    await setFlowEmailPlannerRow(copyCampaignId, plannerRowId);
+    return;
+  }
   if (await setCampaignPlannerRow(copyCampaignId, plannerRowId)) return;
   if (await setSmsPlannerRow(copyCampaignId, plannerRowId)) return;
   await setLibraryPlannerRow(copyCampaignId, plannerRowId);
 }
 
-// True if the id resolves to a draft, library, or SMS copy.
+// True if the id resolves to a flow email, draft, library, or SMS copy.
 async function copyExists(copyCampaignId: string): Promise<boolean> {
+  if (parseFlowEmailId(copyCampaignId)) return !!(await loadFlowEmail(copyCampaignId));
   return !!(await loadCampaign(copyCampaignId)) || !!(await getLibraryCampaignById(copyCampaignId)) || !!(await loadSmsCampaign(copyCampaignId));
+}
+
+// Human name for the copy record that currently owns a row, for the 409 message.
+// A flow email names its flow and its position, since "email 2" alone says nothing.
+async function copyOwnerName(id: string): Promise<string> {
+  const flowEmail = await loadFlowEmail(id);
+  if (flowEmail) return `${flowEmail.flow.name} — email ${flowEmail.email.position}`;
+  return (await loadCampaign(id))?.campaign_name
+    ?? (await getLibraryCampaignById(id))?.title
+    ?? (await loadSmsCampaign(id))?.name
+    ?? id;
 }
 
 export async function POST(req: NextRequest) {
@@ -66,11 +86,7 @@ export async function POST(req: NextRequest) {
       !body.reassign
     ) {
       const owner = target.copy_campaign_id;
-      const ownerName =
-        (await loadCampaign(owner))?.campaign_name
-        ?? (await getLibraryCampaignById(owner))?.title
-        ?? (await loadSmsCampaign(owner))?.name
-        ?? owner;
+      const ownerName = await copyOwnerName(owner);
       return NextResponse.json(
         {
           error: "That planner row is already linked to another copy.",
