@@ -74,6 +74,10 @@ export interface SyncOpts {
   /** How long a reporting page may wait for its limiter slot. Short on serverless:
    * a refused claim is cheap because the next hop simply tries again. */
   slotWaitMs?: number;
+  /** Pages to fetch per step per invocation. The route passes 1: each page needs
+   * its own 31s pacing slot, so a 4-page report cannot finish in one 60s function
+   * however the budget is arranged. The cursor carries it across hops. */
+  maxPagesPerStep?: number;
   /** Progress line sink — the script prints these, the route logs them. */
   log?: (line: string) => void;
 }
@@ -195,11 +199,17 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
   const progressKey = `${mode}:${start}..${end}`;
   const progress = opts.reset ? null : await readProgress(progressKey);
   const done = new Set(progress?.done ?? []);
+  // Where each part-way-through report left off. A step is only "done" once its
+  // cursor comes back null.
+  const cursors: Record<string, string> = { ...(progress?.cursors ?? {}) };
   if (done.size) log(`resuming: ${done.size} step(s) already done (${[...done].join(", ")})`);
 
   // Each planned unit of work. Reporting steps are the expensive ones; the rest
   // are on endpoints with no daily cap.
   const plan: { name: string; reporting: boolean; run: () => Promise<SyncStepResult> }[] = [];
+  // Steps that returned rows but still have pages left. They must NOT be marked
+  // done, or the remaining pages are never fetched.
+  const partial = new Set<string>();
 
   let campaignRows: CampaignSnapshotRow[] | undefined;
   let flowDayRows: FlowDayRow[] = [];
@@ -260,10 +270,18 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
       const res = await campaignValuesReport({
         start: s, end: e, conversionMetricId: metricId,
         day: today, waitMs: slotWaitMs,
+        startUrl: cursors["campaigns"],
+        maxPages: opts.maxPagesPerStep,
         onProgress: (p, rows) => log(`  campaigns page ${p}: ${rows} rows`),
       });
       if (!res.ok) return { step: "campaigns", ok: false, detail: res.reason, pages: res.pages };
       reportingCalls += res.pages;
+      if (res.nextUrl) {
+        cursors["campaigns"] = res.nextUrl;
+        partial.add("campaigns");
+      } else {
+        delete cursors["campaigns"];
+      }
       if (res.truncated) warnings.push("Campaign values report hit the page cap — some campaigns may be missing.");
 
       // Fold the per-message rows to per-campaign.
@@ -333,13 +351,22 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
         // Series end is INCLUSIVE, so send the last day itself — sending the day
         // after produced a phantom trailing bucket.
         const { start: s, end: e } = seriesRangeISO(chunk.start, chunk.end);
+        const stepName = `flows:${chunk.start}..${chunk.end}`;
         const res = await flowSeriesReport({
           start: s, end: e, conversionMetricId: metricId,
           day: today, waitMs: slotWaitMs,
+          startUrl: cursors[stepName],
+          maxPages: opts.maxPagesPerStep,
           onProgress: (p, rows) => log(`  flows ${chunk.start} page ${p}: ${rows} rows`),
         });
         if (!res.ok) return { step: `flows:${chunk.start}`, ok: false, detail: res.reason, pages: res.pages };
         reportingCalls += res.pages;
+        if (res.nextUrl) {
+          cursors[stepName] = res.nextUrl;
+          partial.add(stepName);
+        } else {
+          delete cursors[stepName];
+        }
         if (res.report.truncated) warnings.push("Flow series report hit the page cap — some flows may be missing.");
         const rows = seriesToDays(res.report.dateTimes, res.report.results);
         flowDayRows = flowDayRows.concat(rows);
@@ -396,7 +423,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
       const r = await unit.run();
       steps.push(r);
       log(`${r.ok ? "ok  " : "FAIL"} ${r.step}: ${r.detail}`);
-      if (r.ok) done.add(unit.name);
+      if (r.ok && !partial.has(unit.name)) done.add(unit.name);
       else remaining.push(unit.name);
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
@@ -424,7 +451,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
   // Persist progress so the next hop skips what this one paid for; clear it once
   // the window is fully covered, so tomorrow starts fresh.
   if (remaining.length === 0) await clearProgress();
-  else await writeProgress(progressKey, [...done]);
+  else await writeProgress(progressKey, [...done], cursors);
 
   return {
     mode,

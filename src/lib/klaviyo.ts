@@ -362,10 +362,19 @@ export interface PagedFetchOpts {
    * interactive caller should pass 0 and handle the refusal. */
   waitMs?: number;
   onProgress?: (page: number, rows: number) => void;
+  /**
+   * Resume from this cursor URL instead of page 1. A flow report is four pages and
+   * each page needs its own 31s pacing slot, so it takes ~2 minutes — longer than
+   * any serverless invocation. Persisting the cursor lets a run fetch a page or two,
+   * keep the rows, and have the next invocation carry on where it stopped.
+   */
+  startUrl?: string;
+  /** Stop after this many pages and hand the cursor back. */
+  maxPages?: number;
 }
 
 export type PagedResult<T> =
-  | { ok: true; results: T[]; truncated: boolean; pages: number }
+  | { ok: true; results: T[]; truncated: boolean; pages: number; nextUrl: string | null }
   | { ok: false; reason: "blocked" | "daily_cap" | "timeout" | "throttled"; retryAfterS?: number; pages: number };
 
 const REPORT_FETCH_OPTS: KlaviyoFetchOpts = {
@@ -391,18 +400,25 @@ async function fetchAllPagesGated<T>(
 ): Promise<PagedResult<T>> {
   const bodyStr = JSON.stringify(body);
   const results: T[] = [];
-  let url: string | null = endpoint;
+  let url: string | null = opts.startUrl || endpoint;
   let pages = 0;
+  const maxPages = Math.min(opts.maxPages ?? MAX_REPORT_PAGES, MAX_REPORT_PAGES);
 
-  while (url && pages < MAX_REPORT_PAGES) {
+  while (url && pages < maxPages) {
     const slot = await acquireReportingSlot({ day: opts.day, waitMs: opts.waitMs ?? 0 });
-    if (!slot.ok) return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+    if (!slot.ok) {
+      // Keep whatever we already paid for: those rows are real and the cursor lets
+      // a later run continue. Only a run that got NOTHING is a failure.
+      if (pages > 0) return { ok: true, results, truncated: false, pages, nextUrl: url };
+      return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+    }
 
     let resp: ValuesReportResponse<T>;
     try {
       resp = await klaviyoFetch<ValuesReportResponse<T>>(url, { method: "POST", body: bodyStr }, REPORT_FETCH_OPTS);
     } catch (e) {
       if (e instanceof KlaviyoThrottled) {
+        if (pages > 0) return { ok: true, results, truncated: false, pages, nextUrl: url };
         return { ok: false, reason: "throttled", retryAfterS: e.retryAfterS, pages };
       }
       throw e;
@@ -414,7 +430,9 @@ async function fetchAllPagesGated<T>(
     const nextLink: string | null | undefined = resp.links?.next;
     url = nextLink ? nextLink.replace(BASE, "") : null;
   }
-  return { ok: true, results, truncated: url !== null, pages };
+  // `truncated` means we hit the hard safety cap with a cursor still live — a real
+  // data loss. Stopping at maxPages with a cursor to hand back is not that.
+  return { ok: true, results, truncated: pages >= MAX_REPORT_PAGES && url !== null, pages, nextUrl: url };
 }
 
 // `flowValuesReport` and its debug twin used to live here. Both are gone: a flow
@@ -572,7 +590,7 @@ export interface SeriesReport<G> {
 }
 
 export type PagedSeriesResult<G> =
-  | { ok: true; report: SeriesReport<G>; pages: number }
+  | { ok: true; report: SeriesReport<G>; pages: number; nextUrl: string | null }
   | { ok: false; reason: "blocked" | "daily_cap" | "timeout" | "throttled"; retryAfterS?: number; pages: number };
 
 /** Series reports paginate exactly like values reports — measured live at 4 pages
@@ -585,20 +603,28 @@ async function fetchAllSeriesPagesGated<G>(
   const bodyStr = JSON.stringify(body);
   const results: SeriesResult<G>[] = [];
   let dateTimes: string[] = [];
-  let url: string | null = endpoint;
+  let url: string | null = opts.startUrl || endpoint;
   let pages = 0;
+  const maxPages = Math.min(opts.maxPages ?? MAX_REPORT_PAGES, MAX_REPORT_PAGES);
 
-  while (url && pages < MAX_REPORT_PAGES) {
+  while (url && pages < maxPages) {
     const slot = await acquireReportingSlot({ day: opts.day, waitMs: opts.waitMs ?? 0 });
-    if (!slot.ok) return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+    if (!slot.ok) {
+      if (pages > 0) return { ok: true, report: { dateTimes, results, truncated: false }, pages, nextUrl: url };
+      return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+    }
 
     let resp: SeriesReportResponse<G>;
     try {
       resp = await klaviyoFetch<SeriesReportResponse<G>>(url, { method: "POST", body: bodyStr }, REPORT_FETCH_OPTS);
     } catch (e) {
-      if (e instanceof KlaviyoThrottled) return { ok: false, reason: "throttled", retryAfterS: e.retryAfterS, pages };
+      if (e instanceof KlaviyoThrottled) {
+        if (pages > 0) return { ok: true, report: { dateTimes, results, truncated: false }, pages, nextUrl: url };
+        return { ok: false, reason: "throttled", retryAfterS: e.retryAfterS, pages };
+      }
       throw e;
     }
+    // date_times comes back on EVERY page, so a resumed run still gets its labels.
     if (!dateTimes.length) dateTimes = resp.data.attributes.date_times ?? [];
     results.push(...(resp.data.attributes.results ?? []));
     pages++;
@@ -606,7 +632,12 @@ async function fetchAllSeriesPagesGated<G>(
     const nextLink: string | null | undefined = resp.links?.next;
     url = nextLink ? nextLink.replace(BASE, "") : null;
   }
-  return { ok: true, report: { dateTimes, results, truncated: url !== null }, pages };
+  return {
+    ok: true,
+    report: { dateTimes, results, truncated: pages >= MAX_REPORT_PAGES && url !== null },
+    pages,
+    nextUrl: url,
+  };
 }
 
 /** Klaviyo rejects a daily interval over a window longer than this — verified

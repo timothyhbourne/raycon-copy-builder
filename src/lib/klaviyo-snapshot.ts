@@ -65,6 +65,10 @@ export interface SyncProgress {
   /** Scopes the progress to one window, so a new day starts clean. */
   key: string;
   done: string[];
+  /** Live pagination cursor per step, for a report part-way through its pages. A
+   * flow report is 4 pages at 31s apart — longer than any serverless invocation —
+   * so a hop keeps the rows it paid for and hands the cursor to the next one. */
+  cursors?: Record<string, string>;
   updated_at: string;
 }
 
@@ -82,9 +86,11 @@ export async function readProgress(key: string): Promise<SyncProgress | null> {
   }
 }
 
-export async function writeProgress(key: string, done: string[]): Promise<void> {
+export async function writeProgress(key: string, done: string[], cursors: Record<string, string> = {}): Promise<void> {
   try {
-    await store.write(PROGRESS_KEY, JSON.stringify({ key, done, updated_at: new Date().toISOString() } satisfies SyncProgress));
+    await store.write(PROGRESS_KEY, JSON.stringify({
+      key, done, cursors, updated_at: new Date().toISOString(),
+    } satisfies SyncProgress));
   } catch { /* progress is an optimisation, never a requirement */ }
 }
 

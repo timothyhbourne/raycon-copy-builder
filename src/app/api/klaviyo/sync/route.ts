@@ -54,11 +54,16 @@ function authorized(req: NextRequest): boolean {
  */
 const BUDGET_MS = 32_000;
 const MAX_STEPS_PER_HOP = 1;
+/** One page per hop. Each page needs its own 31s pacing slot, so a 4-page flow
+ * report takes ~2 minutes and cannot fit one 60s function however the budget is
+ * arranged; the persisted cursor carries it across hops instead. */
+const MAX_PAGES_PER_STEP = 1;
 /** Short: a refused slot claim costs nothing because the next hop tries again. */
 const SLOT_WAIT_MS = 18_000;
-/** ~2 hops per reporting call at 31s spacing, so a full 60-day refresh (5 calls)
- * plus the cheap steps fits comfortably. */
-const MAX_HOPS = 20;
+/** ~2 hops per PAGE at 31s spacing. An incremental refresh is 1 campaign page + 4
+ * flow pages + 2 cheap steps, so ~12 hops; a deeper backfill needs more. Bounded
+ * so a stuck chain can't spin. */
+const MAX_HOPS = 40;
 
 async function run(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
@@ -77,6 +82,7 @@ async function run(req: NextRequest) {
     const result = await syncKlaviyoSnapshot({
       mode, days, budgetMs, reset,
       maxSteps: MAX_STEPS_PER_HOP,
+      maxPagesPerStep: MAX_PAGES_PER_STEP,
       slotWaitMs: SLOT_WAIT_MS,
       log: (l) => { lines.push(l); console.log(`[klaviyo/sync hop=${hop}] ${l}`); },
     });
