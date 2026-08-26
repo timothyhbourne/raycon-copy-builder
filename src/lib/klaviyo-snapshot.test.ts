@@ -170,3 +170,20 @@ describe("dailyChunks — Klaviyo rejects a daily interval over 60 days", () => 
     expect(dailyChunks("2026-08-25", "2026-08-25")).toEqual([{ start: "2026-08-25", end: "2026-08-25" }]);
   });
 });
+
+// The step budget is what keeps a serverless invocation inside its time limit.
+// The first version let a hop run as many steps as fit a wall-clock budget, and
+// production answered FUNCTION_INVOCATION_TIMEOUT: a reporting step waits ~31s for
+// its pacing slot ON TOP of whatever the cheap steps before it cost. A local dev
+// server has no function limit, which is why local verification missed it.
+describe("syncKlaviyoSnapshot step budget", () => {
+  it("a zero budget attempts nothing and leaves every step remaining", async () => {
+    const { syncKlaviyoSnapshot } = await import("./klaviyo-sync");
+    const result = await syncKlaviyoSnapshot({ budgetMs: 0, maxSteps: 1, log: () => {} });
+    // Nothing was attempted, so nothing was spent and nothing is claimed as done.
+    expect(result.reporting_calls).toBe(0);
+    expect(result.completed).toBe(false);
+    expect(result.remaining.length).toBeGreaterThan(0);
+    expect(result.steps.every((s) => s.detail === "already done this window" || s.ok)).toBe(true);
+  });
+});

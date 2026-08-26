@@ -43,10 +43,22 @@ function authorized(req: NextRequest): boolean {
   return tokenValid(req.cookies.get(AUTH_COOKIE)?.value);
 }
 
-/** Leave room inside the invocation to write the snapshot and respond. */
-const BUDGET_MS = 45_000;
-/** Enough for a full 60-day refresh (5 reporting calls) with slack. */
-const MAX_HOPS = 8;
+/**
+ * One step per invocation, with room to spare inside Vercel's 60s function limit.
+ *
+ * The first version budgeted 45s and let a hop run as many steps as fit. That
+ * timed out in production — a reporting step waits for its 31s pacing slot on top
+ * of whatever the cheap steps before it cost, and FUNCTION_INVOCATION_TIMEOUT also
+ * kills the after() hand-off, so the chain stopped dead. A local dev server has no
+ * such limit, which is exactly why local verification missed it.
+ */
+const BUDGET_MS = 32_000;
+const MAX_STEPS_PER_HOP = 1;
+/** Short: a refused slot claim costs nothing because the next hop tries again. */
+const SLOT_WAIT_MS = 18_000;
+/** ~2 hops per reporting call at 31s spacing, so a full 60-day refresh (5 calls)
+ * plus the cheap steps fits comfortably. */
+const MAX_HOPS = 20;
 
 async function run(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
@@ -64,6 +76,8 @@ async function run(req: NextRequest) {
   try {
     const result = await syncKlaviyoSnapshot({
       mode, days, budgetMs, reset,
+      maxSteps: MAX_STEPS_PER_HOP,
+      slotWaitMs: SLOT_WAIT_MS,
       log: (l) => { lines.push(l); console.log(`[klaviyo/sync hop=${hop}] ${l}`); },
     });
 

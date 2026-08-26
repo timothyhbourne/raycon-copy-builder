@@ -58,8 +58,22 @@ export interface SyncOpts {
   reset?: boolean;
   /** How many days back to cover. Defaults to 60 (one daily-series window). */
   days?: number;
-  /** Wall-clock budget. A serverless caller passes ~50s; a script passes hours. */
+  /** Wall-clock budget. A serverless caller passes ~30s; a script passes hours. */
   budgetMs?: number;
+  /**
+   * Most steps to run in ONE invocation. The route passes 1.
+   *
+   * A budget check between steps is not enough on serverless: a single step can
+   * overrun on its own (a reporting step waits up to ~31s for its slot, on top of
+   * whatever the cheap steps before it took) and the whole function is then killed
+   * with FUNCTION_INVOCATION_TIMEOUT — which also kills the after() hand-off, so
+   * the chain stops dead. One step per invocation makes a hop's cost bounded by
+   * the slowest SINGLE step rather than the sum.
+   */
+  maxSteps?: number;
+  /** How long a reporting page may wait for its limiter slot. Short on serverless:
+   * a refused claim is cheap because the next hop simply tries again. */
+  slotWaitMs?: number;
   /** Progress line sink — the script prints these, the route logs them. */
   log?: (line: string) => void;
 }
@@ -135,6 +149,8 @@ export function dailyChunks(start: string, end: string, maxDays = MAX_DAILY_SERI
 
 export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResult> {
   const log = opts.log ?? noop;
+  const maxSteps = opts.maxSteps ?? Number.POSITIVE_INFINITY;
+  const slotWaitMs = opts.slotWaitMs ?? MIN_SPACING_MS + 5_000;
   const mode: SyncMode = opts.mode ?? "incremental";
   const budgetMs = opts.budgetMs ?? 50_000;
   const deadline = Date.now() + budgetMs;
@@ -243,7 +259,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
       const { start: s, end: e } = dayRangeISO(start, end);
       const res = await campaignValuesReport({
         start: s, end: e, conversionMetricId: metricId,
-        day: today, waitMs: MIN_SPACING_MS + 5_000,
+        day: today, waitMs: slotWaitMs,
         onProgress: (p, rows) => log(`  campaigns page ${p}: ${rows} rows`),
       });
       if (!res.ok) return { step: "campaigns", ok: false, detail: res.reason, pages: res.pages };
@@ -319,7 +335,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
         const { start: s, end: e } = seriesRangeISO(chunk.start, chunk.end);
         const res = await flowSeriesReport({
           start: s, end: e, conversionMetricId: metricId,
-          day: today, waitMs: MIN_SPACING_MS + 5_000,
+          day: today, waitMs: slotWaitMs,
           onProgress: (p, rows) => log(`  flows ${chunk.start} page ${p}: ${rows} rows`),
         });
         if (!res.ok) return { step: `flows:${chunk.start}`, ok: false, detail: res.reason, pages: res.pages };
@@ -366,12 +382,16 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
 
   // ---- run the plan against the budget ----
   const remaining: string[] = [];
+  let ran = 0;
   for (const unit of plan) {
     if (done.has(unit.name)) { steps.push({ step: unit.name, ok: true, detail: "already done this window" }); continue; }
-    // A reporting step needs room for its pacing; anything else is fast. Reserve
-    // enough for at least one page rather than starting work we must abandon.
-    const need = unit.reporting ? MIN_SPACING_MS + 12_000 : 5_000;
+    // Out of step budget for this invocation: leave it for the next hop.
+    if (ran >= maxSteps) { remaining.push(unit.name); continue; }
+    // A reporting step needs room for its slot wait plus the call; anything else is
+    // fast. Reserve rather than starting work we would have to abandon.
+    const need = unit.reporting ? slotWaitMs + 8_000 : 8_000;
     if (Date.now() + need > deadline) { remaining.push(unit.name); continue; }
+    ran++;
     try {
       const r = await unit.run();
       steps.push(r);
