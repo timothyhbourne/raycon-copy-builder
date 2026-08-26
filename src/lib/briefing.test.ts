@@ -10,11 +10,23 @@ function campaign(over: Partial<CampaignRow> & { name: string; revenue: number; 
     campaign_id: over.name, status: "sent", send_time: "2026-08-05T12:00:00Z",
     opens: 0, clicks: 0,
     revenue_per_recipient: over.recipients > 0 ? over.revenue / over.recipients : 0,
+    ...noDeliverability,
     ...over,
   } as CampaignRow;
 }
+// The deliverability half of a row is zeroed in these fixtures on purpose: the
+// briefing facts don't read it, and giving it fake values would make the tests
+// look like they cover it.
+const noDeliverability = {
+  delivered: 0, open_rate: 0, click_rate: 0, unsubscribes: 0, unsubscribe_rate: 0,
+  spam_complaints: 0, spam_rate: 0, bounced: 0, bounce_rate: 0,
+};
 function flow(name: string, revenue: number, recipients: number): FlowRow {
-  return { flow_id: name, name, status: "live", opens: 0, clicks: 0, revenue, recipients, revenue_per_recipient: recipients > 0 ? revenue / recipients : 0 };
+  return {
+    flow_id: name, name, status: "live", opens: 0, clicks: 0, revenue, recipients,
+    revenue_per_recipient: recipients > 0 ? revenue / recipients : 0,
+    ...noDeliverability,
+  };
 }
 function meta(n: number): CampaignMeta[] {
   return Array.from({ length: n }, (_, i) => ({ campaign_id: `c${i}`, name: `c${i}`, status: "sent", send_time: null, audience_count: 0 }));

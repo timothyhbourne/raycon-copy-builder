@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardDataProvider } from "./dashboard-context";
 import type { OverviewData } from "./types";
+import { overviewFromSnapshot } from "@/lib/overview-from-snapshot";
+import type { KlaviyoSnapshot } from "@/lib/klaviyo-slice";
 import { ymd, formatMoney, formatInt } from "./format";
 import Button from "@/components/ui/Button";
 import Skeleton from "@/components/ui/Skeleton";
@@ -20,6 +22,8 @@ import DashboardBriefing from "@/components/DashboardBriefing";
 
 const CACHE_KEY = "rc-measure-cache-v1";
 const MAX_CACHED_RANGES = 20;
+/** Matches lib/measure-cache.ts: a snapshot older than a missed daily sync. */
+const STALE_AFTER_MS = 36 * 60 * 60_000;
 
 function monthToDateStart(): string {
   const d = new Date();
@@ -68,60 +72,132 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
-  const loadRange = useCallback(async (s: string, e: string, opts?: { force?: boolean }) => {
-    const key = rangeKey(s, e);
-    if (!opts?.force && cacheRef.current.has(key)) {
-      // Cache hit → render instantly, no loading state, no network call.
-      setData(cacheRef.current.get(key)!);
-      setError(null);
-      setLoading(false);
-      return;
+  // THE SNAPSHOT, fetched once. Every range is then computed from it in the
+  // browser — so changing the date range costs no Klaviyo call, no call to us,
+  // and no round trip at all (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.1, §4). The old
+  // code fetched per range, which against Klaviyo's 2-reporting-calls-per-minute
+  // quota meant dragging the picker twice was a guaranteed 429.
+  const snapshotRef = useRef<KlaviyoSnapshot | null>(null);
+  // Set when the chosen range reaches back past what the snapshot holds. The
+  // dashboard cannot fetch it itself — that per-range fetching is exactly what
+  // caused the throttling — so it offers to extend the snapshot instead.
+  const [uncovered, setUncovered] = useState<{ start: string; end: string; days: number } | null>(null);
+  const [extending, setExtending] = useState(false);
+  const [extendNote, setExtendNote] = useState<string | null>(null);
+
+  /** Slice a range out of the loaded snapshot. Pure, instant, no I/O. */
+  const sliceLocal = useCallback((s: string, e: string): OverviewData | null => {
+    const snap = snapshotRef.current;
+    if (!snap) return null;
+    const age = Date.now() - Date.parse(snap.synced_at || "");
+    return {
+      ...overviewFromSnapshot(snap, s, e),
+      fetched_at: snap.synced_at,
+      stale: !Number.isFinite(age) || age > STALE_AFTER_MS,
+    };
+  }, []);
+
+  const showRange = useCallback((s: string, e: string) => {
+    const sliced = sliceLocal(s, e);
+    if (!sliced) return;
+    cacheRef.current.set(rangeKey(s, e), sliced);
+    persistCache();
+    setData(sliced);
+    setError(null);
+    setLoading(false);
+
+    // Is the range actually inside the snapshot? If not, say so with an action
+    // rather than only a warning: "no data" with no way forward is a dead end.
+    const snap = snapshotRef.current;
+    const start = snap?.window.start ?? "";
+    if (snap && start && s < start) {
+      // Depth needed from today back to the requested start, plus a week of
+      // margin. Capped at a year: campaign-values rejects a longer timeframe.
+      const days = Math.min(365, Math.ceil((Date.parse(`${snap.window.end}T00:00:00Z`) - Date.parse(`${s}T00:00:00Z`)) / 86_400_000) + 7);
+      setUncovered({ start: s, end: e, days });
+    } else {
+      setUncovered(null);
     }
-    // Miss (or forced): clear the screen so we never show stale rows, then fetch.
+  }, [sliceLocal, persistCache]);
+
+  const loadSnapshot = useCallback(async (s: string, e: string) => {
     setLoading(true);
     setError(null);
-    setData(null);
     try {
-      const res = await fetch(`/api/klaviyo/measure?start=${s}&end=${e}`);
+      const res = await fetch("/api/klaviyo/snapshot");
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load this range");
-      // Prefer the SERVER's fetched_at (the shared cache's real fetch time) so
-      // staleness is honest; only stamp client time if the server omitted it.
-      const j = json as OverviewData;
-      const stamped: OverviewData = { ...j, fetched_at: j.fetched_at ?? new Date().toISOString() };
-      cacheRef.current.set(key, stamped);
-      persistCache();
-      setData(stamped);
+      if (!res.ok) throw new Error(json.error || "Failed to load Klaviyo data");
+      snapshotRef.current = json as KlaviyoSnapshot;
+      showRange(s, e);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Load failed");
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [persistCache]);
+  }, [showRange]);
 
-  // On mount: hydrate any warm ranges from this session, then load month-to-date.
+  // On mount: one snapshot fetch, then render month-to-date from it.
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const obj = JSON.parse(raw) as Record<string, OverviewData>;
-        for (const [k, v] of Object.entries(obj)) cacheRef.current.set(k, v);
-      }
-    } catch { /* ignore malformed / unavailable cache */ }
-    void loadRange(start, end);
+    void loadSnapshot(start, end);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Picker commit: DateRangePicker emits (start, "") mid-selection and (start,end)
-  // when complete — only fetch once a full range is committed.
+  // when complete — only render once a full range is committed. Local slice: no
+  // network, no loading state, no flash of empty rows.
   const onRangeChange = useCallback((s: string, e: string) => {
     setStart(s);
     setEnd(e);
-    if (s && e) void loadRange(s, e);
-  }, [loadRange]);
+    if (s && e) showRange(s, e);
+  }, [showRange]);
 
-  const refresh = () => void loadRange(start, end, { force: true });
+  // Refresh re-reads the snapshot. It does NOT force a Klaviyo pull — that is the
+  // sync's job, on its own schedule, and doing it from a page load is exactly the
+  // pattern that caused the throttling.
+  const refresh = () => void loadSnapshot(start, end);
+
+  /**
+   * Extend the snapshot back far enough to cover the chosen range.
+   *
+   * Kicks off the sync and polls until the range is covered. The sync paces its
+   * Klaviyo calls 31 seconds apart to stay inside the 2-per-minute reporting
+   * quota, so this takes minutes for a deep window — which is why it reports
+   * progress instead of pretending to be instant.
+   */
+  const extendSnapshot = useCallback(async () => {
+    if (!uncovered) return;
+    setExtending(true);
+    setExtendNote("Starting — Klaviyo's reporting quota is 2 calls a minute, so this takes a few minutes.");
+    try {
+      const res = await fetch(`/api/klaviyo/sync?mode=full&days=${uncovered.days}`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Sync failed (HTTP ${res.status})`);
+
+      // Poll for coverage. The sync chains itself across invocations, so the
+      // snapshot grows in steps; stop as soon as the range the user asked for is in.
+      const deadline = Date.now() + 15 * 60_000;
+      for (let tick = 1; Date.now() < deadline; tick++) {
+        await new Promise((r) => setTimeout(r, 15_000));
+        const snapRes = await fetch("/api/klaviyo/snapshot");
+        if (!snapRes.ok) continue;
+        const snap = (await snapRes.json()) as KlaviyoSnapshot;
+        snapshotRef.current = snap;
+        cacheRef.current.clear();          // every cached range predates the new data
+        if (snap.window.start <= uncovered.start) {
+          setExtendNote(null);
+          setUncovered(null);
+          showRange(uncovered.start, uncovered.end);
+          return;
+        }
+        setExtendNote(`Loading… the snapshot now reaches back to ${snap.window.start}; need ${uncovered.start}. (${tick * 15}s)`);
+      }
+      setExtendNote("Still loading in the background. Give it another minute and hit Refresh.");
+    } catch (err) {
+      setExtendNote(err instanceof Error ? err.message : "Could not extend the loaded window.");
+    } finally {
+      setExtending(false);
+    }
+  }, [uncovered, showRange]);
 
   const hasData = data !== null;
   const revenue = data?.revenue ?? null;
@@ -136,7 +212,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           eyebrow="Dashboard"
           title="Performance"
           accent="overview"
-          description="Placed-order and Klaviyo-attributed email revenue, fetched live for the selected range."
+          description="Placed-order and Klaviyo-attributed email revenue. Synced on a schedule; every range is computed from the same stored data."
           meta={
             <>
               {hasData && (
@@ -144,13 +220,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   title={data?.fetched_at ? `Fetched ${new Date(data.fetched_at).toLocaleString()}` : undefined}>
                   <span className={`w-1.5 h-1.5 rounded-full ${data?.stale ? "bg-warning-600" : "bg-success-600"}`} aria-hidden />
                   {data?.stale
-                    ? <>Last known figures · as of {fetchedLabel(data?.fetched_at)} (Klaviyo rate-limited)</>
-                    : <>Live data · fetched {fetchedLabel(data?.fetched_at)}</>}
+                    ? <>Last sync {fetchedLabel(data?.fetched_at)} — overdue, figures may be behind</>
+                    : <>Synced {fetchedLabel(data?.fetched_at)}</>}
                 </div>
               )}
               <DateRangePicker start={start} end={end} onChange={onRangeChange} />
               <Button variant="secondary" size="sm" loading={loading} onClick={refresh}
-                title="Re-fetch this range live from Klaviyo">
+                title="Re-read the latest synced Klaviyo data. The sync itself runs on a schedule — this doesn't call Klaviyo.">
                 <RefreshIcon className={`mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
               </Button>
             </>
@@ -164,6 +240,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="text-sm text-danger-600 whitespace-pre-wrap break-words">{error}</div>
             </div>
             <Button variant="secondary" size="sm" loading={loading} onClick={refresh}>Retry</Button>
+          </div>
+        )}
+
+        {/* An uncovered range is an ACTION, not just a note. The dashboard reads a
+            stored snapshot rather than calling Klaviyo per range (that was the
+            cause of the 429s), so reaching further back means extending the
+            snapshot — and the user needs a button for that, not an explanation. */}
+        {uncovered && (
+          <div className="bg-accent-50 border border-accent-200 rounded-md p-4 mb-6 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="t-label text-accent mb-1">This range reaches further back than the loaded data</div>
+              <div className="text-sm text-ink-secondary">
+                Klaviyo data is loaded up to {snapshotRef.current?.window.start ?? "—"}; you asked for {uncovered.start}.
+                {extendNote ? <> {extendNote}</> : <> Loading it pulls roughly {Math.ceil(uncovered.days / 60) * 4 + 1} Klaviyo calls, paced to stay under the rate limit.</>}
+              </div>
+            </div>
+            <Button variant="primary" size="sm" loading={extending} onClick={() => void extendSnapshot()}>
+              {extending ? "Loading…" : "Load this range"}
+            </Button>
           </div>
         )}
 

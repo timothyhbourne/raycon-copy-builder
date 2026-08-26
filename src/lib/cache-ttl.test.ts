@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  addDaysYMD, rangeMutability, rangeTtlMs, ttlForMutability, overviewCacheKey, isFresh, todayYMDInTz,
+  addDaysYMD, rangeMutability, rangeTtlMs, ttlForMutability, overviewCacheKey, isFresh, todayYMDInTz, zonedMidnightUtc,
 } from "./cache-ttl";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -68,3 +68,35 @@ describe("todayYMDInTz", () => {
     expect(todayYMDInTz("America/New_York", new Date("2026-08-11T02:00:00.000Z"))).toBe("2026-08-10");
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("zonedMidnightUtc", () => {
+  it("is the real UTC instant of local midnight, not a naive relabelling", () => {
+    // Klaviyo buckets by the timezone you pass but reads a naive filter datetime
+    // as UTC. Sending 00:00Z for a US/Eastern account asked for 20:00 the previous
+    // evening, which produced a partial leading bucket and truncated the last day.
+    expect(zonedMidnightUtc("2026-08-20", "US/Eastern")).toBe("2026-08-20T04:00:00Z");   // EDT, UTC-4
+    expect(zonedMidnightUtc("2026-01-15", "US/Eastern")).toBe("2026-01-15T05:00:00Z");   // EST, UTC-5
+  });
+
+  it("handles a zone ahead of UTC", () => {
+    expect(zonedMidnightUtc("2026-08-20", "Europe/Berlin")).toBe("2026-08-19T22:00:00Z");
+    expect(zonedMidnightUtc("2026-08-20", "Asia/Tokyo")).toBe("2026-08-19T15:00:00Z");
+  });
+
+  it("is identity for UTC", () => {
+    expect(zonedMidnightUtc("2026-08-20", "UTC")).toBe("2026-08-20T00:00:00Z");
+  });
+
+  it("falls back to UTC for an unknown zone rather than throwing", () => {
+    expect(zonedMidnightUtc("2026-08-20", "Not/AZone")).toBe("2026-08-20T00:00:00Z");
+  });
+
+  it("round-trips: the instant it returns lands on that day in that zone", () => {
+    for (const tz of ["US/Eastern", "Europe/Berlin", "Asia/Tokyo", "UTC"]) {
+      for (const ymd of ["2026-01-15", "2026-03-08", "2026-08-20", "2026-11-02"]) {
+        expect(todayYMDInTz(tz, new Date(zonedMidnightUtc(ymd, tz))), `${tz} ${ymd}`).toBe(ymd);
+      }
+    }
+  });
+})

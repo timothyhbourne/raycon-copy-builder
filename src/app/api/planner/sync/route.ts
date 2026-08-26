@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { listPlannerRows, writeSyncedMetrics } from "@/lib/planner";
 import { isSendableRow } from "@/lib/planner-types";
 import type { PlannerRow, SyncedMetrics, SyncResult } from "@/lib/planner-types";
-import { dayRangeISO, resolvePlacedOrderMetric, fetchCampaignsByIds } from "@/lib/klaviyo";
-import { getCampaignValuesCached } from "@/lib/klaviyo-cache";
+import { fetchCampaignsByIds } from "@/lib/klaviyo";
+import { readSnapshot, sliceRange } from "@/lib/klaviyo-snapshot";
 import { isNorthbeamConfigured, getCampaignRevenue, normalizeCampaignName, northbeamPlatformLabels } from "@/lib/northbeam";
 
 // Campaign report stats folded per campaign id. The window fetch goes through
@@ -67,19 +67,25 @@ export async function POST() {
         // conversion accrual is captured and the window can't miss the send.
         const startYMD = addDaysYMD(eligible.map((r) => ymd(emailSendBasis(r)!)).sort()[0], -1);
         const endYMD = ymd(now);
-        const metric = await resolvePlacedOrderMetric();
-        const { start, end } = dayRangeISO(startYMD, endYMD);
-        const report = await getCampaignValuesCached(start, end, metric.id);
-        if (report.truncated) warnings.push("Klaviyo campaign report was truncated — some campaigns may be missing.");
-        for (const r of report.results) {
-          const id = r.groupings.campaign_id;
-          if (!id) continue;
-          const cur = byId.get(id) ?? { recipients: 0, opens_unique: 0, clicks_unique: 0, conversion_value: 0 };
-          cur.recipients += r.statistics.recipients ?? 0;
-          cur.opens_unique += r.statistics.opens_unique ?? 0;
-          cur.clicks_unique += r.statistics.clicks_unique ?? 0;
-          cur.conversion_value += r.statistics.conversion_value ?? 0;
-          byId.set(id, cur);
+        // From the nightly snapshot, not a fresh reporting call. The sync used to
+        // spend a tight-tier call of its own for a window the dashboard had
+        // usually already fetched (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.1).
+        const snap = await readSnapshot();
+        if (!snap) {
+          warnings.push("No Klaviyo snapshot yet — run the Klaviyo sync, then sync the planner again.");
+        } else {
+          const slice = sliceRange(snap, startYMD, endYMD);
+          if (!slice.covered) {
+            warnings.push(`The Klaviyo snapshot doesn't cover ${slice.missing_days.length} day(s) of this window (it holds ${snap.window.start} to ${snap.window.end}) — those sends can't be matched yet.`);
+          }
+          for (const c of slice.campaigns) {
+            byId.set(c.id, {
+              recipients: c.stats.recipients,
+              opens_unique: c.stats.opens_unique,
+              clicks_unique: c.stats.clicks_unique,
+              conversion_value: c.stats.conversion_value,
+            });
+          }
         }
       }
 

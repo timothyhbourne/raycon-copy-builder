@@ -10,8 +10,7 @@
 //   - campaign mode: denominator = campaigns only (use once Northbeam is
 //     confirmed to break revenue out campaign-vs-flow for this account).
 
-import { dayRangeISO, resolvePlacedOrderMetric } from "@/lib/klaviyo";
-import { getCampaignValuesCached, getFlowValuesCached } from "@/lib/klaviyo-cache";
+import { readSnapshot, sliceRange } from "@/lib/klaviyo-snapshot";
 
 export interface EmailRecipients {
   campaignRecipients: number; // delivered recipients of campaigns that sent in-week
@@ -22,32 +21,30 @@ export interface EmailRecipients {
 
 // A campaign's / flow's recipients are counted at send, so rows with
 // recipients > 0 are exactly the sends that happened in the window.
+//
+// Reads the nightly snapshot rather than making its own reporting calls: the
+// weekly report used to duplicate the two calls the dashboard had already made,
+// which against a 2/min quota is how one cron run could throttle the app for
+// everyone (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.1).
 export async function captureEmailRecipients(weekStartYMD: string, weekEndYMD: string): Promise<EmailRecipients> {
-  const metric = await resolvePlacedOrderMetric();
-  const { start, end } = dayRangeISO(weekStartYMD, weekEndYMD);
+  const snap = await readSnapshot();
+  if (!snap) return { campaignRecipients: 0, flowRecipients: 0, campaignCount: 0, truncated: true };
 
-  const campaignReport = await getCampaignValuesCached(start, end, metric.id);
-  const byCampaign = new Map<string, number>();
-  for (const r of campaignReport.results) {
-    const id = r.groupings.campaign_id;
-    if (!id) continue;
-    byCampaign.set(id, (byCampaign.get(id) ?? 0) + (r.statistics.recipients ?? 0));
-  }
+  const slice = sliceRange(snap, weekStartYMD, weekEndYMD);
   let campaignRecipients = 0;
   let campaignCount = 0;
-  for (const [, n] of byCampaign) {
-    if (n > 0) { campaignRecipients += n; campaignCount++; }
+  for (const c of slice.campaigns) {
+    if (c.stats.recipients > 0) { campaignRecipients += c.stats.recipients; campaignCount++; }
   }
-
-  const flowReport = await getFlowValuesCached(start, end, metric.id);
-  let flowRecipients = 0;
-  for (const r of flowReport.results) flowRecipients += r.statistics.recipients ?? 0;
+  const flowRecipients = slice.flows.reduce((n, f) => n + f.stats.recipients, 0);
 
   return {
     campaignRecipients,
     flowRecipients,
     campaignCount,
-    truncated: campaignReport.truncated || flowReport.truncated,
+    // `truncated` now means "the week isn't fully covered by the snapshot", which
+    // is the same signal the report needs: the denominator would be understated.
+    truncated: !slice.covered,
   };
 }
 

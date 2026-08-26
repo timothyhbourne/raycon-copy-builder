@@ -10,7 +10,23 @@ export interface RevenueData {
   order_count: number;
 }
 
-export interface FlowRow {
+/** The deliverability half of every row. It always came back in the report we
+ * already made — we simply weren't asking for it, and `delivered` was being
+ * thrown away (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.5). Rates are per DELIVERED,
+ * except bounce_rate, which is per recipient by definition. */
+export interface DeliverabilityStats {
+  delivered: number;
+  open_rate: number;
+  click_rate: number;
+  unsubscribes: number;
+  unsubscribe_rate: number;
+  spam_complaints: number;
+  spam_rate: number;
+  bounced: number;
+  bounce_rate: number;
+}
+
+export interface FlowRow extends DeliverabilityStats {
   flow_id: string;
   name: string;
   status?: string;
@@ -21,7 +37,7 @@ export interface FlowRow {
   revenue_per_recipient: number;
 }
 
-export interface CampaignRow {
+export interface CampaignRow extends DeliverabilityStats {
   campaign_id: string;
   name: string;
   status?: string;

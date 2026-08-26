@@ -18,6 +18,13 @@ export function formatPct(num: number, denom: number): string {
   return `${((num / denom) * 100).toFixed(1)}%`;
 }
 
+/** A rate that is already a fraction (0..1), e.g. an open or unsubscribe rate.
+ * `digits` because a spam rate lives at 0.005% and would round to 0.0% at one. */
+export function formatRate(fraction: number, digits = 1): string {
+  if (!Number.isFinite(fraction) || fraction <= 0) return "—";
+  return `${(fraction * 100).toFixed(digits)}%`;
+}
+
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);

@@ -52,6 +52,39 @@ export function overviewCacheKey(start: string, end: string): string {
   return `overview:v1:${start}..${end}`;
 }
 
+/**
+ * The UTC instant of midnight on `ymd` in `tz`, as an ISO string ending in "Z".
+ *
+ * Klaviyo's metric-aggregates endpoint buckets by the timezone you pass but
+ * interprets a NAIVE filter datetime as UTC. Verified live: asking for
+ * `>= 2026-08-20T00:00:00` with timezone US/Eastern returned a first bucket of
+ * 2026-08-19 — a partial day — because 00:00Z is 20:00 the previous evening in
+ * New York. The last day came back truncated for the same reason. Sending the
+ * real instant of local midnight fixes both edges.
+ */
+export function zonedMidnightUtc(ymd: string, tz: string): string {
+  const guess = Date.parse(`${ymd}T00:00:00Z`);
+  if (!Number.isFinite(guess)) return `${ymd}T00:00:00Z`;
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    const p = Object.fromEntries(
+      fmt.formatToParts(new Date(guess)).filter((x) => x.type !== "literal").map((x) => [x.type, x.value]),
+    );
+    // Intl can render midnight as hour "24" in some locales/zones.
+    const hour = p.hour === "24" ? "00" : p.hour;
+    const asIfUtc = Date.parse(`${p.year}-${p.month}-${p.day}T${hour}:${p.minute}:${p.second}Z`);
+    if (!Number.isFinite(asIfUtc)) return `${ymd}T00:00:00Z`;
+    const offsetMs = asIfUtc - guess;
+    return new Date(guess - offsetMs).toISOString().replace(".000Z", "Z");
+  } catch {
+    return `${ymd}T00:00:00Z`;   // unknown zone → UTC, same as todayYMDInTz
+  }
+}
+
 /** A cached entry is fresh while now − fetched_at < ttl. */
 export function isFresh(fetchedAtIso: string, ttlMs: number, now: number = Date.now()): boolean {
   const t = Date.parse(fetchedAtIso);

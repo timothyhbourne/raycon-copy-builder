@@ -2,10 +2,9 @@ import path from "path";
 import { getAdapter } from "./storage";
 import {
   getAccountTimezone, listFlows, fetchCampaignsByStatus,
-  campaignValuesReport, flowValuesReport,
-  type FlowListItem, type KlaviyoCampaign, type CampaignValuesResult, type FlowValuesResult,
+  type FlowListItem, type KlaviyoCampaign,
 } from "./klaviyo";
-import { isFresh, rangeTtlMs, todayYMDInTz } from "./cache-ttl";
+import { isFresh } from "./cache-ttl";
 
 // Redis caches for the slow-moving Klaviyo metadata + the tight-tier report
 // results (spec: ANALYTICS_RATE_LIMIT_SPEC §4 Layer 4). All analytics caches
@@ -58,16 +57,9 @@ export function getScheduledCampaignsCached(): Promise<{ campaigns: KlaviyoCampa
   return cached("meta:scheduled:v1", HOUR_MS, () => fetchCampaignsByStatus("Scheduled"));
 }
 
-// ---- report-level caches (for planner sync + weekly report, which fetch
-// specific windows rather than whole dashboard ranges). TTL by range mutability
-// so a past send window is fetched once. ----
-async function reportTtl(start: string, end: string): Promise<number> {
-  const tz = await getAccountTimezoneCached();
-  return rangeTtlMs(start, end, todayYMDInTz(tz));
-}
-export async function getCampaignValuesCached(start: string, end: string, conversionMetricId: string): Promise<{ results: CampaignValuesResult[]; truncated: boolean }> {
-  return cached(`campvals:v1:${start}..${end}`, await reportTtl(start, end), () => campaignValuesReport({ start, end, conversionMetricId }));
-}
-export async function getFlowValuesCached(start: string, end: string, conversionMetricId: string): Promise<{ results: FlowValuesResult[]; truncated: boolean }> {
-  return cached(`flowvals:v1:${start}..${end}`, await reportTtl(start, end), () => flowValuesReport({ start, end, conversionMetricId }));
-}
+// The per-window report caches that used to live here (getCampaignValuesCached /
+// getFlowValuesCached) are GONE. They cached a reporting call per window, which is
+// exactly the shape docs/KLAVIYO_RATE_LIMIT_SPEC.md identifies as the bug: a cache
+// in front of a per-range call still makes a per-range call on every miss, and two
+// of those is the whole minute's quota. Every consumer now reads the nightly
+// snapshot (lib/klaviyo-snapshot.ts) and slices it locally instead.

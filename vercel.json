@@ -1,5 +1,12 @@
 {
   "crons": [
-    { "path": "/api/reports/weekly/run", "schedule": "0 13 * * 1" }
+    {
+      "path": "/api/reports/weekly/run",
+      "schedule": "0 13 * * 1"
+    },
+    {
+      "path": "/api/klaviyo/sync",
+      "schedule": "20 8 * * *"
+    }
   ]
 }

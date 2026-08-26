@@ -1,7 +1,7 @@
 "use client";
 import { useDashboardData } from "../dashboard-context";
 import type { CampaignMeta } from "../types";
-import { formatMoney, formatInt, formatPct, formatDate, formatDateTime } from "../format";
+import { formatMoney, formatInt, formatPct, formatDate, formatDateTime, formatRate } from "../format";
 import Card from "@/components/ui/Card";
 import { KPIRow, StatCell } from "@/components/ui/Stat";
 
@@ -47,8 +47,14 @@ export default function CampaignsPage() {
                 <th className="px-4 py-2.5 font-medium">Campaign</th>
                 <th className="px-4 py-2.5 font-medium">Send date</th>
                 <th className="px-4 py-2.5 font-medium text-right">Recipients</th>
-                <th className="px-4 py-2.5 font-medium text-right">Opens</th>
-                <th className="px-4 py-2.5 font-medium text-right">Clicks</th>
+                <th className="px-4 py-2.5 font-medium text-right" title="Delivered / recipients">Delivered</th>
+                <th className="px-4 py-2.5 font-medium text-right" title="Unique opens / delivered">Open</th>
+                <th className="px-4 py-2.5 font-medium text-right" title="Unique clicks / delivered">Click</th>
+                {/* List health. These came back in the report we already made — we
+                    simply weren't asking (KLAVIYO_RATE_LIMIT_SPEC §3.5). */}
+                <th className="px-4 py-2.5 font-medium text-right" title="Unsubscribes / delivered">Unsub</th>
+                <th className="px-4 py-2.5 font-medium text-right" title="Spam complaints / delivered">Spam</th>
+                <th className="px-4 py-2.5 font-medium text-right" title="Bounces / recipients">Bounce</th>
                 <th className="px-4 py-2.5 font-medium text-right">Revenue</th>
                 <th className="px-4 py-2.5 font-medium text-right">Rev / recipient</th>
               </tr>
@@ -63,8 +69,12 @@ export default function CampaignsPage() {
                     </td>
                     <td className="px-4 py-2.5 text-ink-secondary whitespace-nowrap">{formatDate(c.send_time)}</td>
                     <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(c.recipients)}</td>
-                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(c.opens)}</td>
-                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(c.clicks)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.delivered)} delivered`}>{formatRate(c.recipients > 0 ? c.delivered / c.recipients : 0)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.opens)} unique opens`}>{formatRate(c.open_rate)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.clicks)} unique clicks`}>{formatRate(c.click_rate)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.unsubscribes)} unsubscribes`}>{formatRate(c.unsubscribe_rate, 2)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.spam_complaints)} spam complaints`}>{formatRate(c.spam_rate, 3)}</td>
+                    <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(c.bounced)} bounces`}>{formatRate(c.bounce_rate, 2)}</td>
                     <td className="px-4 py-2.5 text-right text-ink font-mono tabular-nums font-medium">{formatMoney(c.revenue)}</td>
                     <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">
                       {c.recipients > 0 ? `$${c.revenue_per_recipient.toFixed(2)}` : "—"}
@@ -73,7 +83,7 @@ export default function CampaignsPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-ink-muted text-sm">
+                  <td colSpan={10} className="px-4 py-10 text-center text-ink-muted text-sm">
                     No sent campaigns with activity in this range.
                   </td>
                 </tr>

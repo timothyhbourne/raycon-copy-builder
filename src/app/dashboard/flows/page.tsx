@@ -1,6 +1,6 @@
 "use client";
 import { useDashboardData } from "../dashboard-context";
-import { formatMoney, formatInt, formatPct } from "../format";
+import { formatMoney, formatInt, formatPct, formatRate } from "../format";
 import Card from "@/components/ui/Card";
 import { KPIRow, StatCell } from "@/components/ui/Stat";
 
@@ -44,8 +44,14 @@ export default function FlowsPage() {
             <tr className="text-left t-label border-b border-line">
               <th className="px-4 py-2.5 font-medium">Flow</th>
               <th className="px-4 py-2.5 font-medium text-right">Recipients</th>
-              <th className="px-4 py-2.5 font-medium text-right">Opens</th>
-              <th className="px-4 py-2.5 font-medium text-right">Clicks</th>
+              <th className="px-4 py-2.5 font-medium text-right" title="Delivered / recipients">Delivered</th>
+              <th className="px-4 py-2.5 font-medium text-right" title="Unique opens / delivered">Open</th>
+              <th className="px-4 py-2.5 font-medium text-right" title="Unique clicks / delivered">Click</th>
+              {/* List health. These came back in the report we already made — we
+                  simply weren't asking (KLAVIYO_RATE_LIMIT_SPEC §3.5). */}
+              <th className="px-4 py-2.5 font-medium text-right" title="Unsubscribes / delivered">Unsub</th>
+              <th className="px-4 py-2.5 font-medium text-right" title="Spam complaints / delivered">Spam</th>
+              <th className="px-4 py-2.5 font-medium text-right" title="Bounces / recipients">Bounce</th>
               <th className="px-4 py-2.5 font-medium text-right">Revenue</th>
               <th className="px-4 py-2.5 font-medium text-right">Rev / recipient</th>
             </tr>
@@ -59,8 +65,12 @@ export default function FlowsPage() {
                     {f.status && <div className="text-[10px] text-ink-tertiary capitalize">{f.status}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.recipients)}</td>
-                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.opens)}</td>
-                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">{formatInt(f.clicks)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.delivered)} delivered`}>{formatRate(f.recipients > 0 ? f.delivered / f.recipients : 0)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.opens)} unique opens`}>{formatRate(f.open_rate)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.clicks)} unique clicks`}>{formatRate(f.click_rate)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.unsubscribes)} unsubscribes`}>{formatRate(f.unsubscribe_rate, 2)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.spam_complaints)} spam complaints`}>{formatRate(f.spam_rate, 3)}</td>
+                  <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums" title={`${formatInt(f.bounced)} bounces`}>{formatRate(f.bounce_rate, 2)}</td>
                   <td className="px-4 py-2.5 text-right text-ink font-mono tabular-nums font-medium">{formatMoney(f.revenue)}</td>
                   <td className="px-4 py-2.5 text-right text-ink-secondary font-mono tabular-nums">
                     {f.recipients > 0 ? `$${f.revenue_per_recipient.toFixed(2)}` : "—"}
@@ -69,7 +79,7 @@ export default function FlowsPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-ink-muted text-sm">
+                <td colSpan={9} className="px-4 py-10 text-center text-ink-muted text-sm">
                   No flow activity in this range.
                 </td>
               </tr>

@@ -1,5 +1,5 @@
 import { readEnv } from "./env";
-import { recordReportingCall } from "./klaviyo-budget";
+import { acquireReportingSlot, BREAKER_THRESHOLD_S, noteThrottle, openBreaker } from "./klaviyo-limiter";
 
 export const BASE = "https://a.klaviyo.com/api";
 const REVISION = "2026-04-15";
@@ -32,6 +32,24 @@ function sleep(ms: number): Promise<void> {
 interface KlaviyoFetchOpts {
   patientThresholdS?: number; // max Retry-After (s) we'll sleep through (default PATIENT_RETRY_THRESHOLD_S)
   maxRetryDelayMs?: number;   // cap on a single sleep (default PATIENT_RETRY_DELAY_MS)
+  /** "reporting" = the tight tier (1/s · 2/min · 225/day). A 429 there with a
+   * long Retry-After opens the shared circuit breaker so every other process
+   * stops calling too, instead of each one rediscovering the throttle
+   * (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.3). */
+  tier?: "reporting" | "standard";
+}
+
+/** Thrown on a 429 so callers can read the real Retry-After instead of parsing a
+ * message. `blocked` is true once the breaker has been opened for it. */
+export class KlaviyoThrottled extends Error {
+  readonly retryAfterS: number;
+  readonly blocked: boolean;
+  constructor(retryAfterS: number, blocked: boolean) {
+    super(`Klaviyo rate-limited this request (429). Available in ~${retryAfterS}s.`);
+    this.name = "KlaviyoThrottled";
+    this.retryAfterS = retryAfterS;
+    this.blocked = blocked;
+  }
 }
 
 export async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit, opts?: KlaviyoFetchOpts): Promise<T> {
@@ -54,12 +72,20 @@ export async function klaviyoFetch<T = unknown>(path: string, init?: RequestInit
       const retryAfterSec = retryAfterRaw ? Math.ceil(parseFloat(retryAfterRaw)) : 1;
       const thresholdS = opts?.patientThresholdS ?? PATIENT_RETRY_THRESHOLD_S;
       const maxDelayMs = opts?.maxRetryDelayMs ?? PATIENT_RETRY_DELAY_MS;
+      const reporting = opts?.tier === "reporting";
+
+      // A LONG Retry-After on the reporting tier is not something to retry — it
+      // has been observed in the wild at 18+ hours. Open the breaker and stop.
+      if (reporting && retryAfterSec > BREAKER_THRESHOLD_S) {
+        await openBreaker(retryAfterSec);
+        throw new KlaviyoThrottled(retryAfterSec, true);
+      }
+      if (reporting) await noteThrottle();
+
       // Waits beyond the caller's patience indicate steady-state throttle
-      // exhaustion — surface to caller instead of blocking for minutes.
+      // exhaustion — surface to the caller instead of blocking for minutes.
       if (retryAfterSec > thresholdS || attempt >= MAX_RETRIES) {
-        throw new Error(
-          `Klaviyo rate-limited this request. Available in ~${retryAfterSec}s. Wait and click Load again.`
-        );
+        throw new KlaviyoThrottled(retryAfterSec, false);
       }
       await sleep(Math.min(retryAfterSec * 1000, maxDelayMs));
       continue;
@@ -252,6 +278,10 @@ export async function listKlaviyoCampaigns(maxPages = 3): Promise<KlaviyoCampaig
 // stats in one call, without us needing to know account-specific attribution
 // dimension keys. We use these for the flows table and for attributed revenue.
 
+// Everything we want per campaign / per flow, in ONE call. The deliverability
+// half (unsubscribes, spam complaints, bounces) costs zero extra requests — it
+// was always available in the call we already make, and we simply weren't asking
+// (spec §3.5). Verified live against revision 2026-04-15.
 const VALUES_REPORT_STATISTICS = [
   "recipients",
   "delivered",
@@ -260,9 +290,13 @@ const VALUES_REPORT_STATISTICS = [
   "clicks",
   "clicks_unique",
   "conversion_value",
+  "conversions",
+  "unsubscribes",
+  "spam_complaints",
+  "bounced",
 ];
 
-interface ValuesReportStatistics {
+export interface ValuesReportStatistics {
   recipients?: number;
   delivered?: number;
   opens?: number;
@@ -270,11 +304,10 @@ interface ValuesReportStatistics {
   clicks?: number;
   clicks_unique?: number;
   conversion_value?: number;
-}
-
-export interface FlowValuesResult {
-  groupings: { flow_id?: string; send_channel?: string };
-  statistics: ValuesReportStatistics;
+  conversions?: number;
+  unsubscribes?: number;
+  spam_complaints?: number;
+  bounced?: number;
 }
 
 export interface CampaignValuesResult {
@@ -303,70 +336,93 @@ interface ValuesReportOpts {
 // any(send_channel,['email','sms','push']) and it applies to both reports.
 const REPORT_CHANNEL_FILTER = "equals(send_channel,'email')";
 
-// Klaviyo values reports paginate via links.next even when the first page is
-// empty — we have to follow until next is null. Capped to keep us from looping
-// forever on a malformed cursor response.
+// Klaviyo values reports paginate via links.next EVEN WHEN THE LEADING PAGES ARE
+// EMPTY. Measured live on this account, 2026-08-25, flow-values over 25 days:
+//
+//     page 1: 0 rows, next=VhgXNi
+//     page 2: 0 rows, next=Tww4ya
+//     page 3: 4 rows, next=ThNzLG
+//     page 4: 81 rows, next=null
+//
+// So one flow report is FOUR reporting calls, and the campaign report is one.
+// This is the defect behind the 429s, and the previous version of this function
+// is what caused them: it followed the cursor back-to-back, which against a
+// 2-per-minute steady quota throttles on page 3 every single time — so a flow
+// report could never complete, and each attempt still burned two quota units.
+//
+// EVERY page now goes through the shared limiter. That is what makes a paginated
+// report possible at all: four pages, 31 seconds apart, is compliant; four pages
+// in four seconds is a guaranteed 429.
 const MAX_REPORT_PAGES = 25;
 
-// Returns { results, truncated }. `truncated` is true when the loop stopped
-// because it hit MAX_REPORT_PAGES while a `next` cursor still existed — i.e. we
-// silently dropped later pages and revenue would be understated. The caller
-// surfaces this as a warning instead of failing silently.
-async function fetchAllPages<T>(
+export interface PagedFetchOpts {
+  /** Day key in the account's timezone, for the daily counter. */
+  day: string;
+  /** How long a single page may wait for its slot. A background sync waits; an
+   * interactive caller should pass 0 and handle the refusal. */
+  waitMs?: number;
+  onProgress?: (page: number, rows: number) => void;
+}
+
+export type PagedResult<T> =
+  | { ok: true; results: T[]; truncated: boolean; pages: number }
+  | { ok: false; reason: "blocked" | "daily_cap" | "timeout" | "throttled"; retryAfterS?: number; pages: number };
+
+const REPORT_FETCH_OPTS: KlaviyoFetchOpts = {
+  tier: "reporting",
+  // Pages are paced by the limiter, so a 429 here means someone else spent the
+  // window. Ride out a short one rather than abandoning a half-read report.
+  patientThresholdS: 90,
+  maxRetryDelayMs: 90_000,
+};
+
+/**
+ * Follow a report's cursor to the end, one limiter-gated call per page.
+ *
+ * Returns a discriminated result rather than throwing, because "we could not
+ * finish this report right now" is an expected outcome that the caller must be
+ * able to distinguish from bad data: a partial report is not a small revenue
+ * number, it is a wrong one.
+ */
+async function fetchAllPagesGated<T>(
   endpoint: string,
-  body: unknown
-): Promise<{ results: T[]; truncated: boolean }> {
+  body: unknown,
+  opts: PagedFetchOpts,
+): Promise<PagedResult<T>> {
   const bodyStr = JSON.stringify(body);
   const results: T[] = [];
   let url: string | null = endpoint;
   let pages = 0;
+
   while (url && pages < MAX_REPORT_PAGES) {
-    const resp: ValuesReportResponse<T> = await klaviyoFetch<ValuesReportResponse<T>>(url, {
-      method: "POST",
-      body: bodyStr,
-    });
-    results.push(...resp.data.attributes.results);
+    const slot = await acquireReportingSlot({ day: opts.day, waitMs: opts.waitMs ?? 0 });
+    if (!slot.ok) return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+
+    let resp: ValuesReportResponse<T>;
+    try {
+      resp = await klaviyoFetch<ValuesReportResponse<T>>(url, { method: "POST", body: bodyStr }, REPORT_FETCH_OPTS);
+    } catch (e) {
+      if (e instanceof KlaviyoThrottled) {
+        return { ok: false, reason: "throttled", retryAfterS: e.retryAfterS, pages };
+      }
+      throw e;
+    }
+    const page = resp.data.attributes.results ?? [];
+    results.push(...page);
+    pages++;
+    opts.onProgress?.(pages, page.length);
     const nextLink: string | null | undefined = resp.links?.next;
     url = nextLink ? nextLink.replace(BASE, "") : null;
-    pages++;
   }
-  return { results, truncated: url !== null };
+  return { ok: true, results, truncated: url !== null, pages };
 }
 
-export async function flowValuesReport(opts: ValuesReportOpts): Promise<{ results: FlowValuesResult[]; truncated: boolean }> {
-  const body = {
-    data: {
-      type: "flow-values-report",
-      attributes: {
-        statistics: VALUES_REPORT_STATISTICS,
-        timeframe: { start: opts.start, end: opts.end },
-        conversion_metric_id: opts.conversionMetricId,
-        filter: REPORT_CHANNEL_FILTER,
-      },
-    },
-  };
-  await recordReportingCall(); // tight-tier (2/min · 225/day) — count every call
-  return fetchAllPages<FlowValuesResult>("/flow-values-reports/", body);
-}
-
-// Kept for debug — shows the unpaginated page-1 response so we can inspect shape.
-export async function flowValuesReportRaw(opts: ValuesReportOpts): Promise<ValuesReportResponse<FlowValuesResult>> {
-  const body = {
-    data: {
-      type: "flow-values-report",
-      attributes: {
-        statistics: VALUES_REPORT_STATISTICS,
-        timeframe: { start: opts.start, end: opts.end },
-        conversion_metric_id: opts.conversionMetricId,
-        filter: REPORT_CHANNEL_FILTER,
-      },
-    },
-  };
-  return klaviyoFetch<ValuesReportResponse<FlowValuesResult>>("/flow-values-reports/", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
+// `flowValuesReport` and its debug twin used to live here. Both are gone: a flow
+// has no send date, so a values report over a wide window cannot be sliced into
+// sub-ranges — which is the whole basis of the snapshot. Per-flow numbers come
+// from `flowSeriesReport` at a daily interval instead, which gives us per-day flow
+// figures the app could not produce at all before
+// (docs/KLAVIYO_RATE_LIMIT_SPEC.md §3.1).
 
 interface MetricRaw {
   id: string;
@@ -464,7 +520,7 @@ export async function getAccountTimezone(): Promise<string> {
   return accountTzCache;
 }
 
-export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ results: CampaignValuesResult[]; truncated: boolean }> {
+export function campaignValuesReport(opts: ValuesReportOpts & PagedFetchOpts): Promise<PagedResult<CampaignValuesResult>> {
   const body = {
     data: {
       type: "campaign-values-report",
@@ -479,8 +535,7 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ re
       },
     },
   };
-  await recordReportingCall(); // tight-tier (2/min · 225/day) — count every call
-  return fetchAllPages<CampaignValuesResult>("/campaign-values-reports/", body);
+  return fetchAllPagesGated<CampaignValuesResult>("/campaign-values-reports/", body, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -494,8 +549,11 @@ export async function campaignValuesReport(opts: ValuesReportOpts): Promise<{ re
 // aligned to date_times.
 // ---------------------------------------------------------------------------
 
-// Only what the daily store needs — fewer statistics, fewer failure modes.
-const SERIES_STATISTICS = ["recipients", "opens_unique", "clicks_unique", "conversion_value"];
+// The SAME statistics as the values report, so a flow day and a campaign row
+// carry identical fields and the dashboard can compute one set of rates from
+// either. Verified live: flow-series returns each of these as an array aligned to
+// date_times.
+const SERIES_STATISTICS = VALUES_REPORT_STATISTICS;
 
 export interface SeriesResult<G> {
   groupings: G;
@@ -513,32 +571,54 @@ export interface SeriesReport<G> {
   truncated: boolean;
 }
 
-// Series calls run in background jobs, so they can afford to sleep through the
-// long Retry-After of the 2/min steady quota rather than failing the run.
-const SERIES_FETCH_OPTS = { patientThresholdS: 90, maxRetryDelayMs: 90_000 };
+export type PagedSeriesResult<G> =
+  | { ok: true; report: SeriesReport<G>; pages: number }
+  | { ok: false; reason: "blocked" | "daily_cap" | "timeout" | "throttled"; retryAfterS?: number; pages: number };
 
-async function fetchAllSeriesPages<G>(endpoint: string, body: unknown): Promise<SeriesReport<G>> {
+/** Series reports paginate exactly like values reports — measured live at 4 pages
+ * for a 60-day daily flow series — so every page is limiter-gated the same way. */
+async function fetchAllSeriesPagesGated<G>(
+  endpoint: string,
+  body: unknown,
+  opts: PagedFetchOpts,
+): Promise<PagedSeriesResult<G>> {
   const bodyStr = JSON.stringify(body);
   const results: SeriesResult<G>[] = [];
   let dateTimes: string[] = [];
   let url: string | null = endpoint;
   let pages = 0;
+
   while (url && pages < MAX_REPORT_PAGES) {
-    const resp: SeriesReportResponse<G> = await klaviyoFetch<SeriesReportResponse<G>>(
-      url,
-      { method: "POST", body: bodyStr },
-      SERIES_FETCH_OPTS
-    );
+    const slot = await acquireReportingSlot({ day: opts.day, waitMs: opts.waitMs ?? 0 });
+    if (!slot.ok) return { ok: false, reason: slot.reason, retryAfterS: slot.retryAfterS, pages };
+
+    let resp: SeriesReportResponse<G>;
+    try {
+      resp = await klaviyoFetch<SeriesReportResponse<G>>(url, { method: "POST", body: bodyStr }, REPORT_FETCH_OPTS);
+    } catch (e) {
+      if (e instanceof KlaviyoThrottled) return { ok: false, reason: "throttled", retryAfterS: e.retryAfterS, pages };
+      throw e;
+    }
     if (!dateTimes.length) dateTimes = resp.data.attributes.date_times ?? [];
-    results.push(...resp.data.attributes.results);
+    results.push(...(resp.data.attributes.results ?? []));
+    pages++;
+    opts.onProgress?.(pages, resp.data.attributes.results?.length ?? 0);
     const nextLink: string | null | undefined = resp.links?.next;
     url = nextLink ? nextLink.replace(BASE, "") : null;
-    pages++;
   }
-  return { dateTimes, results, truncated: url !== null };
+  return { ok: true, report: { dateTimes, results, truncated: url !== null }, pages };
 }
 
-export function flowSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{ flow_id?: string; send_channel?: string }>> {
+/** Klaviyo rejects a daily interval over a window longer than this — verified
+ * live: "Cannot pass in an interval longer than 60 days for use with daily
+ * interval". The sync chunks a wider backfill into windows of this size. */
+export const MAX_DAILY_SERIES_DAYS = 60;
+
+export type FlowSeriesGrouping = { flow_id?: string; send_channel?: string; flow_message_id?: string };
+
+export function flowSeriesReport(
+  opts: ValuesReportOpts & PagedFetchOpts,
+): Promise<PagedSeriesResult<FlowSeriesGrouping>> {
   const body = {
     data: {
       type: "flow-series-report",
@@ -551,27 +631,35 @@ export function flowSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{
       },
     },
   };
-  return fetchAllSeriesPages("/flow-series-reports/", body);
+  return fetchAllSeriesPagesGated<FlowSeriesGrouping>("/flow-series-reports/", body, opts);
 }
 
-// NOTE: /api/campaign-series-reports/ returned 404 on this account/revision
-// (verified 2026-07-09) even though /api/flow-series-reports/ works. The metrics
-// sync therefore buckets campaigns by send date from a single values report
-// instead. Kept for a future revision where the endpoint may exist.
-export function campaignSeriesReport(opts: ValuesReportOpts): Promise<SeriesReport<{ campaign_id?: string; send_channel?: string }>> {
-  const body = {
-    data: {
-      type: "campaign-series-report",
-      attributes: {
-        statistics: SERIES_STATISTICS,
-        timeframe: { start: opts.start, end: opts.end },
-        interval: "daily",
-        conversion_metric_id: opts.conversionMetricId,
-        filter: REPORT_CHANNEL_FILTER,
-      },
-    },
-  };
-  return fetchAllSeriesPages("/campaign-series-reports/", body);
+// `campaignSeriesReport` used to live here, commented "404s on this account". It
+// 404s on EVERY account: /api/campaign-series-reports/ does not exist in the
+// Klaviyo spec at all — campaigns have a values report only, while flows, forms
+// and segments have both. Deleted rather than kept "for a future revision"
+// (docs/KLAVIYO_RATE_LIMIT_SPEC.md §2.4). Campaigns are bucketed by the
+// send_time on each row of the values report instead, which is what the snapshot
+// in lib/klaviyo-snapshot.ts does.
+
+/**
+ * Timeframe for a SERIES report. Klaviyo's series `timeframe.end` is INCLUSIVE and
+ * its `date_times` come back as NAIVE account-day labels stamped "+00:00" —
+ * verified live: sending 2026-08-20 → 2026-08-22 returned exactly three buckets,
+ * labelled 08-20, 08-21, 08-22.
+ *
+ * So a series window must send the LAST DAY IT WANTS, not the day after, and its
+ * bucket labels must be read with slice(0,10) rather than converted as instants.
+ * Doing the latter shifted every flow day one day earlier.
+ */
+export function seriesRangeISO(startYMD: string, endYMD: string): { start: string; end: string } {
+  return { start: `${startYMD}T00:00:00`, end: `${endYMD}T00:00:00` };
+}
+
+/** The day a series bucket label refers to. The label is already the account-tz
+ * day; it must NOT be timezone-converted. */
+export function seriesBucketYMD(label: string): string {
+  return label.slice(0, 10);
 }
 
 export function dayRangeISO(startYMD: string, endYMD: string): { start: string; end: string } {
