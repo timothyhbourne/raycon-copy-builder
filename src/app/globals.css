@@ -228,6 +228,16 @@ body {
   min-height: 0;
 }
 
+/* Flow canvas: promote the viewport to its own compositing layer WHILE the user
+   is panning or zooming, and only then. A documented React Flow fix for edge
+   compositing stutter (xyflow discussion #4617) — but leaving `will-change` on
+   permanently causes rasterisation blur, so the class is toggled by the canvas
+   around the gesture rather than set in the stylesheet.
+   (docs/FLOW_CANVAS_PERFORMANCE_SPEC.md §2.6) */
+.rc-flow-moving .react-flow__viewport {
+  will-change: transform;
+}
+
 /* Visible, consistent keyboard focus everywhere. */
 :focus-visible {
   outline: 2px solid var(--color-accent);

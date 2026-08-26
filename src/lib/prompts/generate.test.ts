@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSectionList, buildSectionExampleLines } from "./generate";
+import { buildSectionList, buildSectionExampleLines, generateUserPrompt } from "./generate";
 import { expandUspSections } from "../expand-sections";
 import type { SectionSpec } from "../schemas";
 
@@ -183,5 +183,27 @@ describe("backward compatibility", () => {
     expect(out).not.toContain("no product is bound");
     expect(out).toContain("elements required: Subheader, USP 1, USP 2, USP 3, CTA");
     expect(out).toContain("Three tips or features worth knowing.");
+  });
+});
+
+// Regression: `retrieved_examples` is optional in the route's request schema, so
+// generation has to survive its absence. It didn't — the prompt mapped over the
+// undefined array and the route answered 500 on a payload its own schema accepts.
+describe("generateUserPrompt without retrieved examples", () => {
+  const brief = {
+    headline_thesis: "t", audience_mindset: "m", key_message: "k", tonal_direction: "d",
+    structural_notes: "n", rewritten_hero_angle: "h",
+    campaign_type: "promo" as const, audience: "all" as const, products_featured: ["O15"],
+  };
+  const conceit = { id: "c", name: "C", description: "d" };
+  const sections: SectionSpec[] = [{ id: "revs", type: "reviews" }];
+
+  it("builds a prompt when examples are omitted entirely", () => {
+    expect(() => generateUserPrompt(brief, conceit, sections)).not.toThrow();
+    expect(generateUserPrompt(brief, conceit, sections)).toContain("Review 1");
+  });
+
+  it("builds a prompt when examples are an empty array", () => {
+    expect(() => generateUserPrompt(brief, conceit, sections, [])).not.toThrow();
   });
 });

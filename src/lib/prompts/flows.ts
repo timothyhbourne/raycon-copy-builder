@@ -92,9 +92,14 @@ export function flowUserPrompt(
    * and shares the account-level performance context. Flow-level attribution is
    * explicitly out of scope (§5): nothing here claims to know what a flow MESSAGE
    * earned, only what the account's angles and structures have earned. */
-  learning: { formBudget?: string; inFlight?: string; performance?: string } = {}
+  learning: { formBudget?: string; inFlight?: string; performance?: string } = {},
+  /** Real reviews resolved PER STANDALONE `reviews` SECTION, keyed by section id
+   * (docs/REVIEWS_MODULE_SPEC.md §5.2). Without this a flow's reviews section is
+   * told "leave every slot empty" — safe, but it means a flow can never carry a
+   * real review, which is the wrong half of the fix to have. */
+  reviewsBySection: Record<string, string[]> = {}
 ): string {
-  const sectionList = buildSectionList(sectionStructure, reviewsBySlug);
+  const sectionList = buildSectionList(sectionStructure, reviewsBySlug, { reviewsBySection });
   const exampleLines = buildSectionExampleLines(sectionStructure);
 
   const siblingBlock = ctx.siblings.length

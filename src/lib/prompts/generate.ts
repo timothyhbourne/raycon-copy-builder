@@ -323,7 +323,12 @@ export function generateUserPrompt(
   expandedBrief: ExpandedBrief,
   chosenConceit: Conceit,
   sectionStructure: SectionSpec[],
-  examples: LibraryCampaign[],
+  /** Retrieved reference campaigns. Defaults to none: `retrieved_examples` is
+   * OPTIONAL in the route's own request schema (validation/requests.ts), so a
+   * payload the schema accepts used to crash generation with "Cannot read
+   * properties of undefined (reading 'map')". The Copy Builder always sends the
+   * list, which is why this never surfaced in normal use. */
+  examples: LibraryCampaign[] = [],
   avoidBlock = "",
   /** Real reviews supplied per product SKU (best-first), used VERBATIM for the
    * Review element of product_card_review cards. Populated by the generate route

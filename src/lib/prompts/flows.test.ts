@@ -132,3 +132,51 @@ describe("flowUserPrompt", () => {
     expect(prompt).toContain("has not received any earlier email on this path");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Standalone `reviews` sections in a FLOW. The reviews module shipped with the
+// campaign route resolving each slot and the flow route not, so a flow's reviews
+// section was always told "leave every slot empty" — safe from fabrication, but
+// it meant a flow could never carry a real review at all
+// (docs/REVIEWS_MODULE_SPEC.md §8, "Still open" 1).
+describe("flowUserPrompt — standalone reviews sections", () => {
+  const reviewsSection: SectionSpec[] = [
+    { id: "r1", type: "reviews", review_slots: [{ source: "product" }, { source: "product" }] },
+  ];
+  const ctx: FlowEmailContext = {
+    flowType: "post_purchase", flowName: "Post-Purchase", channel: "email",
+    position: 3, totalEmails: 3, job: "Cross-sell and ask for a review.", siblings: [],
+  };
+
+  it("hands a resolved slot its REAL review, verbatim", () => {
+    const prompt = flowUserPrompt(ctx, reviewsSection, "", {}, {}, {
+      r1: ["Best earbuds I've owned. — Jordan M.", "Battery lasts all week. — Sam T."],
+    });
+    expect(prompt).toContain("Best earbuds I've owned. — Jordan M.");
+    expect(prompt).toContain("Battery lasts all week. — Sam T.");
+    expect(prompt).toMatch(/use this REAL customer review VERBATIM/);
+  });
+
+  it("tells an UNRESOLVED slot to come back empty, and never to write one", () => {
+    const prompt = flowUserPrompt(ctx, reviewsSection, "", {}, {}, {});
+    expect(prompt).toMatch(/Review 1: NO real review was available/);
+    expect(prompt).toMatch(/Review 2: NO real review was available/);
+    expect(prompt).toMatch(/return an EMPTY STRING\. Do not write one\./);
+  });
+
+  it("fills the resolved slot and empties the unresolved one, in the same section", () => {
+    const prompt = flowUserPrompt(ctx, reviewsSection, "", {}, {}, { r1: ["Only one real review. — Ada L."] });
+    expect(prompt).toContain("Only one real review. — Ada L.");
+    expect(prompt).toMatch(/Review 2: NO real review was available/);
+  });
+
+  it("honours the slot COUNT from the spec, not a hardcoded three", () => {
+    const four: SectionSpec[] = [{
+      id: "r1", type: "reviews",
+      review_slots: [{ source: "product" }, { source: "product" }, { source: "product" }, { source: "product" }],
+    }];
+    const prompt = flowUserPrompt(ctx, four, "", {}, {}, {});
+    for (const n of [1, 2, 3, 4]) expect(prompt).toContain(`Review ${n}:`);
+    expect(prompt).not.toContain("Review 5:");
+  });
+});

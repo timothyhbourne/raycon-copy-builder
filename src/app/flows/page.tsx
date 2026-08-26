@@ -8,7 +8,7 @@ import { FLOW_TYPES, FLOW_TYPE_META, DEFAULT_TONE_DIAL } from "@/lib/schemas";
 import * as canvasSections from "@/lib/campaign-sections";
 import type { CanvasSections } from "@/lib/campaign-sections";
 import { FLOW_PLAYBOOKS, scaffoldSections, DEFAULT_EMAIL_STRUCTURE } from "@/lib/flow-playbooks";
-import { expandedBriefForFlowEmail } from "@/lib/flow-brief";
+import { expandedBriefForFlowEmail, productsFromStructure } from "@/lib/flow-brief";
 import { flowEmailId } from "@/lib/flow-email-id";
 import * as fg from "@/lib/flow-graph";
 import type { FlowGraph } from "@/lib/flow-graph";
@@ -19,8 +19,9 @@ import { EVERGREEN_OFFER } from "@/lib/planner-types";
 import { nanoid } from "@/lib/nanoid";
 import { normalizeSectionElements } from "@/lib/normalize-section";
 import { scrubElements, scrubMeta } from "@/lib/hard-rules-client";
+import { unverifiedReviews, describeUnverified, migrateLegacyProvenance } from "@/lib/reviews/provenance";
 import CampaignCanvas from "@/components/CampaignCanvas";
-import FlowCanvas, { EmptyCanvasPrompt } from "./FlowCanvas";
+import FlowCanvas, { EmptyCanvasPrompt, type FlowCanvasActions } from "./FlowCanvas";
 import Button from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import Modal from "@/components/ui/Modal";
@@ -272,8 +273,19 @@ export default function FlowsPage() {
       // The read boundary migrates a pre-graph flow, so `nodes` is always here;
       // ensureGraph covers a record that somehow arrives unmigrated.
       const g = fg.ensureGraph(f, nanoid, FLOW_PLAYBOOKS[f.type]?.trigger);
-      setFlow(fg.withGraph(f, g));
-      setSelectedNodeId(fg.emailNodesInOrder(g)[0]?.id ?? null);
+      // Reviews written before provenance existed carry no record, and the gate on
+      // Mark final would read them as unverified — retroactively blocking every
+      // flow email that already has a real review. They migrate to "curated",
+      // exactly as a loaded library campaign does
+      // (docs/REVIEWS_MODULE_SPEC.md §6).
+      const migrated: FlowGraph = {
+        ...g,
+        nodes: g.nodes.map((n) => (n.kind === "email" && n.email?.campaign
+          ? { ...n, email: { ...n.email, campaign: migrateLegacyProvenance(n.email.campaign) } }
+          : n)),
+      };
+      setFlow(fg.withGraph(f, migrated));
+      setSelectedNodeId(fg.emailNodesInOrder(migrated)[0]?.id ?? null);
       setAutosave("idle");
     } catch {
       toast.error("Could not load that flow");
@@ -360,7 +372,13 @@ export default function FlowsPage() {
   }, [releasePlannerRows]);
 
   const requestDeleteNode = useCallback((id: string) => {
-    const impact = fg.deletionImpact(graph, id);
+    // Through the ref, not `graph`: this handler goes into the canvas's actions
+    // object, and a dependency on the graph would change that object's identity on
+    // every keystroke, re-rendering every node
+    // (docs/FLOW_CANVAS_PERFORMANCE_SPEC.md §2.5).
+    const current = flowRef.current;
+    if (!current) return;
+    const impact = fg.deletionImpact(graphOf(current), id);
     if (!impact.removed.length) return;
     // Deleting a split takes its whole downstream subtree, so it has to say how
     // many emails that is BEFORE it happens (spec §4.4).
@@ -369,7 +387,7 @@ export default function FlowsPage() {
       return;
     }
     doDeleteNode(id);
-  }, [graph, doDeleteNode]);
+  }, [doDeleteNode]);
 
   const onTidy = useCallback(() => {
     setFlow((prev) => (prev ? fg.withGraph(prev, tidyLayout(graphOf(prev))) : prev));
@@ -556,7 +574,14 @@ export default function FlowsPage() {
               updateEmail(nodeId, { campaign: { meta, sections: [...sections] } });
             } else if (parsed.type) {
               const { elements, ...slates } = normalizeSectionElements(scrubElements(parsed.elements));
-              const newSection: GeneratedSection = { id: nanoid(), type: parsed.type, elements, ...slates };
+              const newSection: GeneratedSection = {
+                id: nanoid(), type: parsed.type, elements, ...slates,
+                // Carried through from the server's review strip. Without it the
+                // canvas can't show a review's origin and the hard-rules
+                // provenance gate has nothing to check, so a real review would
+                // read as unverified (docs/REVIEWS_MODULE_SPEC.md §5).
+                ...(parsed.review_provenance ? { review_provenance: parsed.review_provenance } : {}),
+              };
               sections = [...sections, newSection];
               updateEmail(nodeId, { campaign: { meta, sections } });
             }
@@ -583,6 +608,28 @@ export default function FlowsPage() {
       setGeneratingNodeId(null);
     }
   }, [flow, updateEmail, persistNow]);
+
+  /**
+   * Marking a flow email final is its Save Final, so it gets the same provenance
+   * gate (docs/REVIEWS_MODULE_SPEC.md §5.2 point 3). Everything else in the
+   * hard-rules report is advisory craft; a review with no source on record is a
+   * factual claim about a customer who may not exist, and shipping that is worse
+   * than being interrupted. Checked from local state, so it is instant and can't
+   * be skipped by a failed request.
+   */
+  const markFinal = useCallback((nodeId: string, email: FlowEmail) => {
+    const goingFinal = email.status !== "final";
+    if (goingFinal) {
+      const unverified = unverifiedReviews(email.campaign);
+      if (unverified.length) {
+        toast.error(
+          `Can't mark final: ${unverified.length} review${unverified.length === 1 ? "" : "s"} ${unverified.length === 1 ? "has" : "have"} no source on record (${describeUnverified(unverified)}). Fetch a real one on the canvas, paste one in, or clear the slot.`,
+        );
+        return;
+      }
+    }
+    updateEmail(nodeId, { status: goingFinal ? "final" : "draft" });
+  }, [updateEmail]);
 
   // ---- the email's own copy canvas ---------------------------------------
   const onCanvasChange = useCallback((c: GeneratedCampaign) => {
@@ -806,7 +853,11 @@ export default function FlowsPage() {
     ? undefined
     : "Set this email's job to enable rewrites.";
 
-  const canvasActions = useMemo(() => ({
+  // ONE object, memoised, with every handler `useCallback`'d on empty or stable
+  // deps. The canvas puts this in a context that its node views consume, so a new
+  // identity here re-renders every node on the canvas — which is why none of these
+  // handlers may depend on `graph` (docs/FLOW_CANVAS_PERFORMANCE_SPEC.md §2.5).
+  const canvasActions: FlowCanvasActions = useMemo(() => ({
     onSelectNode: setSelectedNodeId,
     onMoveNode,
     onInsert,
@@ -923,7 +974,7 @@ export default function FlowsPage() {
                 flowId={flow.id}
                 selectedNodeId={selectedNodeId}
                 generatingNodeId={generatingNodeId}
-                {...canvasActions}
+                actions={canvasActions}
               />
               {/* §4.3: a flow with only a trigger gets an affordance, not a blank grid. */}
               {graph.nodes.length <= 1 && triggerId && (
@@ -1015,7 +1066,7 @@ export default function FlowsPage() {
                     {selectedEmail.status !== "empty" && (
                       <Button
                         variant="secondary"
-                        onClick={() => updateEmail(selectedNodeId, { status: selectedEmail.status === "final" ? "draft" : "final" })}
+                        onClick={() => markFinal(selectedNodeId, selectedEmail)}
                       >
                         {selectedEmail.status === "final" ? "Mark as draft" : "Mark final"}
                       </Button>
@@ -1072,6 +1123,12 @@ export default function FlowsPage() {
                     expandedBrief={expandedBrief}
                     chosenConceit={conceit}
                     assistsDisabledReason={assistsDisabledReason}
+                    // Drives the canvas's real-review auto-fill for a standalone
+                    // `reviews` section, which also records each review's
+                    // provenance. Without it an empty Review slot on a flow email
+                    // could never be filled with a real review — the same half-fix
+                    // the generate route had (REVIEWS_MODULE_SPEC.md §8).
+                    featuredProduct={productsFromStructure(selectedEmail.section_structure)[0]}
                     retrievedExamples={[]}
                     sectionStructure={selectedEmail.section_structure}
                     toneDial={DEFAULT_TONE_DIAL}
