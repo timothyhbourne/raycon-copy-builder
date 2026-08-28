@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { refreshAudiences, syncAudiences } from "@/lib/klaviyo-audiences";
+import { refreshAudiences, sizeBudgetFor, syncAudiences } from "@/lib/klaviyo-audiences";
 import { AUTH_COOKIE, authEnabled, safeEqual, tokenValid } from "@/lib/auth";
 import { readEnv } from "@/lib/env";
 
@@ -13,6 +13,11 @@ import { readEnv } from "@/lib/env";
 // Cheap tier (75/s, no daily cap), so this never touches the reporting limiter.
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+/** The catalogue fetch (~17.5s measured) has to complete before the size pass
+ * starts, so the size pass gets only what is left of the function limit. A flat
+ * 40s here plus the catalogue overran 60s whenever ?sizes=1 was used. */
+const SIZE_BUDGET_MS = sizeBudgetFor(maxDuration * 1_000);
 
 function authorized(req: NextRequest): boolean {
   if (!authEnabled) return true;
@@ -34,10 +39,10 @@ async function run(req: NextRequest) {
 
   try {
     if (force) {
-      const result = await syncAudiences({ withSizes, sizeBudgetMs: 40_000 });
+      const result = await syncAudiences({ withSizes, sizeBudgetMs: SIZE_BUDGET_MS });
       return NextResponse.json({ ok: true, ...result });
     }
-    const res = await refreshAudiences({ withSizes, sizeBudgetMs: 40_000 });
+    const res = await refreshAudiences({ withSizes, sizeBudgetMs: SIZE_BUDGET_MS });
     if (!res.ok) {
       return NextResponse.json(
         { ok: false, error: `Just refreshed — try again in ${Math.ceil(res.waitMs / 1000)}s.`, wait_ms: res.waitMs },

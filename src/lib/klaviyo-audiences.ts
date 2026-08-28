@@ -28,6 +28,25 @@ const store = getAdapter(DATA_ROOT, "klaviyo-audiences");
 const STORE_KEY = "audiences:v1";
 const REFRESH_LOCK_KEY = "audiences:refresh_at";
 
+/**
+ * MEASURED 2026-08-29: 9 pages of segments + 27 of lists = 36 sequential
+ * requests, 17.5s. Callers reserve against this so they can size a following
+ * size pass to the time they actually have, instead of discovering the total as a
+ * function timeout. Rounded up from the measurement for headroom.
+ */
+export const CATALOGUE_FETCH_MS = 20_000;
+
+/**
+ * The largest size budget that still fits `fnLimitMs`, given the catalogue has to
+ * run first and the result still has to be written and serialised.
+ *
+ * Returns 0 rather than a negative number: a caller with no room left does the
+ * catalogue only, and the size pass resumes on the next run.
+ */
+export function sizeBudgetFor(fnLimitMs: number, reserveMs = 8_000): number {
+  return Math.max(0, fnLimitMs - CATALOGUE_FETCH_MS - reserveMs);
+}
+
 /** On-demand refresh is rate-limited to once a minute (§4). */
 export const REFRESH_COOLDOWN_MS = 60_000;
 

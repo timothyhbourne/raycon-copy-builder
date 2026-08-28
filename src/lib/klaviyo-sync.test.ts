@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stepNeedMs } from "./klaviyo-sync";
+import { CATALOGUE_FETCH_MS, sizeBudgetFor } from "./klaviyo-audiences";
 
 // A step that starts work it cannot finish gets the whole function killed with no
 // step result and no progress written — the failure mode that actually hit
@@ -38,27 +39,48 @@ describe("stepNeedMs", () => {
   });
 });
 
-describe("the audiences step fits the route's budget", () => {
-  // Mirrors src/app/api/klaviyo/sync/route.ts and the step's own declaration.
-  const BUDGET_MS = 32_000;
-  const CATALOGUE_MS = 20_000;
-  const NEED = CATALOGUE_MS + 6_000;
-
-  it("starts on a fresh budget", () => {
-    expect(NEED).toBeLessThanOrEqual(BUDGET_MS);
+describe("sizeBudgetFor", () => {
+  // The size pass runs AFTER the ~17.5s catalogue fetch inside the same function.
+  // A flat budget that ignored the catalogue is what made ?sizes=1 overrun 60s.
+  it("leaves room for the catalogue and the response", () => {
+    const budget = sizeBudgetFor(60_000);
+    expect(CATALOGUE_FETCH_MS + budget).toBeLessThanOrEqual(60_000 - 8_000);
   });
 
-  it("leaves the catalogue AND the response room after the size pass", () => {
-    const sizeBudget = Math.max(0, BUDGET_MS - CATALOGUE_MS - 4_000);
-    expect(CATALOGUE_MS + sizeBudget).toBeLessThanOrEqual(BUDGET_MS - 4_000);
+  it("never returns a negative budget when the catalogue alone exceeds the limit", () => {
+    expect(sizeBudgetFor(10_000)).toBe(0);
+    expect(sizeBudgetFor(0)).toBe(0);
+  });
+
+  it("gives a bigger function a bigger size pass", () => {
+    expect(sizeBudgetFor(60_000)).toBeGreaterThan(sizeBudgetFor(45_000));
+  });
+
+  it("honours a caller's own reserve", () => {
+    expect(sizeBudgetFor(60_000, 20_000)).toBe(60_000 - CATALOGUE_FETCH_MS - 20_000);
+  });
+
+  it("rejects the value that actually overran production", () => {
+    // 40s of sizes + a 20s catalogue = 60s with nothing left to respond in.
+    expect(sizeBudgetFor(60_000)).toBeLessThan(40_000);
+  });
+});
+
+describe("the audiences step fits the sync route's budget", () => {
+  // Mirrors src/app/api/klaviyo/sync/route.ts.
+  const BUDGET_MS = 32_000;
+  const NEED = CATALOGUE_FETCH_MS + 6_000;
+
+  it("starts on a fresh budget", () => {
+    expect(stepNeedMs({ reporting: false, needMs: NEED }, 18_000)).toBeLessThanOrEqual(BUDGET_MS);
+  });
+
+  it("leaves the catalogue and the response room after its size pass", () => {
+    const sizeBudget = Math.max(0, BUDGET_MS - CATALOGUE_FETCH_MS - 4_000);
+    expect(CATALOGUE_FETCH_MS + sizeBudget).toBeLessThanOrEqual(BUDGET_MS - 4_000);
   });
 
   it("defers rather than starting with too little left", () => {
-    const leftAfterOtherWork = 10_000;
-    expect(NEED).toBeGreaterThan(leftAfterOtherWork);
-  });
-
-  it("never asks for a negative size budget when the budget is already spent", () => {
-    expect(Math.max(0, 1_000 - CATALOGUE_MS - 4_000)).toBe(0);
+    expect(NEED).toBeGreaterThan(10_000);
   });
 });

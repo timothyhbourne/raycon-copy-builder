@@ -11,7 +11,7 @@ import {
 } from "./klaviyo-snapshot";
 import { todayYMDInTz, zonedMidnightUtc } from "./cache-ttl";
 import { isBlocked, MIN_SPACING_MS } from "./klaviyo-limiter";
-import { syncAudiences } from "./klaviyo-audiences";
+import { CATALOGUE_FETCH_MS, syncAudiences } from "./klaviyo-audiences";
 
 // The snapshot's writer (spec: KLAVIYO_RATE_LIMIT_SPEC §3.1, §3.4).
 //
@@ -29,11 +29,6 @@ import { syncAudiences } from "./klaviyo-audiences";
 // invocation: hence the STEP BUDGET. A run does as much as fits, persists what it
 // got, and reports what is left; the next run continues. Correct after any number
 // of partial runs, because merging is idempotent (see mergeSnapshot).
-
-/** MEASURED 2026-08-29: 9 pages of segments + 27 of lists = 36 sequential
- * requests, 17.5s. Used to reserve time for the audiences step rather than
- * discovering the cost as a function timeout. */
-const AUDIENCE_CATALOGUE_MS = 20_000;
 
 export type SyncMode = "full" | "incremental";
 
@@ -417,7 +412,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
     // The catalogue is ~36 sequential requests / ~17.5s MEASURED, and it must
     // finish once started (a half-written catalogue silently hides audiences).
     // Reserve for that plus room to write and respond, or don't start.
-    needMs: AUDIENCE_CATALOGUE_MS + 6_000,
+    needMs: CATALOGUE_FETCH_MS + 6_000,
     run: async () => {
       const r = await syncAudiences({
         withSizes: true,
@@ -425,7 +420,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
         // left AFTER the catalogue, never a fixed 20s that could push the function
         // past its limit. It resumes across nights, so coverage grows instead of
         // blocking the step.
-        sizeBudgetMs: Math.max(0, deadline - Date.now() - AUDIENCE_CATALOGUE_MS - 4_000),
+        sizeBudgetMs: Math.max(0, deadline - Date.now() - CATALOGUE_FETCH_MS - 4_000),
         log: (l) => log(`  audiences: ${l}`),
       });
       const notes = [`${r.audiences} audiences (${r.segments} segments, ${r.lists} lists)`, `${r.sized} sized`];
