@@ -91,18 +91,68 @@ function migrateStatus(s: unknown): PlannerRow["status"] {
   }
 }
 
+/**
+ * Route a v3 row's single audience pair into the right half of the new split
+ * (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §3).
+ *
+ * The old field meant two things depending on how it was filled: derived from
+ * Klaviyo for a row with a linked campaign, hand-entered for one without. So the
+ * presence of `klaviyo_campaign_id` is exactly the signal for which half it was —
+ * derived goes to `actual`, hand-entered goes to `planned`.
+ *
+ * Migration is idempotent: a row that already carries either new field is left
+ * alone, so re-reading never re-routes it.
+ */
+function migrateAudienceSplit(
+  r: Record<string, unknown>,
+  included: AudienceRef[],
+  excluded: AudienceRef[],
+): Partial<PlannerRow> {
+  const alreadySplit =
+    Array.isArray(r.audience_planned_included) || Array.isArray(r.audience_actual_included) ||
+    Array.isArray(r.audience_planned_excluded) || Array.isArray(r.audience_actual_excluded);
+  if (alreadySplit) {
+    return {
+      audience_planned_included: migrateAudience(r.audience_planned_included),
+      audience_planned_excluded: migrateAudience(r.audience_planned_excluded),
+      ...(Array.isArray(r.audience_actual_included) || Array.isArray(r.audience_actual_excluded)
+        ? {
+            audience_actual_included: migrateAudience(r.audience_actual_included),
+            audience_actual_excluded: migrateAudience(r.audience_actual_excluded),
+          }
+        : {}),
+    };
+  }
+  const linked = typeof r.klaviyo_campaign_id === "string" && r.klaviyo_campaign_id.trim().length > 0;
+  if (linked) {
+    // Derived values: they describe what was built, and the brief is unknown.
+    return {
+      audience_planned_included: [],
+      audience_planned_excluded: [],
+      audience_actual_included: included,
+      audience_actual_excluded: excluded,
+    };
+  }
+  // Hand-entered on an unlinked row: that WAS someone's intent.
+  return { audience_planned_included: included, audience_planned_excluded: excluded };
+}
+
 export function parsePlannerRow(raw: unknown): PlannerRow | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const offer_type = r.offer_type === "evergreen" || r.offer_type === "promo"
     ? r.offer_type
     : (r.promo_code ? "promo" : "evergreen");
+  const included = migrateAudience(r.audience_included);
+  const excluded = migrateAudience(r.audience_excluded);
+  const split = migrateAudienceSplit(r, included, excluded);
   const migrated = {
     ...r,
     offer_type,
     status: migrateStatus(r.status),
-    audience_included: migrateAudience(r.audience_included),
-    audience_excluded: migrateAudience(r.audience_excluded),
+    audience_included: included,
+    audience_excluded: excluded,
+    ...split,
   };
   return parseOne<PlannerRow>(plannerRowSchema, migrated, "planner_row");
 }

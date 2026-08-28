@@ -219,28 +219,77 @@ export async function listFlows(): Promise<FlowListItem[]> {
 // Audiences — Klaviyo segments and lists. Same shape/pagination as flows
 // (data[].id, data[].attributes.name, links.next). Used by the planner's
 // audience picker so include/exclude names stay consistent with Klaviyo.
-export interface AudienceItem { id: string; name: string; type: "segment" | "list" }
+export interface AudienceItem {
+  id: string;
+  name: string;
+  type: "segment" | "list";
+  /** Profile count, when we have one. Absent is normal and means "not measured" —
+   * never treat it as zero (see fetchAudienceSize for why it's often absent). */
+  size?: number;
+  size_synced_at?: string;
+}
 interface AudienceResponse { data: Array<{ id: string; attributes: { name: string } }>; links?: { next?: string | null } }
 
-async function listAudienceResource(path: string, type: "segment" | "list"): Promise<AudienceItem[]> {
+/**
+ * Page cap for the audience catalogue. Measured 2026-08-29: 9 pages of segments
+ * and 27 of lists. The previous cap was 30, so lists were three pages from
+ * silently truncating — and a truncated catalogue looks complete, which is the
+ * worst failure mode for a picker someone briefs a VA from.
+ */
+const MAX_AUDIENCE_PAGES = 80;
+
+async function listAudienceResource(
+  path: string,
+  type: "segment" | "list",
+): Promise<{ items: AudienceItem[]; truncated: boolean }> {
   const out: AudienceItem[] = [];
   let url: string | null = path;
   let pages = 0;
-  while (url && pages < 30) {
+  while (url && pages < MAX_AUDIENCE_PAGES) {
     const data: AudienceResponse = await klaviyoFetch(url);
     for (const a of data.data) out.push({ id: a.id, name: a.attributes.name, type });
     const next = data.links?.next;
     url = next ? next.replace(BASE, "") : null;
     pages++;
   }
-  return out;
+  // A live cursor at the cap means we stopped early and are missing audiences.
+  return { items: out, truncated: url !== null };
 }
 
-export function listSegments(): Promise<AudienceItem[]> {
+export function listSegments(): Promise<{ items: AudienceItem[]; truncated: boolean }> {
   return listAudienceResource("/segments/", "segment");
 }
-export function listLists(): Promise<AudienceItem[]> {
+export function listLists(): Promise<{ items: AudienceItem[]; truncated: boolean }> {
   return listAudienceResource("/lists/", "list");
+}
+
+/**
+ * One audience's profile count, or null.
+ *
+ * `profile_count` is NOT available on the collection endpoints — revision
+ * 2026-04-15 rejects it outright ("fields must be in [created, definition, id,
+ * is_active, is_processing, is_starred, name, updated]"), which is why the spec's
+ * assumption that the list call carries sizes doesn't hold. It IS available on the
+ * single-resource endpoint via additional-fields, but that variant is separately
+ * and hard throttled: measured 429 / Retry-After 1 on ALTERNATING sequential calls
+ * at 120ms spacing. So the caller must pace this, and a null answer is expected
+ * rather than exceptional.
+ */
+export async function fetchAudienceSize(id: string, type: "segment" | "list"): Promise<number | null> {
+  const field = type === "segment" ? "additional-fields%5Bsegment%5D" : "additional-fields%5Blist%5D";
+  try {
+    const resp = await klaviyoFetch<{ data?: { attributes?: { profile_count?: number } } }>(
+      `/${type === "segment" ? "segments" : "lists"}/${encodeURIComponent(id)}/?${field}=profile_count`,
+      undefined,
+      // A short 429 here is the normal case, so ride it out briefly rather than
+      // failing the audience.
+      { patientThresholdS: 5, maxRetryDelayMs: 5_000 },
+    );
+    const n = resp?.data?.attributes?.profile_count;
+    return typeof n === "number" ? n : null;
+  } catch {
+    return null;   // size is an extra; never fail the catalogue over it
+  }
 }
 
 // Lightweight recent-first campaign list for the planner's email campaign picker
@@ -825,19 +874,37 @@ interface CampaignRetrieveResponse {
   };
 }
 
-export async function getCampaignAudiences(campaignId: string): Promise<CampaignAudiences> {
+/**
+ * The audiences on a linked Klaviyo campaign, ids resolved to names.
+ *
+ * `known` is the caller's name map — normally the SYNCED catalogue
+ * (lib/klaviyo-audiences.ts). Without it this falls back to fetching the whole
+ * catalogue live, which measures at 36 sequential requests and 17.5 seconds just
+ * to turn a handful of ids into names. That fallback exists so the function still
+ * works standalone; the planner route passes the catalogue.
+ */
+export async function getCampaignAudiences(
+  campaignId: string,
+  known?: Map<string, { id: string; name: string; type: "segment" | "list" }>,
+): Promise<CampaignAudiences> {
   const resp = await klaviyoFetch<CampaignRetrieveResponse>(`/campaigns/${encodeURIComponent(campaignId)}/`);
   const attrs = resp.data?.attributes;
   const includedIds = attrs?.audiences?.included ?? [];
   const excludedIds = attrs?.audiences?.excluded ?? [];
-  // Resolve ids → names once per call. Sequential (different endpoint families,
-  // but we honor the burst limit rather than fan out).
-  const segs = await listSegments();
-  const lists = await listLists();
-  const nameMap = new Map<string, CampaignAudienceRef>();
-  for (const s of segs) nameMap.set(s.id, { id: s.id, name: s.name, type: "segment" });
-  for (const l of lists) nameMap.set(l.id, { id: l.id, name: l.name, type: "list" });
+
+  let nameMap = known;
+  if (!nameMap || nameMap.size === 0) {
+    nameMap = new Map();
+    const segs = await listSegments();
+    const lists = await listLists();
+    for (const a of [...segs.items, ...lists.items]) nameMap.set(a.id, { id: a.id, name: a.name, type: a.type });
+  }
   const resolve = (ids: string[]): CampaignAudienceRef[] =>
-    ids.map((id) => nameMap.get(id) ?? { id, name: "(unknown audience)", type: "segment" });
+    ids.map((id) => {
+      const hit = nameMap!.get(id);
+      // An id the catalogue doesn't know is still shown, by id: dropping it would
+      // hide part of what was actually built, which is the one thing this must not do.
+      return hit ? { id: hit.id, name: hit.name, type: hit.type } : { id, name: `(unknown audience ${id})`, type: "segment" as const };
+    });
   return { status: attrs?.status ?? "", included: resolve(includedIds), excluded: resolve(excludedIds) };
 }

@@ -43,6 +43,48 @@ export interface AudienceRef {
   type: "segment" | "list";
 }
 
+// ---- Audience: the BRIEF vs what was BUILT --------------------------------
+// (spec: PLANNER_AUDIENCE_BRIEF_SPEC.md §3)
+//
+// `audience_included` / `audience_excluded` were asked to mean two different
+// things: "the audiences I intend to send to" for a row someone filled in by hand,
+// and "the audiences Klaviyo says were actually used" for a row with a linked
+// campaign. Those are different facts, and a handover workflow's main failure mode
+// — a campaign built against the wrong audience — is invisible while they share one
+// field, because the sync overwrites the intent with the reality.
+//
+// So they split. `planned` is the instruction a VA reads and is NEVER written by a
+// sync; `actual` is read-only confirmation and does not exist until a campaign is
+// linked. Comparing them is the point (see lib/audience-match.ts).
+
+/** True when this row states which audiences to build against. Gates the handoff:
+ * handing over a campaign with no stated audience is what §5.4 exists to stop. */
+export function hasAudienceBrief(row: Pick<PlannerRow, "audience_planned_included">): boolean {
+  return (row.audience_planned_included ?? []).length > 0;
+}
+
+/** The planned audiences, falling back to the legacy field for a row written
+ * before the split. Use this rather than reading `audience_planned_included`
+ * directly, so the one-release overlap lives in a single place. */
+export function plannedAudiences(row: PlannerRow): { included: AudienceRef[]; excluded: AudienceRef[] } {
+  return {
+    included: row.audience_planned_included ?? [],
+    excluded: row.audience_planned_excluded ?? [],
+  };
+}
+
+/** The audiences Klaviyo reports for the linked campaign, or null when there is no
+ * campaign yet — which is the whole reason the "Built in Klaviyo" section is
+ * hidden rather than showing an empty state. */
+export function actualAudiences(row: PlannerRow): { included: AudienceRef[]; excluded: AudienceRef[] } | null {
+  if (!row.klaviyo_campaign_id) return null;
+  if (!row.audience_actual_included && !row.audience_actual_excluded) return null;
+  return {
+    included: row.audience_actual_included ?? [],
+    excluded: row.audience_actual_excluded ?? [],
+  };
+}
+
 /**
  * What a row actually represents. A PlannerRow models a SCHEDULED SEND — it has a
  * planned_send_at, and isEffectivelySent() derives "sent" from that date passing.
@@ -82,8 +124,25 @@ export interface PlannerRow {
   promo_code?: string;
   planned_send_at: string; // ISO datetime — drives the calendar
   status: PlannerStatus;
+  /**
+   * DERIVED, kept for one release (spec §3). Written from
+   * `audience_actual_* ?? audience_planned_*` so anything still reading these sees
+   * the best available answer. Read `plannedAudiences()` / `actualAudiences()`
+   * instead — these two go away.
+   */
   audience_included: AudienceRef[];
   audience_excluded: AudienceRef[];
+  /** THE BRIEF. Which segments/lists the VA should build this campaign against,
+   * chosen by hand from the synced Klaviyo audience list. A sync NEVER writes here. */
+  audience_planned_included?: AudienceRef[];
+  audience_planned_excluded?: AudienceRef[];
+  /** Anything the picker can't express, e.g. "cap at 3 sends/week". */
+  audience_planned_note?: string;
+  /** WHAT WAS BUILT. Read-only, from the linked Klaviyo campaign. Absent until a
+   * campaign is linked. */
+  audience_actual_included?: AudienceRef[];
+  audience_actual_excluded?: AudienceRef[];
+  audience_actual_synced_at?: string | null;
   notes: string; // freeform notes / learnings
   // --- Link keys to pull metrics ---
   klaviyo_campaign_id?: string;

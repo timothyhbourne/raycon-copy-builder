@@ -290,3 +290,100 @@ describe("flow graph migration on read", () => {
     expect(flows.every((f) => (f.nodes?.length ?? 0) > 0)).toBe(true);
   });
 });
+
+// ---- The audience split migration (PLANNER_AUDIENCE_BRIEF_SPEC.md §3) --------
+// The old pair meant two different things depending on how it got filled, and the
+// presence of klaviyo_campaign_id is exactly the signal for which. Getting this
+// wrong would either lose someone's brief or invent one they never wrote.
+const AUD = { id: "Abc123", name: "US Subscribers", type: "segment" as const };
+const EXC = { id: "Xyz789", name: "Purchasers 30d", type: "segment" as const };
+
+describe("planner audience split migration", () => {
+  it("an UNLINKED row's hand-entered audiences become the BRIEF", () => {
+    const row = parsePlannerRow({ ...baseRow, audience_included: [AUD], audience_excluded: [EXC] })!;
+    expect(row.audience_planned_included).toEqual([AUD]);
+    expect(row.audience_planned_excluded).toEqual([EXC]);
+    // No campaign, so nothing was built — actual must stay absent, not empty.
+    expect(row.audience_actual_included).toBeUndefined();
+  });
+
+  it("a LINKED row's derived audiences become ACTUAL, and the brief starts empty", () => {
+    const row = parsePlannerRow({
+      ...baseRow, klaviyo_campaign_id: "01ABC", audience_included: [AUD], audience_excluded: [EXC],
+    })!;
+    expect(row.audience_actual_included).toEqual([AUD]);
+    expect(row.audience_actual_excluded).toEqual([EXC]);
+    // We do NOT know what was intended, so claiming the built values as the brief
+    // would fabricate one — and then the match check would always agree with itself.
+    expect(row.audience_planned_included).toEqual([]);
+  });
+
+  it("migrates a legacy free-typed string audience into the brief", () => {
+    const row = parsePlannerRow({ ...baseRow, audience_included: ["VIPs"] })!;
+    expect(row.audience_planned_included).toEqual([{ id: "", name: "VIPs", type: "segment" }]);
+  });
+
+  it("is IDEMPOTENT — re-reading never re-routes an already-split row", () => {
+    const once = parsePlannerRow({ ...baseRow, audience_included: [AUD] })!;
+    const twice = parsePlannerRow(JSON.parse(JSON.stringify(once)))!;
+    expect(twice.audience_planned_included).toEqual([AUD]);
+    expect(twice.audience_actual_included).toBeUndefined();
+  });
+
+  it("never overwrites an explicit brief when a campaign is linked later", () => {
+    const briefed = parsePlannerRow({ ...baseRow, audience_included: [AUD] })!;
+    const linked = parsePlannerRow({ ...briefed, klaviyo_campaign_id: "01ABC" })!;
+    expect(linked.audience_planned_included).toEqual([AUD]);
+  });
+
+  it("keeps the legacy pair readable during the one-release overlap", () => {
+    const row = parsePlannerRow({ ...baseRow, audience_included: [AUD], audience_excluded: [EXC] })!;
+    expect(row.audience_included).toEqual([AUD]);
+    expect(row.audience_excluded).toEqual([EXC]);
+  });
+
+  it("drops no rows: a row with no audience fields at all still parses", () => {
+    const row = parsePlannerRow(baseRow)!;
+    expect(row).not.toBeNull();
+    expect(row.audience_planned_included).toEqual([]);
+    expect(row.audience_actual_included).toBeUndefined();
+  });
+
+  it("accepts a planned note and a null actual sync time", () => {
+    const row = parsePlannerRow({
+      ...baseRow, audience_planned_included: [AUD], audience_planned_note: "cap at 3/week",
+      audience_actual_synced_at: null,
+    })!;
+    expect(row.audience_planned_note).toBe("cap at 3/week");
+    expect(row.audience_actual_synced_at).toBeNull();
+  });
+
+  it("REPAIRS a malformed audience array to empty rather than destroying the row", () => {
+    // The same choice migrateAudience has always made for the legacy pair, and the
+    // right one: a planner row carries synced metrics and a copy link, so dropping
+    // the whole record over a bad audience list loses far more than it protects.
+    const row = parsePlannerRow({ ...baseRow, audience_planned_included: "not-an-array" })!;
+    expect(row).not.toBeNull();
+    expect(row.audience_planned_included).toEqual([]);
+  });
+
+  it("still drops a row that is genuinely malformed — the shape gate is intact", () => {
+    // A required field of the wrong type is a different thing from a repairable
+    // audience list, and must not slip through.
+    expect(parsePlannerRow({ ...baseRow, planned_send_at: 12345 })).toBeNull();
+    expect(parsePlannerRow({ ...baseRow, channel: "carrier-pigeon" })).toBeNull();
+  });
+
+  it("parsePlannerRows migrates a whole list, routing each row by its link state", () => {
+    const rows = parsePlannerRows([
+      { ...baseRow, id: "a", audience_included: [AUD] },
+      { ...baseRow, id: "b", channel: "smoke-signal", audience_included: [AUD] },
+      { ...baseRow, id: "c", klaviyo_campaign_id: "01X", audience_included: [AUD] },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(["a", "c"]);   // the bad row dropped
+    expect(rows[0].audience_planned_included).toEqual([AUD]);
+    expect(rows[0].audience_actual_included).toBeUndefined();
+    expect(rows[1].audience_actual_included).toEqual([AUD]);
+    expect(rows[1].audience_planned_included).toEqual([]);
+  });
+});

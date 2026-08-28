@@ -11,6 +11,7 @@ import {
 } from "./klaviyo-snapshot";
 import { todayYMDInTz, zonedMidnightUtc } from "./cache-ttl";
 import { isBlocked, MIN_SPACING_MS } from "./klaviyo-limiter";
+import { syncAudiences } from "./klaviyo-audiences";
 
 // The snapshot's writer (spec: KLAVIYO_RATE_LIMIT_SPEC §3.1, §3.4).
 //
@@ -29,7 +30,33 @@ import { isBlocked, MIN_SPACING_MS } from "./klaviyo-limiter";
 // got, and reports what is left; the next run continues. Correct after any number
 // of partial runs, because merging is idempotent (see mergeSnapshot).
 
+/** MEASURED 2026-08-29: 9 pages of segments + 27 of lists = 36 sequential
+ * requests, 17.5s. Used to reserve time for the audiences step rather than
+ * discovering the cost as a function timeout. */
+const AUDIENCE_CATALOGUE_MS = 20_000;
+
 export type SyncMode = "full" | "incremental";
+
+/** What a step declares about its own cost, for the budget check below. */
+export interface StepCost {
+  reporting: boolean;
+  /** Wall clock the step needs before it is worth starting. Omit for a step whose
+   * work is a single call. */
+  needMs?: number;
+}
+
+/**
+ * How long a step needs before it is worth STARTING.
+ *
+ * Pure and separately tested because getting this wrong does not fail loudly — it
+ * starts work that cannot finish, and the function is killed mid-flight with a
+ * FUNCTION_INVOCATION_TIMEOUT and no step result. That has already happened once
+ * in production, so the arithmetic is tested rather than eyeballed.
+ */
+export function stepNeedMs(unit: StepCost, slotWaitMs: number): number {
+  if (unit.needMs != null) return unit.needMs;
+  return unit.reporting ? slotWaitMs + 8_000 : 8_000;
+}
 
 export interface SyncStepResult {
   step: string;
@@ -206,7 +233,11 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
 
   // Each planned unit of work. Reporting steps are the expensive ones; the rest
   // are on endpoints with no daily cap.
-  const plan: { name: string; reporting: boolean; run: () => Promise<SyncStepResult> }[] = [];
+  // `needMs` is how much wall clock the step needs before it is worth STARTING.
+  // Most steps are a single call and the 8s default covers them; a step that does
+  // sequential work has to declare its real cost or the budget check waves it
+  // through with seconds left and the whole function times out.
+  const plan: { name: string; reporting: boolean; needMs?: number; run: () => Promise<SyncStepResult> }[] = [];
   // Steps that returned rows but still have pages left. They must NOT be marked
   // done, or the remaining pages are never fetched.
   const partial = new Set<string>();
@@ -375,7 +406,36 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
     });
   }
 
-  // ---- 4. metadata (GET endpoints: 3–10/s, no daily cap) ----
+  // ---- 4. the audience catalogue for the planner's brief picker ----
+  // Folded in here rather than taking its own cron slot: Hobby allows two and both
+  // are in use (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §4). Cheap tier (75/s, no daily
+  // cap), so it never touches the reporting limiter — but it IS ~36 sequential
+  // requests, hence its own step with its own budget.
+  plan.push({
+    name: "audiences",
+    reporting: false,
+    // The catalogue is ~36 sequential requests / ~17.5s MEASURED, and it must
+    // finish once started (a half-written catalogue silently hides audiences).
+    // Reserve for that plus room to write and respond, or don't start.
+    needMs: AUDIENCE_CATALOGUE_MS + 6_000,
+    run: async () => {
+      const r = await syncAudiences({
+        withSizes: true,
+        // Segment sizes are throttled to ~1/s, so the size pass takes whatever is
+        // left AFTER the catalogue, never a fixed 20s that could push the function
+        // past its limit. It resumes across nights, so coverage grows instead of
+        // blocking the step.
+        sizeBudgetMs: Math.max(0, deadline - Date.now() - AUDIENCE_CATALOGUE_MS - 4_000),
+        log: (l) => log(`  audiences: ${l}`),
+      });
+      const notes = [`${r.audiences} audiences (${r.segments} segments, ${r.lists} lists)`, `${r.sized} sized`];
+      if (r.truncated) warnings.push("The Klaviyo audience list hit its page cap — some segments or lists are missing from the picker.");
+      if (!r.size_pass_complete) notes.push("size pass continues next run");
+      return { step: "audiences", ok: true, detail: notes.join(", ") };
+    },
+  });
+
+  // ---- 5. metadata (GET endpoints: 3–10/s, no daily cap) ----
   plan.push({
     name: "metadata",
     reporting: false,
@@ -416,7 +476,7 @@ export async function syncKlaviyoSnapshot(opts: SyncOpts = {}): Promise<SyncResu
     if (ran >= maxSteps) { remaining.push(unit.name); continue; }
     // A reporting step needs room for its slot wait plus the call; anything else is
     // fast. Reserve rather than starting work we would have to abandon.
-    const need = unit.reporting ? slotWaitMs + 8_000 : 8_000;
+    const need = stepNeedMs(unit, slotWaitMs);
     if (Date.now() + need > deadline) { remaining.push(unit.name); continue; }
     ran++;
     try {

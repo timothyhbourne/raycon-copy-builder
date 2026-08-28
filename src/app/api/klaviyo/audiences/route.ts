@@ -1,27 +1,25 @@
 import { NextResponse } from "next/server";
-import { listSegments, listLists, type AudienceItem } from "@/lib/klaviyo";
+import { readAudienceCatalogue } from "@/lib/klaviyo-audiences";
 
-// Combined Klaviyo segments + lists for the planner's audience picker. Audiences
-// change rarely, so we cache in-process for 10 minutes. Sequential calls (rate
-// limits). In-process only (not shared across instances).
-const TTL_MS = 10 * 60 * 1000;
-let cache: { ts: number; audiences: AudienceItem[] } | null = null;
+// The picker's audience list, READ FROM THE STORE
+// (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §4).
+//
+// This used to fetch segments and lists live behind a 10-minute IN-PROCESS cache.
+// On Vercel every cold lambda starts with that cache empty, and the fetch measures
+// at 36 sequential requests / 17.5 seconds on this account — so the picker often
+// blew the function timeout and, to the user, simply hung. It makes ZERO Klaviyo
+// calls now; lib/klaviyo-audiences.ts writes the catalogue on a schedule.
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    if (cache && Date.now() - cache.ts < TTL_MS) {
-      return NextResponse.json({ audiences: cache.audiences, cached: true });
-    }
-    const segments = await listSegments();
-    const lists = await listLists();
-    // De-duplicate by id (a segment and list never share an id, but guard anyway)
-    const byId = new Map<string, AudienceItem>();
-    for (const a of [...segments, ...lists]) if (!byId.has(a.id)) byId.set(a.id, a);
-    const audiences = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
-    cache = { ts: Date.now(), audiences };
-    return NextResponse.json({ audiences });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to load audiences";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  const catalogue = await readAudienceCatalogue();
+  if (!catalogue) {
+    // Not an error: the sync hasn't run yet. The picker says so and offers Refresh,
+    // which is a fix the user can actually act on.
+    return NextResponse.json(
+      { audiences: [], synced_at: null, truncated: false, sized: 0, empty: true },
+      { status: 200 },
+    );
   }
+  return NextResponse.json(catalogue);
 }

@@ -82,12 +82,29 @@ export async function upsertPlannerRow(input: Partial<PlannerRow> & { name: stri
     status: input.status ?? existing?.status ?? "writing_brief",
     audience_included: input.audience_included ?? existing?.audience_included ?? [],
     audience_excluded: input.audience_excluded ?? existing?.audience_excluded ?? [],
+    // The brief is never touched by anything but an explicit edit — that is the
+    // guarantee the whole split exists for, so a sync writing `actual` cannot
+    // clobber it (spec §5.2).
+    audience_planned_included: input.audience_planned_included ?? existing?.audience_planned_included ?? [],
+    audience_planned_excluded: input.audience_planned_excluded ?? existing?.audience_planned_excluded ?? [],
     notes: input.notes ?? existing?.notes ?? "",
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
 
-  const next = existing ? rows.map((r) => (r.id === id ? merged : r)) : [...rows, merged];
+  // The legacy audience pair is DERIVED for one release
+  // (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §3): what was built if we know it, else
+  // the brief. Anything still reading the old fields therefore sees the best
+  // available answer, and the two can't drift apart while both exist.
+  const actualIn = merged.audience_actual_included;
+  const actualEx = merged.audience_actual_excluded;
+  const derived: PlannerRow = {
+    ...merged,
+    audience_included: (actualIn?.length ? actualIn : merged.audience_planned_included) ?? merged.audience_included ?? [],
+    audience_excluded: (actualEx?.length ? actualEx : merged.audience_planned_excluded) ?? merged.audience_excluded ?? [],
+  };
+
+  const next = existing ? rows.map((r) => (r.id === id ? derived : r)) : [...rows, derived];
   await writeAll(next);
   return merged;
 }

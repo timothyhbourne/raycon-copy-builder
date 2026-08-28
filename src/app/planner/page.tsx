@@ -3,8 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
-import { PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER, isEffectivelySent, rowKind } from "@/lib/planner-types";
+import {
+  PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER,
+  isEffectivelySent, rowKind, plannedAudiences, actualAudiences,
+} from "@/lib/planner-types";
 import { isFlowEmailId } from "@/lib/flow-email-id";
+import { compareAudiences } from "@/lib/audience-match";
+import AudiencePicker, { formatCount, useAudienceCatalogue } from "@/components/AudiencePicker";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import { SegmentedToggle } from "@/components/ui/FilterBar";
@@ -411,12 +416,22 @@ function ManualCell({ row, field, fmt, emphasize = false, onRowUpdated }: {
   );
 }
 
-// Audience summary for a row's expanded detail line (+included / −excluded).
+/**
+ * Audience summary for a row's detail line. Shows the PLAN, because that is what
+ * someone scanning the week needs to see, and marks a discrepancy because that is
+ * the exception worth flagging (spec §5.5).
+ */
 function audienceSummary(r: PlannerRow): string {
-  const inc = r.audience_included.map((a) => a.name).join(", ");
-  const exc = r.audience_excluded.map((a) => a.name).join(", ");
-  if (!inc && !exc) return "—";
-  return [inc && `+ ${inc}`, exc && `− ${exc}`].filter(Boolean).join("  ");
+  const planned = plannedAudiences(r);
+  const actual = actualAudiences(r);
+  // A row written before the split has its values on the legacy pair; fall back so
+  // the table never goes blank during the one-release overlap.
+  const inc = (planned.included.length ? planned.included : r.audience_included).map((a) => a.name).join(", ");
+  const exc = (planned.excluded.length ? planned.excluded : r.audience_excluded).map((a) => a.name).join(", ");
+  const diff = compareAudiences(planned, actual);
+  const flag = diff.verdict === "differs" ? "  ⚠ differs from what was built" : "";
+  if (!inc && !exc) return actual ? "— (no brief; built audiences on the row)" : "—";
+  return [inc && `+ ${inc}`, exc && `− ${exc}`].filter(Boolean).join("  ") + flag;
 }
 
 // Row expand/collapse control. A distinct affordance (stopPropagation) so it
@@ -679,8 +694,15 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [offerType, setOfferType] = useState<OfferType>(row?.offer_type ?? "evergreen");
   const [offer, setOffer] = useState(row?.offer ?? EVERGREEN_OFFER);
   const [promoCode, setPromoCode] = useState(row?.promo_code ?? "");
-  const [included, setIncluded] = useState<AudienceRef[]>(row?.audience_included ?? []);
-  const [excluded, setExcluded] = useState<AudienceRef[]>(row?.audience_excluded ?? []);
+  // THE BRIEF: what the VA should build against. Never written by a sync
+  // (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §3).
+  const [plannedIn, setPlannedIn] = useState<AudienceRef[]>(row?.audience_planned_included ?? []);
+  const [plannedEx, setPlannedEx] = useState<AudienceRef[]>(row?.audience_planned_excluded ?? []);
+  const [plannedNote, setPlannedNote] = useState(row?.audience_planned_note ?? "");
+  // WHAT WAS BUILT: read-only, from the linked campaign. Absent until one exists.
+  const [actualIn, setActualIn] = useState<AudienceRef[]>(row?.audience_actual_included ?? []);
+  const [actualEx, setActualEx] = useState<AudienceRef[]>(row?.audience_actual_excluded ?? []);
+  const [actualSyncedAt, setActualSyncedAt] = useState<string | null>(row?.audience_actual_synced_at ?? null);
   const [klaviyoId, setKlaviyoId] = useState(row?.klaviyo_campaign_id ?? "");
   const [klaviyoSendTime, setKlaviyoSendTime] = useState<string | null>(row?.klaviyo_send_time ?? null);
   // Northbeam campaign name — the join key for the NB rev match on SMS rows.
@@ -743,6 +765,9 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const isFlowRow = !!row && rowKind(row) === "flow_email";
   const [pickerOpen, setPickerOpen] = useState(false);
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+  // The synced segment/list catalogue. A store read — no Klaviyo call, so the
+  // picker opens immediately (spec §4).
+  const audienceCatalogue = useAudienceCatalogue();
 
   // Minimal editor styling: sparse mono micro-labels, hairline section rules.
   const label = "block t-label mb-1.5";
@@ -761,8 +786,11 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       if (!res.ok) throw new Error(j.error || "Failed");
       setKlaviyoStatus(typeof j.status === "string" ? j.status : null);
       if (/scheduled|sending|sent|queued/i.test(j.status || "")) {
-        setIncluded(Array.isArray(j.included) ? j.included : []);
-        setExcluded(Array.isArray(j.excluded) ? j.excluded : []);
+        // Writes ACTUAL only. Overwriting the brief with the reality is precisely
+        // what made a mis-built audience invisible (spec §2.3, §5.2).
+        setActualIn(Array.isArray(j.included) ? j.included : []);
+        setActualEx(Array.isArray(j.excluded) ? j.excluded : []);
+        setActualSyncedAt(new Date().toISOString());
         setAudFromKlaviyo(true);
       }
     } catch {
@@ -833,7 +861,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     id: row?.id, name: name.trim(), channel, status, planned_send_at: localInputToIso(plannedSendAt),
     offer_type: offerType, offer: offerType === "evergreen" ? EVERGREEN_OFFER : offer,
     promo_code: offerType === "promo" ? (promoCode || undefined) : undefined,
-    audience_included: included, audience_excluded: excluded,
+    audience_planned_included: plannedIn,
+    audience_planned_excluded: plannedEx,
+    audience_planned_note: plannedNote.trim() || undefined,
+    audience_actual_included: actualIn,
+    audience_actual_excluded: actualEx,
+    audience_actual_synced_at: actualSyncedAt,
     klaviyo_campaign_id: channel === "email" ? (klaviyoId.trim() || undefined) : undefined,
     klaviyo_send_time: channel === "email" ? klaviyoSendTime : undefined,
     // deprecated postscript_campaign_id is intentionally NOT sent — the upsert
@@ -864,6 +897,14 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
 
   const save = async () => {
     if (!name.trim()) { setErr("Name is required"); return; }
+    // §5.4: the handoff carries the BRIEF now, so it can't go out empty. Handing a
+    // VA a campaign with no stated audience is the failure this whole change exists
+    // to prevent, and "ready for design" is the moment it would happen. SMS has no
+    // picker (no Postscript audience API), so its note carries the target instead.
+    if (status === "ready_for_design" && channel === "email" && plannedIn.length === 0) {
+      setErr("Set a target audience before marking this ready for design — that's the brief the campaign gets built from.");
+      return;
+    }
     // Validate manual metrics BEFORE saving the row so a bad entry never half-saves.
     let manualPatch: Record<string, number | null> = {};
     if (row && channel === "sms") {
@@ -936,35 +977,74 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   };
   const unlink = () => {
     setKlaviyoId(""); setKlaviyoSendTime(null); setKlaviyoStatus(null);
-    setAudFromKlaviyo(false); setIncluded([]); setExcluded([]); setCampQ("");
+    // The BRIEF survives unlinking — it was never Klaviyo's to begin with. Only
+    // what-was-built goes, because there is no longer a campaign to have built it.
+    setAudFromKlaviyo(false); setActualIn([]); setActualEx([]); setActualSyncedAt(null); setCampQ("");
   };
 
-  // Audience section render state.
-  const hasAud = included.length > 0 || excluded.length > 0;
+  // ---- Audience: the brief, what was built, and whether they agree ----------
+  // (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §5)
   const isDraftLink = channel === "email" && !!klaviyoId && !!klaviyoStatus && /draft/i.test(klaviyoStatus);
-  const audChips = (
-    <div className="flex flex-wrap gap-1.5">
-      {included.map((a) => (
-        <span key={`i-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
-          <span className="text-success-600" aria-hidden>+</span>{a.name}
-        </span>
-      ))}
-      {excluded.map((a) => (
-        <span key={`e-${a.id || a.name}`} className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-muted">
-          <span className="text-danger-600" aria-hidden>−</span>{a.name}
-        </span>
-      ))}
-    </div>
-  );
-  const audBlocked = (text: string) => <div className="text-sm text-ink-muted">{text}</div>;
-  const audMicro = (text: string) => <div className="mt-1.5 t-label">{text}</div>;
-  const renderAudiences = () => {
-    if (audLoading) return <SkeletonBlock className="h-6 w-2/3" />;
-    if (channel === "sms") return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Audiences sync from linked Klaviyo email campaigns.");
-    if (!klaviyoId) return hasAud ? <>{audChips}{audMicro("manual")}</> : audBlocked("Link a Klaviyo campaign to pull audiences.");
-    if (isDraftLink) return audBlocked("Audiences appear when the campaign is scheduled in Klaviyo.");
-    if (hasAud) return <>{audChips}{audMicro(audFromKlaviyo ? "from Klaviyo" : "manual")}</>;
-    return audBlocked("No audiences set on this campaign yet.");
+  const actualSets = actualIn.length || actualEx.length ? { included: actualIn, excluded: actualEx } : null;
+  const audienceDiff = compareAudiences({ included: plannedIn, excluded: plannedEx }, actualSets);
+
+  // Size comes from the CATALOGUE, never stored on the row: a profile count is a
+  // live number, and freezing yesterday's onto a planner row would quietly turn a
+  // fact into a stale claim.
+  const chip = (a: AudienceRef, kind: "in" | "out") => {
+    const size = audienceCatalogue.state?.audiences.find((x) => x.id === a.id)?.size;
+    return (
+      <span key={`${kind}-${a.id || a.name}`}
+        className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
+        <span className={kind === "in" ? "text-success-600" : "text-danger-600"} aria-hidden>{kind === "in" ? "+" : "\u2212"}</span>
+        {a.name}
+        {size != null && <span className="text-ink-muted tabular-nums">\u00b7 {formatCount(size)}</span>}
+      </span>
+    );
+  };
+
+  const renderBuiltAudiences = () => {
+    // Hidden entirely while no campaign is linked — no blocked message, no empty
+    // state. If there is no campaign yet there is nothing to say (§5.2), and the
+    // old "Link a Klaviyo campaign to pull audiences." was the whole complaint.
+    if (channel !== "email" || !klaviyoId) return null;
+    return (
+      <div className={section}>
+        <label className={label}>Built in Klaviyo</label>
+        {audLoading ? (
+          <SkeletonBlock className="h-6 w-2/3" />
+        ) : isDraftLink ? (
+          <div className="text-sm text-ink-muted">Audiences appear once the campaign is scheduled in Klaviyo.</div>
+        ) : actualSets ? (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {actualIn.map((a) => chip(a, "in"))}
+              {actualEx.map((a) => chip(a, "out"))}
+            </div>
+            <div className="mt-1.5 t-label">
+              {audFromKlaviyo ? "from Klaviyo" : "recorded"}{actualSyncedAt ? ` \u00b7 ${fmtDateTime(actualSyncedAt)}` : ""}
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-ink-muted">No audiences set on this campaign yet.</div>
+        )}
+
+        {/* The match check — the reason the two fields are separate at all (§5.3).
+            Never auto-corrects: it names the difference and lets a person decide
+            which side is right. */}
+        {audienceDiff.verdict === "match" && (
+          <div className="mt-2 text-xs text-success-600 flex items-center gap-1.5">
+            <span aria-hidden>\u2713</span> Matches the brief
+          </div>
+        )}
+        {audienceDiff.verdict === "differs" && (
+          <div className="mt-2 rounded-sm border border-warning-200 bg-warning-50 px-2.5 py-2">
+            <div className="text-xs font-medium text-warning-600">Differs from the brief</div>
+            <div className="text-xs text-ink-secondary mt-0.5">{audienceDiff.summary}</div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1137,11 +1217,45 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
         </div>
       )}
 
-      {/* 6. Audiences — auto-fetched from the linked campaign, read-only */}
+      {/* 6. Audience — THE BRIEF. Present from the moment a row exists, with no
+             Klaviyo campaign required: at the point the brief is written there is
+             no campaign yet, which is exactly why the old gate made this section
+             look broken (spec §5.1). */}
       <div className={section}>
-        <label className={label}>Audiences</label>
-        {renderAudiences()}
+        <label className={label}>
+          Target audience <span className="font-normal normal-case tracking-normal text-ink-muted">(brief)</span>
+        </label>
+        <p className="text-xs text-ink-muted mb-2 -mt-1">
+          Which segments to build this campaign against. This is the instruction, not a record.
+        </p>
+        {channel === "sms" ? (
+          <div className="text-sm text-ink-muted">
+            Postscript has no usable audience API — use the note below to state the target.
+            <input
+              value={plannedNote}
+              onChange={(e) => setPlannedNote(e.target.value)}
+              placeholder="Who should this go to?"
+              className={`${input} mt-2`}
+            />
+          </div>
+        ) : (
+          <AudiencePicker
+            catalogue={audienceCatalogue.state}
+            loading={audienceCatalogue.loading}
+            refreshing={audienceCatalogue.refreshing}
+            onRefresh={() => void audienceCatalogue.refresh()}
+            included={plannedIn}
+            excluded={plannedEx}
+            onChangeIncluded={setPlannedIn}
+            onChangeExcluded={setPlannedEx}
+            note={plannedNote}
+            onChangeNote={setPlannedNote}
+          />
+        )}
       </div>
+
+      {/* 6b. What was actually built — hidden until a campaign is linked. */}
+      {renderBuiltAudiences()}
 
       {/* 6b. Copy — embedded preview + attach/unlink (saved row only, both channels) */}
       {row && (

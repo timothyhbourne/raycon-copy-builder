@@ -30,11 +30,16 @@ import type { GuidanceClaim } from "../corpus/ledger-types";
 // migrateLegacyProvenance() reads existing reviews as "curated" so the new
 // provenance gate doesn't retroactively block every saved campaign.
 //
+// 4 (2026-08-29): the planner audience split — audience_planned_* (the brief) vs
+// audience_actual_* (what Klaviyo says was built). A v3 row has one merged pair;
+// parsePlannerRow routes it by whether the row has a klaviyo_campaign_id, and the
+// legacy pair stays written for one release.
+//
 // 3 (2026-08-24): the flow GRAPH (docs/FLOW_CANVAS_REBUILD_SPEC.md). A v2 flow has
 // `emails` + `splits` and no `nodes`/`edges`; parseFlow migrates it on read
 // (migrateLinearFlowToGraph) and keeps the legacy arrays derived from the graph
 // for one release as a rollback path.
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const schemaVersion = z.number().int().optional();
 
@@ -198,6 +203,15 @@ export const plannerRowSchema = z.looseObject({
   status: z.enum(["writing_brief", "ready_for_design", "scheduled", "cancelled"]),
   audience_included: z.array(audienceRef),
   audience_excluded: z.array(audienceRef),
+  // The brief vs what was built (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §3). Optional
+  // because every row written before the split has neither; parsePlannerRow
+  // migrates them, so anything read through the store has them populated.
+  audience_planned_included: z.array(audienceRef).optional(),
+  audience_planned_excluded: z.array(audienceRef).optional(),
+  audience_planned_note: z.string().optional(),
+  audience_actual_included: z.array(audienceRef).optional(),
+  audience_actual_excluded: z.array(audienceRef).optional(),
+  audience_actual_synced_at: nstr,
   notes: z.string(),
   klaviyo_campaign_id: z.string().optional(),
   postscript_campaign_id: z.string().optional(),
