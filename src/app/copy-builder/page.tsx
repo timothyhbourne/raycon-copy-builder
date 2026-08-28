@@ -12,6 +12,7 @@ import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
 import { compileBrief } from "@/lib/brief/compile";
 import { buildCopyExport, writeToClipboard } from "@/lib/copy-export";
+import { resolveCampaignName } from "@/lib/campaign-name";
 import { normalizeSectionElements } from "@/lib/normalize-section";
 import type { CheckElement, CheckMatch } from "@/lib/constructions";
 import { scrubElements, scrubMeta, collectHardRuleElements, summarizeReport, autoFixMechanical } from "@/lib/hard-rules-client";
@@ -991,7 +992,19 @@ export default function Home() {
       );
       return;
     }
-    const bi = currentBriefInput ?? deriveBriefFallback();
+    const rawBi = currentBriefInput ?? deriveBriefFallback();
+    // NEVER finalise an unnamed campaign. An empty name used to save cleanly and
+    // land in the library as a blank row, indistinguishable from the next one
+    // (docs/CAMPAIGN_NAMING_FIX_SPEC.md §3a). By now the copy says what this is, so
+    // the name comes from the Headline, else the first subject line, else the date.
+    //
+    // Save Draft deliberately does NOT do this: a draft stays frictionless and
+    // gains its name the moment it is finalised.
+    const resolvedName = resolveCampaignName(rawBi.campaign_name, campaign, new Date().toISOString().slice(0, 10));
+    const bi = resolvedName === rawBi.campaign_name ? rawBi : { ...rawBi, campaign_name: resolvedName };
+    // Reflect it in the header immediately, so the writer sees the name it saved
+    // under rather than the blank field they left.
+    if (bi !== rawBi) setCurrentBriefInput(bi);
     // Hand-written copy gets the same gate as generated copy. The generation path
     // runs this as the stream finishes; a scratch canvas has no such moment, so
     // Save Final is where it runs. The rules are about brand safety, not about who
@@ -1251,6 +1264,29 @@ export default function Home() {
   // Deletes open a ConfirmModal; confirmDelete does the work.
   const handleDeleteSaved = (id: string) => setPendingDelete({ id, kind: "saved" });
   const handleDeleteLibrary = (id: string) => setPendingDelete({ id, kind: "library" });
+
+  /**
+   * Rename a library entry from the browser, without opening it
+   * (docs/CAMPAIGN_NAMING_FIX_SPEC.md §3d). Writes the TITLE only: the id is
+   * referenced by planner rows, corpus records and deep links, so renaming must
+   * never touch it. If the renamed entry is the one on the canvas, the header
+   * field follows, so the two views can't disagree.
+   */
+  const handleRenameLibrary = async (id: string, title: string) => {
+    try {
+      const res = await fetch("/api/library", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, title }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Rename failed");
+      if (currentLibraryId === id) handleRenameCampaign(title.trim());
+      await refreshBrowseLists();
+      toast.success(`Renamed to "${title.trim()}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rename failed");
+    }
+  };
 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
@@ -1601,13 +1637,28 @@ export default function Home() {
             <>
               {stage === "canvas" && currentBriefInput && loadingPhase === null ? (
                 <div className="group relative flex items-center min-w-0">
+                  {/* This input always worked; it just couldn't be FOUND. With no
+                      placeholder, an unnamed campaign showed a blank underline with
+                      nothing to see or aim at, and the pencil only appeared on
+                      hover — so the rename control was invisible exactly when it
+                      was needed (docs/CAMPAIGN_NAMING_FIX_SPEC.md §3b). */}
                   <input
                     value={currentBriefInput.campaign_name}
                     onChange={(e) => handleRenameCampaign(e.target.value)}
-                    className="font-medium text-sm text-ink bg-transparent border-b border-transparent hover:border-line-strong focus:border-accent focus:outline-none min-w-0 w-56 pr-5 transition-colors"
+                    placeholder="Name this campaign"
+                    aria-label="Campaign name"
+                    className={`font-medium text-sm bg-transparent border-b focus:border-accent focus:outline-none min-w-0 w-56 pr-5 transition-colors placeholder:font-normal placeholder:italic placeholder:text-ink-muted ${
+                      currentBriefInput.campaign_name.trim()
+                        ? "text-ink border-transparent hover:border-line-strong"
+                        : "text-ink border-line-strong hover:border-accent"
+                    }`}
                     title="Click to rename campaign"
                   />
-                  <svg aria-hidden className="pointer-events-none absolute right-0 w-3.5 h-3.5 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  <svg aria-hidden className={`pointer-events-none absolute right-0 w-3.5 h-3.5 transition-opacity ${
+                    currentBriefInput.campaign_name.trim()
+                      ? "text-ink-muted opacity-0 group-hover:opacity-100"
+                      : "text-accent opacity-100"
+                  }`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 </div>
               ) : (
                 <span className="t-label truncate">New campaign</span>
@@ -2013,6 +2064,7 @@ export default function Home() {
           onDeleteSaved={(id) => { setLibraryOpen(false); handleDeleteSaved(id); }}
           onViewLibrary={(id) => { setLibraryOpen(false); handleViewLibrary(id); }}
           onDeleteLibrary={(id) => { setLibraryOpen(false); handleDeleteLibrary(id); }}
+          onRenameLibrary={handleRenameLibrary}
           onLoadSms={(id) => { setLibraryOpen(false); handleLoadSms(id); }}
           onDeleteSms={(id) => { setLibraryOpen(false); handleDeleteSms(id); }}
           activeSavedId={currentDraftId}

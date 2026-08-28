@@ -147,6 +147,14 @@ export const campaignPostBody = savedCampaignSchema;
 export const smsPostBody = smsCampaignSchema;
 export const flowPostBody = flowSchema;
 
+// Rename a library entry. `title` is required and must be non-empty: an empty
+// name is precisely the defect (docs/CAMPAIGN_NAMING_FIX_SPEC.md §2a — nothing
+// constrained campaign_name, so a blank one saved cleanly).
+export const libraryRenameBody = looseObj({
+  id: safeIdSchema,
+  title: z.string().trim().min(1, "A campaign needs a name."),
+});
+
 export const finalizeBody = looseObj({
   id: safeIdSchema,
   brief_input: z.unknown(),

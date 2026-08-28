@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import EmptyState from "./ui/EmptyState";
+import { displayTitle } from "@/lib/campaign-name";
 
 // The wide campaign browser. Replaces the old 240px sidebar column that sat
 // between the nav and the brief: at that width every card was a truncated
@@ -47,6 +48,8 @@ interface Props {
   onDeleteSaved: (id: string) => void;
   onViewLibrary: (id: string) => void;
   onDeleteLibrary: (id: string) => void;
+  /** Rename a library entry without opening it (§3d). */
+  onRenameLibrary?: (id: string, title: string) => void | Promise<void>;
   onLoadSms?: (id: string) => void;
   onDeleteSms?: (id: string) => void;
   activeSavedId?: string | null;
@@ -110,7 +113,7 @@ function StatusChip({ kind }: { kind: string }) {
 // One browse card. Titles WRAP here (no truncation) — being able to read the
 // whole campaign name is the entire reason this surface exists.
 function BrowseCard({
-  active, glyph, title, metaLine, subtitle, tags, statusKind, onClick, onDelete, deleteLabel,
+  active, glyph, title, metaLine, subtitle, tags, statusKind, onClick, onDelete, deleteLabel, onRename,
 }: {
   active: boolean;
   glyph: React.ReactNode;
@@ -121,9 +124,28 @@ function BrowseCard({
   statusKind: string;
   onClick: () => void;
   onDelete: () => void;
+  /** Present when this row can be renamed in place. Titles are display, ids are
+   * identity — a rename never touches the id
+   * (docs/CAMPAIGN_NAMING_FIX_SPEC.md §3d). */
+  onRename?: (title: string) => void | Promise<void>;
   deleteLabel: string;
 }) {
   const shownTags = (tags ?? []).filter((t): t is string => !!t);
+  // A blank title used to render as literally nothing, so two unnamed campaigns
+  // were indistinguishable rows (docs/CAMPAIGN_NAMING_FIX_SPEC.md §2c). The
+  // fallback reads as a fallback — muted italic — so it is never mistaken for a
+  // name someone chose. The meta line already carries the date and type, which is
+  // what tells two untitled entries apart.
+  const shown = displayTitle(title);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const commit = () => {
+    const next = draft.trim();
+    setRenaming(false);
+    if (next && next !== title.trim()) void onRename?.(next);
+  };
+
   return (
     <div
       onClick={onClick}
@@ -138,7 +160,28 @@ function BrowseCard({
     >
       <div className="flex items-start gap-2">
         <span className={`mt-0.5 shrink-0 ${active ? "text-accent" : "text-ink-muted"}`}>{glyph}</span>
-        <div className="text-sm font-medium text-ink flex-1 break-words leading-snug pr-4">{title}</div>
+        {renaming ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") setRenaming(false);
+            }}
+            onBlur={commit}
+            placeholder="Name this campaign"
+            aria-label="Campaign name"
+            className="flex-1 min-w-0 text-sm font-medium text-ink bg-surface border border-accent rounded px-1.5 py-0.5 focus:outline-none placeholder:font-normal placeholder:italic placeholder:text-ink-muted"
+          />
+        ) : (
+          <div className={`text-sm flex-1 break-words leading-snug pr-4 ${
+            shown.isFallback ? "font-normal italic text-ink-muted" : "font-medium text-ink"}`}>
+            {shown.text}
+          </div>
+        )}
         <StatusChip kind={statusKind} />
       </div>
       <div className="text-xs text-ink-tertiary tabular-nums">{metaLine}</div>
@@ -152,21 +195,39 @@ function BrowseCard({
           ))}
         </div>
       )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        aria-label={deleteLabel}
-        title={deleteLabel}
-        className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ink-tertiary hover:text-danger-600 transition-opacity text-xs"
-      >
-        ✕
-      </button>
+      <div className="absolute bottom-2 right-2 flex items-center gap-2">
+        {onRename && !renaming && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setDraft(title.trim()); setRenaming(true); }}
+            aria-label="Rename campaign"
+            title="Rename campaign"
+            // Persistent on an untitled row: that is exactly when it is needed, and
+            // hover-only is how the existing rename control stayed hidden.
+            className={`transition-opacity text-[11px] ${
+              shown.isFallback
+                ? "opacity-100 text-accent hover:underline"
+                : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ink-tertiary hover:text-ink"
+            }`}
+          >
+            Rename
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          aria-label={deleteLabel}
+          title={deleteLabel}
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ink-tertiary hover:text-danger-600 transition-opacity text-xs"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }
 
 export default function LibraryBrowser({
   libraryItems, savedItems, smsItems = [],
-  onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary, onLoadSms, onDeleteSms,
+  onLoadSaved, onDeleteSaved, onViewLibrary, onDeleteLibrary, onRenameLibrary, onLoadSms, onDeleteSms,
   activeSavedId, activeLibraryId, activeSmsId,
 }: Props) {
   // Until the writer picks a tab, land on the first one that has anything —
@@ -299,6 +360,7 @@ export default function LibraryBrowser({
               statusKind="library"
               onClick={() => onViewLibrary(item.id)}
               onDelete={() => onDeleteLibrary(item.id)}
+              onRename={onRenameLibrary ? (t) => onRenameLibrary(item.id, t) : undefined}
               deleteLabel="Remove from library"
             />
           ))}

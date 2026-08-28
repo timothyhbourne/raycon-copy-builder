@@ -1,6 +1,7 @@
 import path from "path";
 import { getAdapter } from "./storage";
 import { parseLibraryCampaigns, stampAll } from "./validation";
+import { resolveCampaignName } from "./campaign-name";
 import type { LibraryCampaign, GeneratedCampaign, BriefInput, Conceit, SectionSpec } from "./schemas";
 
 // Store for the Copy Builder Library: a single JSON array behind the shared
@@ -96,6 +97,24 @@ export async function setLibraryPlannerRow(id: string, plannerRowId: string | nu
   return true;
 }
 
+/**
+ * Rename a library entry. Title only — the ID IS NEVER TOUCHED
+ * (docs/CAMPAIGN_NAMING_FIX_SPEC.md §3d): ids are referenced by planner rows,
+ * corpus records and the Copy Builder's deep links, so a rename that changed one
+ * would break every back-reference to it. Titles are display, ids are identity.
+ */
+export async function renameLibraryCampaign(id: string, title: string): Promise<boolean> {
+  if (!isSafeId(id)) return false;
+  const trimmed = title.trim();
+  if (!trimmed) return false;   // a rename to nothing is the bug, not a feature
+  const entries = await readAll();
+  const idx = entries.findIndex((c) => c.id === id);
+  if (idx === -1) return false;
+  entries[idx] = { ...entries[idx], title: trimmed };
+  await writeAll(entries);
+  return true;
+}
+
 export async function deleteFromLibrary(id: string): Promise<boolean> {
   if (!isSafeId(id)) return false;
   const entries = await readAll();
@@ -116,7 +135,11 @@ export async function saveToLibrary(
   const entries = await readAll();
   const entry: LibraryCampaign = {
     id,
-    title: briefInput.campaign_name,
+    // Never store a blank title. Save Final resolves a name before it gets here
+    // (§3a), but this is the LAST gate before the row exists, and a blank row is
+    // the actual defect — so the fallback lives here too rather than trusting the
+    // one caller (docs/CAMPAIGN_NAMING_FIX_SPEC.md §2b).
+    title: resolveCampaignName(briefInput.campaign_name, campaign, new Date().toISOString().slice(0, 10)),
     date: new Date().toISOString().split("T")[0],
     campaign_type: briefInput.campaign_type,
     offer: briefInput.offer,
