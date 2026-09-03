@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import type { PlannerRow } from "@/lib/planner-types";
-import { statusLabel } from "@/lib/planner-types";
+import { statusLabel, isAbTest, abTestKind, AB_TEST_KIND_LABELS } from "@/lib/planner-types";
 import type { Promotion } from "@/lib/promo/consolidate";
 import { holidayName } from "@/lib/holidays";
 import Button from "@/components/ui/Button";
@@ -322,7 +322,9 @@ function DayCellView({
                   return (
                     <div ref={dp.innerRef} {...dp.draggableProps} {...dp.dragHandleProps} style={style}
                       onClick={(e) => { e.stopPropagation(); onEntry(r); }}
-                      title={`${r.name} · ${statusLabel(r.status, r.channel)}`}
+                      title={`${r.name} · ${statusLabel(r.status, r.channel)}${
+                        isAbTest(r) ? ` · A/B test (${AB_TEST_KIND_LABELS[abTestKind(r)!].toLowerCase()})` : ""
+                      }`}
                       className={`flex items-center gap-1 rounded-sm px-1.5 py-1 border transition-[box-shadow] duration-150 ease-out-soft ${st.pill} ${
                         snap.isDragging ? "shadow-pop" : "hover:shadow-card"
                       }`}>
@@ -330,6 +332,15 @@ function DayCellView({
                       {r.status === "scheduled" && <PlatformBadge channel={r.channel} compact className="shrink-0" />}
                       {st.check && <span className="text-[9px] leading-none shrink-0" aria-hidden>✓</span>}
                       <span className={`text-[11px] truncate ${st.strike ? "line-through" : ""}`}>{r.name}</span>
+                      {/* Tiny, and it inherits the pill's ink rather than introducing
+                          a second colour into a status-tinted chip — the point is to
+                          be spottable while scanning a month, not to shout. */}
+                      {isAbTest(r) && (
+                        <span aria-label="A/B test"
+                          className="shrink-0 rounded-[3px] border border-current px-[3px] text-[8px] font-bold leading-[1.4] tracking-wide opacity-70">
+                          A/B
+                        </span>
+                      )}
                       {(ce === "draft" || ce === "final") && r.copy_campaign_id && (
                         <button type="button"
                           onClick={(e) => { e.stopPropagation(); onViewCopy(r.copy_campaign_id!, ce); }}

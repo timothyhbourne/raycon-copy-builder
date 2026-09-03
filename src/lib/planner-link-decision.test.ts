@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { decideLink, stripPlannerLinkFromRestoredForm } from "./planner-link-decision";
 
-const row = (over: Partial<{ id: string; name: string; copy_campaign_id?: string }> = {}) => ({
+import type { PlannerRow } from "./planner-types";
+
+const row = (over: Partial<Pick<PlannerRow, "id" | "name" | "copy_campaign_id" | "ab_test">> = {}) => ({
   id: "row-a", name: "RAY | Summer Sale", ...over,
 });
 
@@ -43,6 +45,50 @@ describe("decideLink", () => {
 
   it("does nothing when the copy has no id yet", () => {
     expect(decideLink({ rowId: "row-a", row: row(), copyCampaignId: "" }).action).toBe("none");
+  });
+});
+
+describe("decideLink — A/B variants", () => {
+  it("defaults to variant A, which is every campaign that isn't an A/B test", () => {
+    const d = decideLink({ rowId: "row-a", row: row(), copyCampaignId: "copy-1" });
+    expect(d.action).toBe("link");
+    if (d.action === "link") expect(d.variant).toBe("a");
+  });
+
+  it("re-links variant B's copy to B, even though the client asked for nothing", () => {
+    // THE regression this exists to stop: a saved copy record remembers only its
+    // planner_row_id, never which variant it is. Reopening B in a later session and
+    // saving would otherwise land on slot A and evict the control.
+    const r = row({ copy_campaign_id: "copy-a", ab_test: { kind: "content", copy_campaign_id: "copy-b" } });
+    const d = decideLink({ rowId: "row-a", row: r, copyCampaignId: "copy-b" });
+    expect(d.action).toBe("link");
+    if (d.action === "link") expect(d.variant).toBe("b");
+  });
+
+  it("the row overrules a client that asks for the wrong slot", () => {
+    const r = row({ copy_campaign_id: "copy-a", ab_test: { kind: "content", copy_campaign_id: "copy-b" } });
+    const d = decideLink({ rowId: "row-a", row: r, copyCampaignId: "copy-a", variant: "b" });
+    if (d.action === "link") expect(d.variant).toBe("a");
+    else throw new Error("expected a link");
+  });
+
+  it("honours a requested variant for a copy the row does not hold yet", () => {
+    const r = row({ copy_campaign_id: "copy-a", ab_test: { kind: "content" } });
+    const d = decideLink({ rowId: "row-a", row: r, copyCampaignId: "copy-new", variant: "b" });
+    expect(d.action).toBe("link");
+    if (d.action === "link") expect(d.variant).toBe("b");
+  });
+
+  it("asks per slot: a full B slot does not block A, and vice versa", () => {
+    const r = row({ copy_campaign_id: "copy-a", ab_test: { kind: "content", copy_campaign_id: "copy-b" } });
+    // A new copy aimed at B collides with B's occupant, not with A's.
+    const b = decideLink({ rowId: "row-a", row: r, copyCampaignId: "copy-new", variant: "b" });
+    expect(b.action).toBe("confirm");
+    if (b.action === "confirm") { expect(b.ownerCopyId).toBe("copy-b"); expect(b.variant).toBe("b"); }
+    // And one aimed at A collides with A's.
+    const a = decideLink({ rowId: "row-a", row: r, copyCampaignId: "copy-new" });
+    if (a.action === "confirm") expect(a.ownerCopyId).toBe("copy-a");
+    else throw new Error("expected a confirm");
   });
 });
 

@@ -14,7 +14,7 @@ import { STEP_ORDER, type StepKey } from "./helpers";
 // through a ref so the effect only runs on real URL changes, not every parent
 // re-render (which happens on every streamed token during generation).
 export function DeepLinkReader({ onPlanner, onCampaign }: {
-  onPlanner: (rowId: string, channel: string | null) => void;
+  onPlanner: (rowId: string, channel: string | null, variant: string | null) => void;
   onCampaign: (savedId: string) => void;
 }) {
   const searchParams = useSearchParams();
@@ -25,10 +25,11 @@ export function DeepLinkReader({ onPlanner, onCampaign }: {
     const planner = searchParams.get("planner");
     const campaign = searchParams.get("campaign");
     const channel = searchParams.get("channel");
-    const token = planner ? `p:${planner}:${channel ?? ""}` : campaign ? `c:${campaign}` : null;
+    const variant = searchParams.get("variant");
+    const token = planner ? `p:${planner}:${channel ?? ""}:${variant ?? ""}` : campaign ? `c:${campaign}` : null;
     if (!token || lastConsumed.current === token) return;
     lastConsumed.current = token;
-    if (planner) cbRef.current.onPlanner(planner, channel);
+    if (planner) cbRef.current.onPlanner(planner, channel, variant);
     else if (campaign) cbRef.current.onCampaign(campaign);
   }, [searchParams]);
   return null;

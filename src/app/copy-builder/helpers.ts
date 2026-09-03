@@ -53,7 +53,15 @@ export const SCRATCH_ASSISTS_DISABLED_REASON = "Add a campaign name and offer to
 
 // Planner handoff context, needed for write-back on save. Persisted alongside
 // the canvas draft so it survives the generate -> save cycle and a refresh.
-export interface PlannerLinkContext { rowId: string; name: string; channel: string }
+export interface PlannerLinkContext {
+  rowId: string;
+  name: string;
+  channel: string;
+  /** Which A/B treatment this copy is being written as. Absent = "a", which is every
+   * handoff that isn't a content A/B test. The SERVER still resolves the real slot
+   * from the row (see decideLink) — this only steers a copy the row doesn't hold yet. */
+  variant?: "a" | "b";
+}
 
 export type StepKey = "form" | "canvas";
 export const STEP_ORDER: Record<StepKey, number> = { form: 0, canvas: 1 };

@@ -298,6 +298,54 @@ describe("flow graph migration on read", () => {
 const AUD = { id: "Abc123", name: "US Subscribers", type: "segment" as const };
 const EXC = { id: "Xyz789", name: "Purchasers 30d", type: "segment" as const };
 
+describe("planner rows: ab_test is additive", () => {
+  it("a row with no ab_test parses and is simply not a test — no migration needed", () => {
+    // The reason SCHEMA_VERSION does not move: absent is already the correct value
+    // for every row ever written (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1.2).
+    const row = parsePlannerRow(baseRow);
+    expect(row).not.toBeNull();
+    expect(row!.ab_test).toBeUndefined();
+  });
+
+  it("survives the read boundary with BOTH copy links intact and distinct", () => {
+    const row = parsePlannerRow({
+      ...baseRow,
+      copy_campaign_id: "copy-a", copy_status: "final",
+      ab_test: { kind: "content", copy_campaign_id: "copy-b", copy_status: "draft", copy_linked_at: null },
+    });
+    expect(row!.copy_campaign_id).toBe("copy-a");     // variant A stays where every consumer reads it
+    expect(row!.ab_test?.copy_campaign_id).toBe("copy-b");
+  });
+
+  it("keeps a subject-line test's alternate copy text", () => {
+    const row = parsePlannerRow({
+      ...baseRow,
+      ab_test: { kind: "subject_line", subject_line: "Two days left", preview_text: "No code needed" },
+    });
+    expect(row!.ab_test).toMatchObject({ kind: "subject_line", subject_line: "Two days left" });
+  });
+
+  it("an unknown ab_test kind becomes NO test — it never takes the row with it", () => {
+    // The row is the campaign. parsePlannerRows drops what fails to parse and the
+    // next writeAll persists only the survivors, so rejecting here would DELETE a
+    // planned send off the calendar because of one additive optional field. It
+    // degrades to the default instead, which is a correct row by definition (§1.2).
+    const bad = parsePlannerRow({ ...baseRow, ab_test: { kind: "colour" } });
+    expect(bad).not.toBeNull();
+    expect(bad!.ab_test).toBeUndefined();
+    expect(bad!.name).toBe(baseRow.name);        // the campaign survives intact
+
+    const noKind = parsePlannerRow({ ...baseRow, ab_test: { subject_line: "no kind" } });
+    expect(noKind).not.toBeNull();
+    expect(noKind!.ab_test).toBeUndefined();     // and is never typed as a real test
+
+    // A null left by a client that cleared the test is the same story.
+    const cleared = parsePlannerRow({ ...baseRow, ab_test: null });
+    expect(cleared).not.toBeNull();
+    expect(cleared!.ab_test).toBeUndefined();
+  });
+});
+
 describe("planner audience split migration", () => {
   it("an UNLINKED row's hand-entered audiences become the BRIEF", () => {
     const row = parsePlannerRow({ ...baseRow, audience_included: [AUD], audience_excluded: [EXC] })!;

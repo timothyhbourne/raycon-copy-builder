@@ -112,12 +112,117 @@ export function isSendableRow(row: Pick<PlannerRow, "row_kind">): boolean {
   return rowKind(row) === "campaign";
 }
 
+// ---- A/B tests -------------------------------------------------------------
+// (spec: PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1)
+//
+// A row is ONE planned send. An A/B test does not make it two sends — it makes it
+// one send with two treatments, which is why this is a field on the row and not a
+// second row. A second row would double every denominator the planner feeds:
+// metrics sync would match two rows to one Klaviyo campaign, Copy Performance counts
+// planner rows, and the corpus tiers on scheduled rows. One send, counted twice,
+// forever.
+//
+// THE INVARIANT that keeps this additive: VARIANT A IS THE ROW ITSELF. The row's
+// existing copy_campaign_id / copy_status / copy_linked_at are variant A's, exactly
+// as they were before A/B existed. Everything that reads "the copy for this row" —
+// corpus ingest, Copy Performance, the calendar glyph, the table chip — therefore
+// keeps reading variant A unchanged, and marking a row as an A/B test can never
+// double-count it. Variant B lives in `ab_test` and is deliberately invisible to
+// those consumers.
+
+/** What the test varies. This picks variant B's SHAPE, not just a label:
+ *  "subject_line" → B is an alternate subject/preview pair stored on this row.
+ *  "content"      → B is its own Copy Builder campaign, linked to this same row. */
+export type AbTestKind = "subject_line" | "content";
+export type AbVariantKey = "a" | "b";
+
+export const AB_TEST_KINDS: AbTestKind[] = ["subject_line", "content"];
+export const AB_VARIANT_KEYS: AbVariantKey[] = ["a", "b"];
+export const AB_TEST_KIND_LABELS: Record<AbTestKind, string> = {
+  subject_line: "Subject line",
+  content: "Content",
+};
+export const AB_TEST_KIND_HINTS: Record<AbTestKind, string> = {
+  subject_line: "Same email, two subject lines. Variant A's comes from the linked copy — only B's alternate is stored here.",
+  content: "Two different emails. Variant B gets its own copy in the Copy Builder, attached to this same send.",
+};
+export const AB_VARIANT_LABELS: Record<AbVariantKey, string> = {
+  a: "Variant A",
+  b: "Variant B",
+};
+
+export interface AbTest {
+  kind: AbTestKind;
+  /** kind "subject_line": the alternate subject line variant B swaps in. Variant A's
+   * is NOT duplicated here — it is whatever the linked copy says, and storing it
+   * twice is the two-sources-of-truth failure the audience split already taught us. */
+  subject_line?: string;
+  /** kind "subject_line": variant B's alternate preview text, when it differs too. */
+  preview_text?: string;
+  /** kind "content": variant B's own Copy Builder campaign. Written only by
+   * /api/planner/link (it keeps the copy record's back-reference in step). */
+  copy_campaign_id?: string;
+  copy_status?: "draft" | "final";
+  copy_linked_at?: string | null;
+}
+
+/** True when this row is planned as an A/B test. Absent = a plain single send, which
+ * is every row saved before this field existed. */
+export function isAbTest(row: Pick<PlannerRow, "ab_test">): boolean {
+  return !!row.ab_test;
+}
+
+/** The row's test kind, or null when it isn't a test. */
+export function abTestKind(row: Pick<PlannerRow, "ab_test">): AbTestKind | null {
+  return row.ab_test?.kind ?? null;
+}
+
+/** Variant B's copy link, or null. Gated on kind: a B link left behind by a test that
+ * was switched to "subject_line" is inert rather than half-alive. */
+export function abVariantBCopy(
+  row: Pick<PlannerRow, "ab_test">,
+): { id: string; status: "draft" | "final"; linked_at: string | null } | null {
+  const ab = row.ab_test;
+  if (!ab || ab.kind !== "content" || !ab.copy_campaign_id) return null;
+  return { id: ab.copy_campaign_id, status: ab.copy_status ?? "draft", linked_at: ab.copy_linked_at ?? null };
+}
+
+/** One variant's copy link. A reads the row's own fields; B reads `ab_test`. */
+export function variantCopy(
+  row: Pick<PlannerRow, "copy_campaign_id" | "copy_status" | "copy_linked_at" | "ab_test">,
+  variant: AbVariantKey,
+): { id: string; status: "draft" | "final"; linked_at: string | null } | null {
+  if (variant === "b") return abVariantBCopy(row);
+  if (!row.copy_campaign_id) return null;
+  return { id: row.copy_campaign_id, status: row.copy_status ?? "draft", linked_at: row.copy_linked_at ?? null };
+}
+
+/**
+ * Which slot of this row, if any, already holds `copyId`.
+ *
+ * THE ROW IS THE SOURCE OF TRUTH for which variant a copy is. A saved copy record
+ * remembers only its `planner_row_id`, so without this, reopening variant B's copy
+ * weeks later and saving it would link to slot A and silently evict the control.
+ */
+export function variantHolding(
+  row: Pick<PlannerRow, "copy_campaign_id" | "ab_test"> | null | undefined,
+  copyId: string,
+): AbVariantKey | null {
+  if (!row || !copyId) return null;
+  if (row.copy_campaign_id === copyId) return "a";
+  if (abVariantBCopy(row)?.id === copyId) return "b";
+  return null;
+}
+
 export interface PlannerRow {
   id: string;
   name: string;
   channel: PlannerChannel;
   /** See PlannerRowKind. Absent on every row written before flow-email links. */
   row_kind?: PlannerRowKind;
+  /** Present when this send is planned as an A/B test. Absent = a plain single
+   * send. Variant A is the row's own copy link; see the A/B block above. */
+  ab_test?: AbTest;
   // --- Human-entered plan fields ---
   offer_type: OfferType;
   offer: string;

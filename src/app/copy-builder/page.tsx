@@ -7,6 +7,7 @@ import type {
 } from "@/lib/schemas";
 import { DEFAULT_TONE_DIAL } from "@/lib/schemas";
 import type { PlannerRow } from "@/lib/planner-types";
+import { variantHolding } from "@/lib/planner-types";
 import { plannerRowToBriefSeed } from "@/lib/planner-copy-link";
 import { nanoid } from "@/lib/nanoid";
 import { expandProductCardSections, expandUspSections } from "@/lib/expand-sections";
@@ -137,7 +138,7 @@ export default function Home() {
   const [plannerLink, setPlannerLink] = useState<PlannerLinkContext | null>(null);
   const [seedingProducts, setSeedingProducts] = useState(false);
   const [seedAiFailed, setSeedAiFailed] = useState(false);
-  const [pendingPlannerRowId, setPendingPlannerRowId] = useState<string | null>(null);
+  const [pendingPlannerRowId, setPendingPlannerRowId] = useState<{ rowId: string; variant: "a" | "b" } | null>(null);
   const [pendingPlannerSmsRowId, setPendingPlannerSmsRowId] = useState<string | null>(null);
 
   // --- SMS mode (channel switch) -----------------------------------------
@@ -349,7 +350,7 @@ export default function Home() {
 
   // Seed a new brief from a planner row: deterministic map instantly, then AI
   // proposes products + hero angle. Never auto-generates.
-  const startPlannerBrief = async (rowId: string) => {
+  const startPlannerBrief = async (rowId: string, variant: "a" | "b" = "a") => {
     router.replace("/copy-builder");   // consume the param so a refresh won't re-seed
     setError(null);
     softResetToForm();
@@ -366,7 +367,7 @@ export default function Home() {
     // 2. Seed deterministically immediately so name/offer/code show at once.
     setFormSeed(plannerRowToBriefSeed(row));
     setFormSeedLabel(row.name);
-    setPlannerLink({ rowId: row.id, name: row.name, channel: row.channel });
+    setPlannerLink({ rowId: row.id, name: row.name, channel: row.channel, variant });
     setSeedAiFailed(false);
     setSeedingProducts(true);
     // 3. Smart-fill (Haiku) proposes products + hero angle; merge when it lands.
@@ -386,8 +387,11 @@ export default function Home() {
     }
   };
 
-  // ?planner=<rowId>[&channel=sms]. Guard against silently discarding an unsaved canvas.
-  const handlePlannerDeepLink = (rowId: string, channelParam: string | null) => {
+  // ?planner=<rowId>[&channel=sms][&variant=b]. Guard against silently discarding an
+  // unsaved canvas. `variant=b` is the planner's "write variant B" affordance on a
+  // content A/B test; anything else is the ordinary single-copy handoff.
+  const handlePlannerDeepLink = (rowId: string, channelParam: string | null, variantParam: string | null) => {
+    const variant: "a" | "b" = variantParam === "b" ? "b" : "a";
     if (channelParam === "sms") {
       if (smsCampaign) setPendingPlannerSmsRowId(rowId);   // confirm before replacing
       else startSmsPlannerBrief(rowId);
@@ -398,8 +402,8 @@ export default function Home() {
       const raw = localStorage.getItem(LS_DRAFT);
       hasCanvas = !!(raw && JSON.parse(raw)?.campaign);
     } catch { hasCanvas = false; }
-    if (hasCanvas) setPendingPlannerRowId(rowId);   // confirm before replacing
-    else startPlannerBrief(rowId);
+    if (hasCanvas) setPendingPlannerRowId({ rowId, variant });   // confirm before replacing
+    else startPlannerBrief(rowId, variant);
   };
 
   // Seed SMS mode from a planner row: switch channel, prefill the brief from the
@@ -470,7 +474,7 @@ export default function Home() {
 
   // A pending reassignment awaiting the writer's answer (spec §3.3).
   const [pendingReassign, setPendingReassign] = useState<{
-    rowId: string; copyCampaignId: string; copyStatus: "draft" | "final"; ownerName: string;
+    rowId: string; copyCampaignId: string; copyStatus: "draft" | "final"; ownerName: string; variant: "a" | "b";
   } | null>(null);
 
   /**
@@ -492,8 +496,11 @@ export default function Home() {
       // someone else's campaign on our way out.
       const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
       const row = res.ok ? ((await res.json()).row ?? null) : null;
-      if (savedCopyId && row?.copy_campaign_id === savedCopyId) {
-        await fetch(`/api/planner/link?row_id=${encodeURIComponent(rowId)}`, { method: "DELETE" });
+      // Either slot: this copy may be the row's variant B, and releasing only slot
+      // "a" would leave a live link behind while telling the writer it was gone.
+      const held = savedCopyId ? variantHolding(row, savedCopyId) : null;
+      if (held) {
+        await fetch(`/api/planner/link?row_id=${encodeURIComponent(rowId)}&variant=${held}`, { method: "DELETE" });
         toast.success("Unlinked from the planner");
         return;
       }
@@ -510,19 +517,20 @@ export default function Home() {
     copyCampaignId: string,
     copyStatus: "draft" | "final",
     reassign = false,
+    variant: "a" | "b" = "a",
   ) => {
     try {
       const res = await fetch("/api/planner/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row_id: rowId, copy_campaign_id: copyCampaignId, copy_status: copyStatus, reassign }),
+        body: JSON.stringify({ row_id: rowId, copy_campaign_id: copyCampaignId, copy_status: copyStatus, reassign, variant }),
       });
       if (res.ok) { toast.success("Linked to planner ✓"); return; }
       if (res.status === 409) {
         // The server's own guard caught what the client should have asked about.
         const data = await res.json().catch(() => ({}));
         const ownerName = data?.conflict?.owner_name ?? "another campaign";
-        setPendingReassign({ rowId, copyCampaignId, copyStatus, ownerName });
+        setPendingReassign({ rowId, copyCampaignId, copyStatus, ownerName, variant });
         return;
       }
       console.error(`Planner write-back failed (HTTP ${res.status})`);
@@ -549,7 +557,7 @@ export default function Home() {
     try {
       const res = await fetch(`/api/planner?id=${encodeURIComponent(rowId)}`);
       const row = res.ok ? ((await res.json()).row ?? null) : null;
-      const decision = decideLink({ rowId, row, copyCampaignId });
+      const decision = decideLink({ rowId, row, copyCampaignId, variant: plannerLink?.variant });
 
       if (decision.action === "none") return;
       if (decision.action === "missing") {
@@ -562,7 +570,10 @@ export default function Home() {
       // sent WITHOUT reassign, so the API resolves the current owner's real name and
       // answers 409, and postPlannerLink raises the prompt from that. One code path,
       // and the message names a campaign rather than an id.
-      await postPlannerLink(rowId, copyCampaignId, copyStatus);
+      await postPlannerLink(
+        rowId, copyCampaignId, copyStatus, false,
+        decision.action === "link" || decision.action === "confirm" ? decision.variant : "a",
+      );
     } catch (e) {
       console.error("Planner write-back skipped", e);
     }
@@ -1672,9 +1683,10 @@ export default function Home() {
                   until the "Linked to planner ✓" toast fired after the save, which is
                   the wrong moment to find out (spec §3.4). */}
               {(plannerLink?.rowId || currentBriefInput?.planner_row_id) && stage === "canvas" && (
-                <span className="inline-flex items-center gap-1 shrink-0 max-w-[240px]" title={`This copy will be linked to the planner row "${plannerLink?.name ?? currentBriefInput?.planner_row_id}"`}>
+                <span className="inline-flex items-center gap-1 shrink-0 max-w-[240px]" title={`This copy will be linked to the planner row "${plannerLink?.name ?? currentBriefInput?.planner_row_id}"${plannerLink?.variant === "b" ? " as variant B of its A/B test" : ""}`}>
                   <Chip tone="accent" className="truncate">
                     Linked to: {plannerLink?.name ?? currentBriefInput?.planner_row_id}
+                    {plannerLink?.variant === "b" && " · Variant B"}
                   </Chip>
                   <button
                     type="button"
@@ -2091,7 +2103,7 @@ export default function Home() {
         onConfirm={() => {
           const p = pendingReassign;
           setPendingReassign(null);
-          if (p) void postPlannerLink(p.rowId, p.copyCampaignId, p.copyStatus, true);
+          if (p) void postPlannerLink(p.rowId, p.copyCampaignId, p.copyStatus, true, p.variant);
         }}
         title="That planner row is already linked"
         body={`It currently points at "${pendingReassign?.ownerName ?? "another campaign"}". Moving the link here will detach it from that campaign.`}
@@ -2109,7 +2121,7 @@ export default function Home() {
       <ConfirmModal
         open={!!pendingPlannerRowId}
         onClose={() => { setPendingPlannerRowId(null); router.replace("/copy-builder"); }}
-        onConfirm={() => { const id = pendingPlannerRowId; setPendingPlannerRowId(null); if (id) startPlannerBrief(id); }}
+        onConfirm={() => { const p = pendingPlannerRowId; setPendingPlannerRowId(null); if (p) startPlannerBrief(p.rowId, p.variant); }}
         title="You have an unsaved campaign"
         body="Start the planner brief? Your current canvas stays saved in this browser, so you can get back to it later."
         confirmLabel="Start planner brief"

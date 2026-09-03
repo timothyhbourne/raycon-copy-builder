@@ -1,6 +1,8 @@
+"use client";
+import { useState } from "react";
 import Link from "next/link";
-import type { PlannerChannel, PlannerStatus } from "@/lib/planner-types";
-import { PLANNER_STATUS_LABELS } from "@/lib/planner-types";
+import type { PlannerChannel, PlannerStatus, PlannerRow, AbTestKind } from "@/lib/planner-types";
+import { PLANNER_STATUS_LABELS, AB_TEST_KIND_LABELS, isAbTest, abTestKind } from "@/lib/planner-types";
 import Chip from "@/components/ui/Chip";
 import { CHANNEL_GLYPH, STATUS_STYLE, COPY_TONE, type CopyEntry } from "./format";
 
@@ -68,5 +70,70 @@ export function CopyGlyph() {
       strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
     </svg>
+  );
+}
+
+// Compact "this send is a test" marker. Small enough for a calendar pill, legible
+// enough that the question "is this an A/B test?" never needs the drawer opened
+// (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1.5).
+export function AbBadge({ kind, className = "" }: { kind: AbTestKind; className?: string }) {
+  return (
+    <span
+      title={`A/B test — ${AB_TEST_KIND_LABELS[kind].toLowerCase()}`}
+      className={`shrink-0 rounded px-1 py-px text-[10px] font-semibold leading-none tracking-wide bg-info-50 text-info-600 border border-info-200 ${className}`}
+    >
+      A/B
+    </span>
+  );
+}
+
+/** The badge, or nothing, straight from a row — so callers don't each re-derive it. */
+export function RowAbBadge({ row, className = "" }: { row: Pick<PlannerRow, "ab_test">; className?: string }) {
+  const kind = abTestKind(row);
+  if (!isAbTest(row) || !kind) return null;
+  return <AbBadge kind={kind} className={className} />;
+}
+
+/**
+ * A drawer section that can be folded away, with its content still summarised on the
+ * header line.
+ *
+ * The audience picker is the reason this exists: it is the tallest thing in the
+ * editor and, on a row whose brief is already written, it is also the least
+ * interesting. Collapsing it must not hide the answer, though — so `summary` renders
+ * beside the label while closed, which is why this takes a node and not a string.
+ *
+ * `defaultOpen` is read once, on mount. The drawer is remounted per row, so "open
+ * when there's something to do" is decided fresh for each campaign rather than
+ * inherited from the last one.
+ */
+export function CollapsibleSection({
+  label, summary, defaultOpen = true, className = "", children,
+}: {
+  label: React.ReactNode;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 text-left group"
+      >
+        <span className="t-label group-hover:text-ink-secondary transition-colors">{label}</span>
+        {!open && summary && <span className="min-w-0 flex-1 flex items-center gap-1 overflow-hidden">{summary}</span>}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round" aria-hidden
+          className={`ml-auto shrink-0 text-ink-muted transition-transform duration-150 ease-out-soft ${open ? "rotate-180" : ""}`}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="mt-1.5">{children}</div>}
+    </div>
   );
 }

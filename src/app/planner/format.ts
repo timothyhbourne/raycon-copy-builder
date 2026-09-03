@@ -66,5 +66,21 @@ export function reDate(iso: string, newYmd: string): string {
   return nd.toISOString();
 }
 
+// One line describing a row's A/B test, for the table's expanded detail. Says what
+// is being varied and whether variant B actually exists yet — a test with no second
+// treatment is a plan, not a test, and the row should admit it.
+export function abSummary(r: PlannerRow): string {
+  const ab = r.ab_test;
+  if (!ab) return "—";
+  if (ab.kind === "subject_line") {
+    return ab.subject_line
+      ? `Subject line · B: \u201c${ab.subject_line}\u201d`
+      : "Subject line · variant B not written yet";
+  }
+  return ab.copy_campaign_id
+    ? "Content · two copies attached"
+    : "Content · variant B copy not attached yet";
+}
+
 export const microLabel = "t-label";
 export const selectCls = "appearance-none text-sm border border-line rounded-sm pl-2.5 pr-7 py-1.5 bg-surface focus:outline-none focus:border-accent transition-colors";

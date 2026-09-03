@@ -2,14 +2,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
-import type { PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult } from "@/lib/planner-types";
+import type {
+  PlannerRow, PlannerChannel, PlannerStatus, OfferType, AudienceRef, SyncResult,
+  AbTest, AbTestKind, AbVariantKey,
+} from "@/lib/planner-types";
 import {
   PLANNER_STATUSES, PLANNER_CHANNELS, PLANNER_STATUS_LABELS, statusLabel, EVERGREEN_OFFER,
   isEffectivelySent, rowKind, plannedAudiences, actualAudiences,
+  AB_TEST_KINDS, AB_TEST_KIND_LABELS, AB_TEST_KIND_HINTS, AB_VARIANT_LABELS,
+  isAbTest, abVariantBCopy,
 } from "@/lib/planner-types";
 import { isFlowEmailId } from "@/lib/flow-email-id";
 import { compareAudiences } from "@/lib/audience-match";
-import AudiencePicker, { formatCount, useAudienceCatalogue } from "@/components/AudiencePicker";
+import AudiencePicker, { formatCount, useAudienceCatalogue, AUDIENCE_TINT } from "@/components/AudiencePicker";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import { SegmentedToggle } from "@/components/ui/FilterBar";
@@ -19,6 +24,7 @@ import Chip from "@/components/ui/Chip";
 import Drawer from "@/components/ui/Drawer";
 import Modal, { ConfirmModal } from "@/components/ui/Modal";
 import SkeletonBlock from "@/components/ui/Skeleton";
+import AutoTextarea from "@/components/ui/AutoTextarea";
 import PlatformBadge from "@/components/ui/PlatformBadge";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import CopyDocModal from "@/components/CopyDocModal";
@@ -26,10 +32,12 @@ import { toast } from "@/components/ui/Toast";
 
 import {
   money, int, pct, rpr, fmtDate, fmtDateTime, isoToLocalInput, localInputToIso,
-  ymdOf, offerValue, discountCode, reDate, microLabel, selectCls, STATUS_STYLE,
+  ymdOf, offerValue, discountCode, reDate, microLabel, selectCls, STATUS_STYLE, abSummary,
   type CopyEntry, type CopyPreview, type CampaignItem,
 } from "./format";
-import { ChannelGlyph, StatusPill, CopyLink, Chevron } from "./components";
+import {
+  ChannelGlyph, StatusPill, CopyLink, Chevron, CollapsibleSection, RowAbBadge, AbBadge,
+} from "./components";
 import CalendarView from "./CalendarView";
 
 export default function PlannerPage() {
@@ -124,15 +132,23 @@ export default function PlannerPage() {
   // composite id. Healing on that set would delete every valid flow-email link the
   // first time the planner loaded, which is the same shape of bug that made
   // stale-healing email-only for SMS.
+  //
+  // Both slots are checked: a row's variant B can go stale exactly the same way, and
+  // healing only slot "a" would leave a dead B link showing a copy that isn't there.
   useEffect(() => {
     if (!copyIdsLoaded) return;
-    const stale = rows.filter((r) =>
-      r.channel === "email" && r.copy_campaign_id && !isFlowEmailId(r.copy_campaign_id)
-      && !copyIds.has(r.copy_campaign_id) && !healedRef.current.has(r.id));
+    const isStale = (id: string | undefined) => !!id && !isFlowEmailId(id) && !copyIds.has(id);
+    const stale: { id: string; variant: AbVariantKey }[] = [];
+    for (const r of rows) {
+      if (r.channel !== "email") continue;
+      if (isStale(r.copy_campaign_id) && !healedRef.current.has(`${r.id}:a`)) stale.push({ id: r.id, variant: "a" });
+      const b = abVariantBCopy(r);
+      if (isStale(b?.id) && !healedRef.current.has(`${r.id}:b`)) stale.push({ id: r.id, variant: "b" });
+    }
     if (stale.length === 0) return;
-    stale.forEach((r) => healedRef.current.add(r.id));
-    Promise.all(stale.map((r) =>
-      fetch(`/api/planner/link?row_id=${encodeURIComponent(r.id)}`, { method: "DELETE" }).catch(() => {})
+    stale.forEach((s) => healedRef.current.add(`${s.id}:${s.variant}`));
+    Promise.all(stale.map((s) =>
+      fetch(`/api/planner/link?row_id=${encodeURIComponent(s.id)}&variant=${s.variant}`, { method: "DELETE" }).catch(() => {})
     )).then(() => fetchRows());
   }, [rows, copyIds, copyIdsLoaded, fetchRows]);
 
@@ -610,6 +626,7 @@ function TableView({ rows, onEdit, onReschedule, onRowUpdated, fChannel, setFCha
                                         flow
                                       </span>
                                     )}
+                                    <RowAbBadge row={r} />
                                   </span>
                                   <CopyLink entry={copyEntry(r)} rowId={r.id} copyId={r.copy_campaign_id} channel={r.channel} />
                                 </div>
@@ -657,6 +674,12 @@ function TableView({ rows, onEdit, onReschedule, onRowUpdated, fChannel, setFCha
                               <span className="shrink-0 w-16 t-label">Audience</span>
                               <span className="min-w-0">{audienceSummary(r)}</span>
                             </div>
+                            {isAbTest(r) && (
+                              <div className="flex gap-2">
+                                <span className="shrink-0 w-16 t-label">A/B</span>
+                                <span className="min-w-0">{abSummary(r)}</span>
+                              </div>
+                            )}
                             <div className="flex gap-2">
                               <span className="shrink-0 w-16 t-label">Notes</span>
                               <span className="min-w-0">{r.notes || "—"}</span>
@@ -714,6 +737,25 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   const [nbLoading, setNbLoading] = useState(false);
   const nbFetched = useRef(false);
   const [notes, setNotes] = useState(row?.notes ?? "");
+  // ---- A/B test (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1) ---------
+  // Only variant B's half is state here. Variant A IS the row's own copy link —
+  // copyId/copyStatus below — and mirroring it into a second place is exactly the
+  // drift the audience brief/actual split was written to stop.
+  const initialB = row ? abVariantBCopy(row) : null;
+  const [abOn, setAbOn] = useState(!!row?.ab_test);
+  const [abKind, setAbKind] = useState<AbTestKind>(row?.ab_test?.kind ?? "subject_line");
+  const [abSubject, setAbSubject] = useState(row?.ab_test?.subject_line ?? "");
+  const [abPreview, setAbPreview] = useState(row?.ab_test?.preview_text ?? "");
+  const [bCopyId, setBCopyId] = useState<string | undefined>(initialB?.id);
+  const [bCopyStatus, setBCopyStatus] = useState<"draft" | "final" | undefined>(initialB?.status);
+  const [bCopyLinkedAt, setBCopyLinkedAt] = useState<string | null>(initialB?.linked_at ?? null);
+  const [bCopyPreview, setBCopyPreview] = useState<CopyPreview | null>(null);
+  const [bCopyLoading, setBCopyLoading] = useState(false);
+  // A pending change that would strand variant B's copy. Held until it is confirmed,
+  // then the copy is released through the link route so the copy record's
+  // planner_row_id goes with it rather than being orphaned (spec §1.4).
+  const [abDetachIntent, setAbDetachIntent] =
+    useState<{ to: AbTestKind } | { off: true } | { channel: PlannerChannel } | null>(null);
   // Manual platform metrics (SMS): same four fields as the table's inline
   // entry, here for completeness. Strings, parsed on Save; initial strings are
   // kept so only touched fields get PATCHed (an untouched derived rev/recip
@@ -763,8 +805,19 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   // lives in the Flow Builder, and a composite copy id means nothing to the Copy
   // Builder, so the two links below point somewhere that works.
   const isFlowRow = !!row && rowKind(row) === "flow_email";
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+  // Can this send be split at all? Email campaigns only.
+  //   - A flow email is triggered and evergreen: there is no single send to split.
+  //   - SMS has neither a subject line nor preview text, so one kind is meaningless
+  //     on it, and the other's variant-B handoff (?planner=…&variant=b) runs through
+  //     the SMS brief path, which carries no variant — B would link to slot A and
+  //     evict the control. Both kinds are defined as EMAIL in the spec (§1.2), so
+  //     this is where they live until an SMS test is actually asked for.
+  const abAvailable = !isFlowRow && channel === "email";
+  // What the rest of the drawer keys off: a test that is on AND applicable.
+  const abActive = abOn && abAvailable;
+  // Which slot the attach picker / unlink confirmation is for; null = closed.
+  const [pickerOpen, setPickerOpen] = useState<AbVariantKey | null>(null);
+  const [unlinkConfirm, setUnlinkConfirm] = useState<AbVariantKey | null>(null);
   // The synced segment/list catalogue. A store read — no Klaviyo call, so the
   // picker opens immediately (spec §4).
   const audienceCatalogue = useAudienceCatalogue();
@@ -824,37 +877,123 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     } catch { /* keep whatever we have */ } finally { setCopyLoading(false); }
   }, [row, onLinkChanged]);
 
+  // Variant B's preview, same contract as A's: a 404 means the copy was deleted, so
+  // heal the link rather than showing a slot that points at nothing.
+  const fetchBCopyPreview = useCallback(async (id: string) => {
+    if (!row) return;
+    setBCopyLoading(true);
+    try {
+      const res = await fetch(`/api/planner/copy?id=${encodeURIComponent(id)}`);
+      if (res.status === 404) {
+        setBCopyId(undefined); setBCopyStatus(undefined); setBCopyPreview(null); setBCopyLinkedAt(null);
+        await fetch(`/api/planner/link?row_id=${encodeURIComponent(row.id)}&variant=b`, { method: "DELETE" }).catch(() => {});
+        onLinkChanged();
+        return;
+      }
+      const j = await res.json();
+      if (res.ok) setBCopyPreview(j as CopyPreview);
+    } catch { /* keep whatever we have */ } finally { setBCopyLoading(false); }
+  }, [row, onLinkChanged]);
+
   useEffect(() => {
     if (row && copyId) fetchCopyPreview(copyId);   // both channels resolve via /api/planner/copy
+    if (row && bCopyId) fetchBCopyPreview(bCopyId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const attachCopy = async (copyCampaignId: string, cs: "draft" | "final") => {
+  const attachCopy = async (copyCampaignId: string, cs: "draft" | "final", variant: AbVariantKey = "a") => {
     if (!row) return;
     try {
       const res = await fetch("/api/planner/link", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ row_id: row.id, copy_campaign_id: copyCampaignId, copy_status: cs }),
+        body: JSON.stringify({ row_id: row.id, copy_campaign_id: copyCampaignId, copy_status: cs, variant }),
       });
-      if (!res.ok) throw new Error();
-      setCopyId(copyCampaignId); setCopyStatus(cs); setCopyPreview(null);
-      setPickerOpen(false);
-      toast.success("Copy attached");
+      if (!res.ok) {
+        // The route's guards (wrong test kind, same copy in both slots) say something
+        // useful — surfacing it beats a generic failure the writer can't act on.
+        const j = await res.json().catch(() => ({}));
+        throw new Error(typeof j.error === "string" ? j.error : "");
+      }
+      if (variant === "b") {
+        setBCopyId(copyCampaignId); setBCopyStatus(cs); setBCopyPreview(null); setBCopyLinkedAt(new Date().toISOString());
+      } else {
+        setCopyId(copyCampaignId); setCopyStatus(cs); setCopyPreview(null);
+      }
+      setPickerOpen(null);
+      toast.success(variant === "b" ? "Variant B copy attached" : "Copy attached");
       onLinkChanged();
-      fetchCopyPreview(copyCampaignId);
-    } catch { toast.error("Couldn't attach copy."); }
+      if (variant === "b") fetchBCopyPreview(copyCampaignId); else fetchCopyPreview(copyCampaignId);
+    } catch (e) { toast.error(e instanceof Error && e.message ? e.message : "Couldn't attach copy."); }
   };
 
-  const unlinkCopy = async () => {
+  const unlinkCopyVariant = async (variant: AbVariantKey) => {
     if (!row) return;
-    setUnlinkConfirm(false);
+    setUnlinkConfirm(null);
     try {
-      const res = await fetch(`/api/planner/link?row_id=${encodeURIComponent(row.id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/planner/link?row_id=${encodeURIComponent(row.id)}&variant=${variant}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
-      setCopyId(undefined); setCopyStatus(undefined); setCopyPreview(null);
+      if (variant === "b") {
+        setBCopyId(undefined); setBCopyStatus(undefined); setBCopyPreview(null); setBCopyLinkedAt(null);
+      } else {
+        setCopyId(undefined); setCopyStatus(undefined); setCopyPreview(null);
+      }
       toast.success("Copy unlinked");
       onLinkChanged();
     } catch { toast.error("Couldn't unlink copy."); }
+  };
+
+  // Turning the test off, or switching a content test to a subject-line one, would
+  // leave variant B's copy attached to a slot that no longer exists. Ask first, then
+  // release it properly — a plain Save can only forget the link, not clean up the
+  // copy record's back-reference.
+  const requestAbKind = (next: AbTestKind) => {
+    if (next === abKind) return;
+    if (abKind === "content" && bCopyId) { setAbDetachIntent({ to: next }); return; }
+    setAbKind(next);
+  };
+  const requestAbOff = () => {
+    if (!abOn) return;
+    if (bCopyId) { setAbDetachIntent({ off: true }); return; }
+    setAbOn(false);
+  };
+  // The THIRD way to strand variant B, and the least obvious: A/B lives on email
+  // rows only, so switching to SMS drops the test on save (abPayload) — silently
+  // taking B's link with it and leaving the copy record still claiming this row.
+  // Same gate as turning the test off, because it is the same consequence.
+  const requestChannel = (next: PlannerChannel) => {
+    if (next === channel) return;
+    if (next !== "email" && abOn && bCopyId) { setAbDetachIntent({ channel: next }); return; }
+    setChannel(next);
+  };
+  const confirmAbDetach = async () => {
+    const intent = abDetachIntent;
+    setAbDetachIntent(null);
+    if (!intent) return;
+    await unlinkCopyVariant("b");
+    if ("off" in intent) setAbOn(false);
+    else if ("channel" in intent) { setAbOn(false); setChannel(intent.channel); }
+    else setAbKind(intent.to);
+  };
+
+  // The A/B block as it should be persisted. Only the half belonging to the current
+  // kind is written, so switching kinds can't leave a contradiction on the row.
+  // `withCopyLink` is false for a duplicate: the link is single-owner, so cloning it
+  // would silently steal variant B from the campaign being copied — the same reason
+  // the Klaviyo link and the Northbeam name clear.
+  const abPayload = (withCopyLink: boolean): AbTest | null => {
+    // Not `abOn`: a row switched to SMS hides the section, so persisting its test
+    // would leave one that can be neither seen nor turned off.
+    if (!abActive) return null;
+    if (abKind === "subject_line") {
+      return {
+        kind: "subject_line",
+        subject_line: abSubject.trim() || undefined,
+        preview_text: abPreview.trim() || undefined,
+      };
+    }
+    return withCopyLink && bCopyId
+      ? { kind: "content", copy_campaign_id: bCopyId, copy_status: bCopyStatus, copy_linked_at: bCopyLinkedAt }
+      : { kind: "content" };
   };
 
   const build = (overrides: Record<string, unknown> = {}) => ({
@@ -874,6 +1013,9 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     // SMS: "" clears the join key; email rows keep theirs untouched (undefined
     // keys are dropped by JSON.stringify, so the upsert preserves them).
     northbeam_campaign_name: channel === "sms" ? nbName.trim() : undefined,
+    // null is the explicit "not an A/B test" signal — an omitted key would be dropped
+    // by JSON.stringify and read as "leave it alone", which could never turn one off.
+    ab_test: abPayload(true),
     notes, ...overrides,
   });
 
@@ -943,7 +1085,16 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       }
       const link = `${window.location.origin}/planner?copy=${encodeURIComponent(copyId)}&as=${copyStatus ?? "draft"}`;
       const sendLabel = fmtDateTime(localInputToIso(plannedSendAt));
-      const message = `Hi there 👋\n\nThis campaign, "${name.trim()}", is ready for design.\nPlanned send: ${sendLabel}\n\nView the copy: ${link}`;
+      // An A/B test handed over as one copy gets built as one email. Say so, and
+      // carry the second treatment in the same message rather than a follow-up.
+      const abLine = !abActive
+        ? ""
+        : abKind === "subject_line"
+          ? `\n\nA/B test — subject line. Variant B subject: ${abSubject.trim() || "(not written yet)"}`
+          : bCopyId
+            ? `\n\nA/B test — two versions. Variant B copy: ${window.location.origin}/planner?copy=${encodeURIComponent(bCopyId)}&as=${bCopyStatus ?? "draft"}`
+            : "\n\nA/B test — the second version is still to be written.";
+      const message = `Hi there 👋\n\nThis campaign, "${name.trim()}", is ready for design.\nPlanned send: ${sendLabel}\n\nView the copy: ${link}${abLine}`;
       await navigator.clipboard.writeText(message);
       toast.success("Handoff copied — paste into Slack");
     } catch {
@@ -958,7 +1109,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     try {
       // Clone plan fields; clear links + metrics so the copy is a fresh plan
       // (the NB join name belongs to the ORIGINAL send, so it clears too).
-      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, northbeam_campaign_name: undefined }));
+      await post(build({ id: undefined, name: `${name.trim()} (copy)`, status: "writing_brief", klaviyo_campaign_id: undefined, klaviyo_send_time: null, northbeam_campaign_name: undefined, ab_test: abPayload(false) }));
       toast.success("Campaign duplicated");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : "Duplicate failed"); setSaving(false); }
@@ -991,17 +1142,53 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
   // Size comes from the CATALOGUE, never stored on the row: a profile count is a
   // live number, and freezing yesterday's onto a planner row would quietly turn a
   // fact into a stale claim.
+  // Same tint as the picker's own chips (AUDIENCE_TINT) — included green, excluded
+  // red. These are the read-only side of the comparison, so if the two sections
+  // rendered "in" and "out" differently the check would be harder, not easier.
   const chip = (a: AudienceRef, kind: "in" | "out") => {
     const size = audienceCatalogue.state?.audiences.find((x) => x.id === a.id)?.size;
+    const tint = AUDIENCE_TINT[kind];
     return (
       <span key={`${kind}-${a.id || a.name}`}
-        className="inline-flex items-center gap-1 text-[11px] bg-chrome border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
-        <span className={kind === "in" ? "text-success-600" : "text-danger-600"} aria-hidden>{kind === "in" ? "+" : "\u2212"}</span>
+        title={kind === "in" ? `Included \u2014 ${a.name}` : `Excluded \u2014 ${a.name}`}
+        className={`inline-flex items-center gap-1 text-[11px] border rounded-sm px-1.5 py-0.5 text-ink-secondary ${tint.chip}`}>
+        <span className={tint.glyph} aria-hidden>{kind === "in" ? "+" : "\u2212"}</span>
+        <span className="sr-only">{kind === "in" ? "Included:" : "Excluded:"}</span>
         {a.name}
-        {size != null && <span className="text-ink-muted tabular-nums">\u00b7 {formatCount(size)}</span>}
+        {size != null && <span className="text-ink-muted tabular-nums">· {formatCount(size)}</span>}
       </span>
     );
   };
+
+  // ---- the brief, folded away (spec §2.1) -----------------------------------
+  // Open when there is something to do. Decided from the row as it was when the
+  // drawer opened, not from live state, so the section doesn't fold itself shut the
+  // moment the first segment is picked.
+  const [briefWrittenOnOpen] = useState(() =>
+    (row?.audience_planned_included?.length ?? 0) + (row?.audience_planned_excluded?.length ?? 0) > 0
+    || !!row?.audience_planned_note?.trim(),
+  );
+
+  // Collapsed is not blind: the chosen audiences still read on the header line.
+  const briefSummary = (() => {
+    const picked: [AudienceRef, "in" | "out"][] = [
+      ...plannedIn.map((a) => [a, "in"] as [AudienceRef, "in"]),
+      ...plannedEx.map((a) => [a, "out"] as [AudienceRef, "out"]),
+    ];
+    if (picked.length === 0) {
+      const note = plannedNote.trim();
+      return <span className="truncate text-[11px] text-ink-muted">{note || "not set"}</span>;
+    }
+    const shown = picked.slice(0, 3);
+    return (
+      <>
+        {shown.map(([a, kind]) => chip(a, kind))}
+        {picked.length > shown.length && (
+          <span className="shrink-0 text-[11px] text-ink-muted">+{picked.length - shown.length} more</span>
+        )}
+      </>
+    );
+  })();
 
   const renderBuiltAudiences = () => {
     // Hidden entirely while no campaign is linked — no blocked message, no empty
@@ -1009,8 +1196,23 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     // old "Link a Klaviyo campaign to pull audiences." was the whole complaint.
     if (channel !== "email" || !klaviyoId) return null;
     return (
-      <div className={section}>
-        <label className={label}>Built in Klaviyo</label>
+      // Collapsed when it matches the brief, open when it differs — the exception is
+      // the thing worth reading, and a match is a one-word answer. Keyed on the
+      // verdict so the default is applied once the audiences actually land, rather
+      // than being decided during the fetch when nothing is known yet.
+      <CollapsibleSection
+        key={`built-${audienceDiff.verdict}`}
+        className={section}
+        label="Built in Klaviyo"
+        defaultOpen={audienceDiff.verdict !== "match"}
+        summary={
+          audienceDiff.verdict === "match"
+            ? <span className="truncate text-[11px] text-success-600">✓ matches the brief</span>
+            : audienceDiff.verdict === "differs"
+              ? <span className="truncate text-[11px] text-warning-600">differs from the brief</span>
+              : <span className="truncate text-[11px] text-ink-muted">not set yet</span>
+        }
+      >
         {audLoading ? (
           <SkeletonBlock className="h-6 w-2/3" />
         ) : isDraftLink ? (
@@ -1034,13 +1236,82 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             which side is right. */}
         {audienceDiff.verdict === "match" && (
           <div className="mt-2 text-xs text-success-600 flex items-center gap-1.5">
-            <span aria-hidden>\u2713</span> Matches the brief
+            <span aria-hidden>✓</span> Matches the brief
           </div>
         )}
         {audienceDiff.verdict === "differs" && (
           <div className="mt-2 rounded-sm border border-warning-200 bg-warning-50 px-2.5 py-2">
             <div className="text-xs font-medium text-warning-600">Differs from the brief</div>
             <div className="text-xs text-ink-secondary mt-0.5">{audienceDiff.summary}</div>
+          </div>
+        )}
+      </CollapsibleSection>
+    );
+  };
+
+  // ---- one copy slot --------------------------------------------------------
+  // Variant A keeps everything the single-copy section always had, including the
+  // design handoff and the flow-email special case. Variant B has neither: a flow
+  // email is never an A/B test, and one handoff message carries both treatments.
+  const renderCopySlot = (variant: AbVariantKey) => {
+    if (!row) return null;
+    const isB = variant === "b";
+    const twoUp = abActive && abKind === "content";
+    const id = isB ? bCopyId : copyId;
+    const st = isB ? bCopyStatus : copyStatus;
+    const preview = isB ? bCopyPreview : copyPreview;
+    const busy = isB ? bCopyLoading : copyLoading;
+    const writeHref = isB
+      ? `/copy-builder?planner=${row.id}&variant=b`
+      : channel === "sms" ? `/copy-builder?planner=${row.id}&channel=sms` : `/copy-builder?planner=${row.id}`;
+    return (
+      <div key={variant} className={twoUp ? "rounded-sm border border-line p-3" : ""}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="t-label">{twoUp ? AB_VARIANT_LABELS[variant] : "Copy"}</span>
+          {id && st && <Chip tone={st === "final" ? "success" : "warning"}>{st}</Chip>}
+          {id && (
+            <button type="button" onClick={() => setUnlinkConfirm(variant)}
+              className="ml-auto text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
+          )}
+        </div>
+        {id ? (
+          busy ? (
+            <SkeletonBlock className="h-4 w-2/3" />
+          ) : (
+            <>
+              {/* one-line summary — the full copy lives in the viewer modal */}
+              <div className="text-sm text-ink-secondary truncate mb-3">
+                {preview?.subject_lines?.[0] || preview?.campaign_name
+                  || (preview ? `${preview.sections.length} section${preview.sections.length === 1 ? "" : "s"}` : "Linked copy")}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button variant="secondary" size="sm" onClick={() => onViewCopy(id, st ?? "draft")}>View copy</Button>
+                {!isB && (
+                  <Button variant="secondary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
+                    title="Mark ready for design and copy a Slack message with a link to the copy">
+                    📋 Copy design handoff
+                  </Button>
+                )}
+                {/* A flow email lives in the Flow Builder, not the Copy Builder —
+                    pointing the Copy Builder at a composite id would just fail. */}
+                {!isB && isFlowRow
+                  ? <Link href="/flows" className="text-[11px] text-accent hover:underline">Open in Flow Builder ↗</Link>
+                  : <Link href={`/copy-builder?campaign=${id}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>}
+              </div>
+            </>
+          )
+        ) : (
+          <div className="flex items-center gap-2">
+            {!isB && isFlowRow ? (
+              <Link href="/flows"
+                className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Open Flow Builder</Link>
+            ) : (
+              <>
+                <Link href={writeHref}
+                  className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
+                <Button variant="secondary" size="sm" onClick={() => setPickerOpen(variant)}>Attach existing copy</Button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1052,7 +1323,17 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
     <Drawer
       open
       onClose={onClose}
-      title={row ? "Edit campaign" : "New campaign"}
+      // "Is this an A/B test?" is answered before anything is read or scrolled.
+      title={
+        <span className="inline-flex items-center gap-2">
+          {row ? "Edit campaign" : "New campaign"}
+          {abActive && (
+            <span className="normal-case tracking-normal rounded px-1.5 py-px text-[10px] font-semibold bg-info-50 text-info-600 border border-info-200">
+              A/B · {AB_TEST_KIND_LABELS[abKind]}
+            </span>
+          )}
+        </span>
+      }
       footer={
         <>
           {row && (confirmDel
@@ -1071,7 +1352,7 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
           className="flex-1 min-w-0 bg-transparent text-xl font-medium tracking-tight text-ink placeholder:text-ink-muted/50 border-b border-transparent hover:border-line focus:border-accent focus:outline-none transition-colors pb-1" />
         <div className="inline-flex rounded-md border border-line p-0.5 shrink-0 mt-0.5">
           {PLANNER_CHANNELS.map((c) => (
-            <button key={c} type="button" onClick={() => setChannel(c)}
+            <button key={c} type="button" onClick={() => requestChannel(c)}
               className={`px-2.5 py-1 text-[11px] font-medium capitalize rounded-[5px] transition-colors ${channel === c ? "bg-ink text-white" : "text-ink-muted hover:bg-chrome"}`}>
               {c}
             </button>
@@ -1123,6 +1404,66 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
           </div>
         )}
       </div>
+
+      {/* 4b. Test — one send, or one send with two treatments? It sits before the
+             platform link because it changes what "the copy" means further down.
+             Hidden on a flow-email row: a flow email is triggered and evergreen, so
+             there is no single send to split. */}
+      {abAvailable && (
+        <div className={section}>
+          <label className={label}>Test</label>
+          <div className="inline-flex rounded-md border border-line p-0.5 mb-2">
+            {([false, true] as const).map((on) => (
+              <button key={String(on)} type="button"
+                onClick={() => (on ? setAbOn(true) : requestAbOff())}
+                className={`px-3 py-1 text-xs rounded-[6px] font-medium transition-colors ${
+                  abOn === on ? "bg-ink text-white" : "text-ink-secondary hover:bg-chrome"
+                }`}>
+                {on ? "A/B test" : "Single send"}
+              </button>
+            ))}
+          </div>
+          {abOn && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="t-label mr-1">Testing</span>
+                {AB_TEST_KINDS.map((k) => (
+                  <button key={k} type="button" onClick={() => requestAbKind(k)}
+                    className={`px-2.5 py-1 rounded-sm border text-[11px] font-medium transition-colors ${
+                      abKind === k ? "bg-info-50 border-info-200 text-info-600 font-semibold" : "border-line text-ink-muted hover:bg-chrome"
+                    }`}>
+                    {AB_TEST_KIND_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">{AB_TEST_KIND_HINTS[abKind]}</p>
+              {abKind === "subject_line" ? (
+                <div className="mt-2 grid gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="t-label">Variant B — subject line</span>
+                    <input className={input} value={abSubject} onChange={(e) => setAbSubject(e.target.value)}
+                      placeholder="The alternate subject line" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="t-label">
+                      Variant B — preview text{" "}
+                      <span className="font-normal normal-case tracking-normal text-ink-muted">(only if it changes too)</span>
+                    </span>
+                    <input className={input} value={abPreview} onChange={(e) => setAbPreview(e.target.value)}
+                      placeholder="Leave blank to reuse variant A's" />
+                  </label>
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-ink-muted leading-relaxed">
+                  {row
+                    ? "Variant B gets its own copy \u2014 attach it in the Copy section below."
+                    : "Save the campaign first, then attach both copies in the Copy section."}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* 5. Klaviyo campaign link (email) / Postscript id (sms) */}
       <div className={section}>
@@ -1221,11 +1562,13 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
              Klaviyo campaign required: at the point the brief is written there is
              no campaign yet, which is exactly why the old gate made this section
              look broken (spec §5.1). */}
-      <div className={section}>
-        <label className={label}>
-          Target audience <span className="font-normal normal-case tracking-normal text-ink-muted">(brief)</span>
-        </label>
-        <p className="text-xs text-ink-muted mb-2 -mt-1">
+      <CollapsibleSection
+        className={section}
+        defaultOpen={!briefWrittenOnOpen}
+        summary={briefSummary}
+        label={<>Target audience <span className="font-normal normal-case tracking-normal text-ink-muted">(brief)</span></>}
+      >
+        <p className="text-xs text-ink-muted mb-2">
           Which segments to build this campaign against. This is the instruction, not a record.
         </p>
         {channel === "sms" ? (
@@ -1252,58 +1595,27 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
             onChangeNote={setPlannedNote}
           />
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* 6b. What was actually built — hidden until a campaign is linked. */}
       {renderBuiltAudiences()}
 
-      {/* 6b. Copy — embedded preview + attach/unlink (saved row only, both channels) */}
+      {/* 6c. Copy — embedded preview + attach/unlink (saved row only, both channels).
+             A content A/B test shows the same slot twice; everything else shows one. */}
       {row && (
         <div className={section}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="t-label">Copy</span>
-            {copyId && copyStatus && <Chip tone={copyStatus === "final" ? "success" : "warning"}>{copyStatus}</Chip>}
-            {copyId && (
-              <button type="button" onClick={() => setUnlinkConfirm(true)} className="ml-auto text-[11px] text-ink-muted hover:text-ink transition-colors">Unlink</button>
-            )}
-          </div>
-          {copyId ? (
-            copyLoading ? (
-              <SkeletonBlock className="h-4 w-2/3" />
-            ) : (
-              <>
-                {/* one-line summary — the full copy lives in the viewer modal */}
-                <div className="text-sm text-ink-secondary truncate mb-3">
-                  {copyPreview?.subject_lines?.[0] || copyPreview?.campaign_name
-                    || (copyPreview ? `${copyPreview.sections.length} section${copyPreview.sections.length === 1 ? "" : "s"}` : "Linked copy")}
-                </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button variant="secondary" size="sm" onClick={() => onViewCopy(copyId, copyStatus ?? "draft")}>View copy</Button>
-                  <Button variant="secondary" size="sm" loading={handoffBusy} onClick={copyDesignHandoff}
-                    title="Mark ready for design and copy a Slack message with a link to the copy">
-                    📋 Copy design handoff
-                  </Button>
-                  {/* A flow email lives in the Flow Builder, not the Copy Builder —
-                      pointing the Copy Builder at a composite id would just fail. */}
-                  {isFlowRow
-                    ? <Link href="/flows" className="text-[11px] text-accent hover:underline">Open in Flow Builder ↗</Link>
-                    : <Link href={`/copy-builder?campaign=${copyId}`} className="text-[11px] text-accent hover:underline">Open in Copy Builder ↗</Link>}
-                </div>
-              </>
-            )
-          ) : (
-            <div className="flex items-center gap-2">
-              {isFlowRow ? (
-                <Link href="/flows"
-                  className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Open Flow Builder</Link>
-              ) : (
-                <>
-                  <Link href={channel === "sms" ? `/copy-builder?planner=${row.id}&channel=sms` : `/copy-builder?planner=${row.id}`}
-                    className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-ink text-white hover:opacity-90 transition-opacity">Write copy</Link>
-                  <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>Attach existing copy</Button>
-                </>
-              )}
+          {abActive && abKind === "content" ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="t-label">Copy</span>
+                <AbBadge kind="content" />
+                <span className="text-[11px] text-ink-muted">two versions, one send</span>
+              </div>
+              {renderCopySlot("a")}
+              {renderCopySlot("b")}
             </div>
+          ) : (
+            renderCopySlot("a")
           )}
         </div>
       )}
@@ -1311,7 +1623,10 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       {/* 7. Notes */}
       <div className={section}>
         <label className={label}>Notes / learnings</label>
-        <textarea className={`${input} resize-y min-h-[70px]`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What we learned…" />
+        {/* Grows with what's in it — no drag handle, no 70px window onto a long
+            learning. The drawer already scrolls, so there is no height to fight. */}
+        <AutoTextarea value={notes} onChange={setNotes} minRows={4}
+          placeholder="What we learned…" className={`${input} leading-relaxed`} />
       </div>
 
       {err && <div className="mt-4 text-sm text-danger-600">{err}</div>}
@@ -1325,13 +1640,38 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
       )}
     </Drawer>
 
-    <ConfirmModal open={unlinkConfirm} onClose={() => setUnlinkConfirm(false)} onConfirm={unlinkCopy}
-      title="Unlink copy?" body="This detaches the copy from this campaign. The copy itself is not deleted."
+    <ConfirmModal open={!!unlinkConfirm} onClose={() => setUnlinkConfirm(null)}
+      onConfirm={() => void unlinkCopyVariant(unlinkConfirm ?? "a")}
+      title={unlinkConfirm === "b" ? "Unlink variant B's copy?" : "Unlink copy?"}
+      body="This detaches the copy from this campaign. The copy itself is not deleted."
       confirmLabel="Unlink" />
+
+    {/* Switching the test away from two copies has to release the second one — a
+        plain Save can only forget the link, leaving the copy record claiming a row
+        it no longer belongs to. */}
+    <ConfirmModal open={!!abDetachIntent} onClose={() => setAbDetachIntent(null)}
+      onConfirm={() => void confirmAbDetach()}
+      title={
+        !abDetachIntent ? ""
+          : "off" in abDetachIntent ? "Turn off the A/B test?"
+          : "channel" in abDetachIntent ? "Switch this campaign to SMS?"
+          : "Switch to a subject-line test?"
+      }
+      body={
+        abDetachIntent && "channel" in abDetachIntent
+          ? "An A/B test is an email campaign here, so switching channel ends it. Variant B's copy will be detached from this campaign — the copy itself is not deleted."
+          : "Variant B has copy attached. It will be detached from this campaign — the copy itself is not deleted."
+      }
+      confirmLabel="Detach and continue" />
 
     {pickerOpen && row && (
       <AttachCopyPicker rowId={row.id} allRows={allRows} channel={channel}
-        onPick={attachCopy} onClose={() => setPickerOpen(false)} />
+        variant={pickerOpen}
+        // A campaign is not an A/B test against itself: whatever is in the other slot
+        // is not offered here (the route refuses it too).
+        excludeCopyId={pickerOpen === "b" ? copyId : bCopyId}
+        onPick={(id, st) => attachCopy(id, st, pickerOpen)}
+        onClose={() => setPickerOpen(null)} />
     )}
     </>
   );
@@ -1340,8 +1680,12 @@ function RowEditor({ row, defaultDateIso, campaigns, allRows, onClose, onLinkCha
 // ---------- attach-existing-copy picker ----------
 interface CopyListEntry { id: string; name: string; date: string; type: string; status: string; planner_row_id?: string }
 
-function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
+function AttachCopyPicker({ rowId, allRows, channel, variant = "a", excludeCopyId, onPick, onClose }: {
   rowId: string; allRows: PlannerRow[]; channel: PlannerChannel;
+  /** Which slot the pick fills. Only changes the wording — the caller owns the link. */
+  variant?: AbVariantKey;
+  /** The copy in this row's OTHER slot, withheld from the list. */
+  excludeCopyId?: string;
   onPick: (copyId: string, status: "draft" | "final") => void | Promise<void>; onClose: () => void;
 }) {
   const isSms = channel === "sms";
@@ -1387,7 +1731,7 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
 
   const rowNameById = (id: string) => allRows.find((r) => r.id === id)?.name;
   const entries = isSms ? sms : tab === "drafts" ? drafts : library;
-  const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
+  const filtered = entries.filter((e) => e.name.toLowerCase().includes(q.toLowerCase()) && e.id !== excludeCopyId);
   const choose = async (e: CopyListEntry) => {
     if (attachingId) return;
     const status: "draft" | "final" = isSms
@@ -1405,7 +1749,7 @@ function AttachCopyPicker({ rowId, allRows, channel, onPick, onClose }: {
 
   return (
     <>
-      <Modal open onClose={onClose} title="Attach existing copy" size="lg">
+      <Modal open onClose={onClose} title={variant === "b" ? "Attach copy for variant B" : "Attach existing copy"} size="lg">
         <div className="flex items-center gap-2 mb-3">
           {!isSms && (
             <div className="inline-flex rounded-md border border-line p-0.5">

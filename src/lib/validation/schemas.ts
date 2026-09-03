@@ -190,12 +190,25 @@ const audienceRef = z.looseObject({
 const nnum = z.number().nullable().optional();
 const nstr = z.string().nullable().optional();
 
+// An A/B test on a row (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1.2).
+// Purely additive: absent means "not an A/B test", which every row ever written
+// already is, so there is no migration and no SCHEMA_VERSION bump.
+export const abTestSchema = z.looseObject({
+  kind: z.enum(["subject_line", "content"]),
+  subject_line: z.string().optional(),
+  preview_text: z.string().optional(),
+  copy_campaign_id: z.string().optional(),
+  copy_status: z.enum(["draft", "final"]).optional(),
+  copy_linked_at: nstr,
+});
+
 export const plannerRowSchema = z.looseObject({
   id: z.string(),
   name: z.string(),
   channel: z.enum(["email", "sms"]),
   // Absent on every row written before flow-email links; rowKind() defaults it.
   row_kind: z.enum(["campaign", "flow_email"]).optional(),
+  ab_test: abTestSchema.optional(),
   offer_type: z.enum(["evergreen", "promo"]),
   offer: z.string(),
   promo_code: z.string().optional(),

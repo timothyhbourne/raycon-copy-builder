@@ -1,12 +1,12 @@
 import type { ZodType } from "zod";
 import type { SavedCampaign, LibraryCampaign, SmsCampaign, Flow } from "../schemas";
-import type { PlannerRow, AudienceRef } from "../planner-types";
+import type { PlannerRow, AudienceRef, AbTest } from "../planner-types";
 import type { WeeklyReport } from "../reports/weekly";
 import {
   SCHEMA_VERSION,
   plannerRowSchema, libraryCampaignSchema, savedCampaignSchema,
   smsCampaignSchema, flowSchema, weeklyReportSchema,
-  corpusRecordSchema, guidanceClaimSchema,
+  corpusRecordSchema, guidanceClaimSchema, abTestSchema,
 } from "./schemas";
 import type { CorpusRecord } from "../corpus/types";
 import type { GuidanceClaim } from "../corpus/ledger-types";
@@ -137,6 +137,30 @@ function migrateAudienceSplit(
   return { audience_planned_included: included, audience_planned_excluded: excluded };
 }
 
+/**
+ * An unrecognised A/B block degrades to NO test, and never takes the row with it.
+ *
+ * parsePlannerRows DROPS whatever fails to parse, and writeAll then persists only
+ * the survivors — so a row rejected on read is a planned send DESTROYED on the next
+ * write. `ab_test` is a purely additive field
+ * (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1.2), and an additive field must
+ * not be able to delete the row carrying it. "Absent" is a correct row for every
+ * send ever planned, and it is also exactly what "not an A/B test" means — so that
+ * is where a bad value lands, the same coercion `migrateStatus` and `offer_type`
+ * already do rather than rejecting.
+ *
+ * The concrete way this bites: the spec names two kinds and invites more. Ship a
+ * third, write some rows, roll the deploy back, and a strict enum would delete
+ * every one of those campaigns off the calendar.
+ */
+function migrateAbTest(v: unknown): AbTest | undefined {
+  if (v == null) return undefined;
+  const res = abTestSchema.safeParse(v);
+  if (res.success) return res.data as AbTest;
+  warnBad("planner_row.ab_test", undefined, res.error);
+  return undefined;
+}
+
 export function parsePlannerRow(raw: unknown): PlannerRow | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -152,6 +176,9 @@ export function parsePlannerRow(raw: unknown): PlannerRow | null {
     status: migrateStatus(r.status),
     audience_included: included,
     audience_excluded: excluded,
+    // Explicitly overwritten (not merely absent): `...r` would otherwise carry a
+    // null or malformed ab_test straight into the schema.
+    ab_test: migrateAbTest(r.ab_test),
     ...split,
   };
   return parseOne<PlannerRow>(plannerRowSchema, migrated, "planner_row");

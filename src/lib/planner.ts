@@ -1,7 +1,7 @@
 import path from "path";
 import { getAdapter } from "./storage";
 import { parsePlannerRows, stampAll } from "./validation";
-import type { PlannerRow, SyncedMetrics, ManualMetricsPatch } from "./planner-types";
+import type { PlannerRow, SyncedMetrics, ManualMetricsPatch, AbTest, AbVariantKey } from "./planner-types";
 
 // Store for the Campaign Planner: a single JSON array behind the shared storage
 // adapter (lib/storage.ts). The adapter is file-backed today and swaps to a KV
@@ -52,9 +52,16 @@ export async function getPlannerRow(id: string): Promise<PlannerRow | null> {
 // Upsert by id. Callers may omit id for a new row — we mint a safe one from the
 // name. created_at/updated_at are managed here; synced metric fields are
 // preserved from the existing row unless explicitly provided.
-export async function upsertPlannerRow(input: Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"] }): Promise<PlannerRow> {
+export async function upsertPlannerRow(
+  // `ab_test: null` is the explicit "this is no longer an A/B test" signal. It has to
+  // be explicit: JSON.stringify drops undefined keys, so an omitted key must keep
+  // meaning "leave it alone" — which would make a test impossible to switch off.
+  input: Partial<PlannerRow> & { name: string; channel: PlannerRow["channel"]; ab_test?: AbTest | null },
+): Promise<PlannerRow> {
   const rows = await readAll();
   const now = new Date().toISOString();
+  const clearAbTest = "ab_test" in input && input.ab_test == null;
+  const { ab_test: abTestInput, ...plainInput } = input;
 
   let id = input.id;
   if (!id || !isSafeId(id)) {
@@ -72,7 +79,7 @@ export async function upsertPlannerRow(input: Partial<PlannerRow> & { name: stri
     revenue_per_recipient: null,
     metrics_synced_at: null,
     ...existing,
-    ...input,
+    ...plainInput,
     id,
     name: input.name,
     channel: input.channel,
@@ -91,6 +98,12 @@ export async function upsertPlannerRow(input: Partial<PlannerRow> & { name: stri
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
+
+  // The A/B block is replaced wholesale or removed — never shallow-merged, or a
+  // switch from a content test to a subject-line test would leave B's copy link
+  // behind (spec §1.4).
+  if (clearAbTest) delete merged.ab_test;
+  else if (abTestInput) merged.ab_test = abTestInput;
 
   // The legacy audience pair is DERIVED for one release
   // (docs/PLANNER_AUDIENCE_BRIEF_SPEC.md §3): what was built if we know it, else
@@ -184,12 +197,31 @@ export async function linkCopyCampaign(
   rowId: string,
   copyCampaignId: string,
   copyStatus: "draft" | "final",
+  // Which treatment this copy is. "a" is the row's own copy link, unchanged since
+  // before A/B existed; "b" lives inside ab_test and requires a content test.
+  variant: AbVariantKey = "a",
 ): Promise<PlannerRow | null> {
   if (!isSafeId(rowId)) return null;
   const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return null;
   const now = new Date().toISOString();
+
+  if (variant === "b") {
+    // A second copy only means something on a content test. Refusing here (rather
+    // than materialising an ab_test) keeps the route's 400 honest: the caller has to
+    // have said what is being tested first.
+    const ab = rows[idx].ab_test;
+    if (!ab || ab.kind !== "content") return null;
+    rows[idx] = {
+      ...rows[idx],
+      ab_test: { ...ab, copy_campaign_id: copyCampaignId, copy_status: copyStatus, copy_linked_at: now },
+      updated_at: now,
+    };
+    await writeAll(rows);
+    return rows[idx];
+  }
+
   rows[idx] = {
     ...rows[idx],
     copy_campaign_id: copyCampaignId,
@@ -206,17 +238,33 @@ export async function linkCopyCampaign(
 
 // Clear a stale/broken copy link (used to heal when the saved campaign was
 // deleted). Only touches the three copy-link fields.
-export async function unlinkCopyCampaign(rowId: string): Promise<PlannerRow | null> {
+export async function unlinkCopyCampaign(rowId: string, variant: AbVariantKey = "a"): Promise<PlannerRow | null> {
   if (!isSafeId(rowId)) return null;
   const rows = await readAll();
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return null;
+  const now = new Date().toISOString();
+
+  if (variant === "b") {
+    const ab = rows[idx].ab_test;
+    // Detaching B leaves the test itself in place — the row is still planned as an
+    // A/B test, it just has no second copy yet.
+    if (!ab) return rows[idx];
+    rows[idx] = {
+      ...rows[idx],
+      ab_test: { ...ab, copy_campaign_id: undefined, copy_status: undefined, copy_linked_at: null },
+      updated_at: now,
+    };
+    await writeAll(rows);
+    return rows[idx];
+  }
+
   rows[idx] = {
     ...rows[idx],
     copy_campaign_id: undefined,
     copy_status: undefined,
     copy_linked_at: null,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   };
   await writeAll(rows);
   return rows[idx];

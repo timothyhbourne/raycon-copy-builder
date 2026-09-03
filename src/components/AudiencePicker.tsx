@@ -94,6 +94,32 @@ interface Props {
 
 const toRef = (a: AudienceItem): AudienceRef => ({ id: a.id, name: a.name, type: a.type });
 
+/**
+ * Include vs exclude, as colour rather than a +/− glyph you have to look for.
+ *
+ * Getting these backwards is the expensive mistake this picker can make — an
+ * excluded segment read as included is a send to the wrong people — and a 11px
+ * typographic sign was doing all the work of telling them apart. Green means these
+ * profiles get it, red means they don't, on the semantic tokens already in
+ * DESIGN_SYSTEM_SPEC (no new colours). Exported because the read-only "Built in
+ * Klaviyo" chips in the planner have to read identically, or the comparison the two
+ * sections exist for gets harder, not easier.
+ */
+export const AUDIENCE_TINT: Record<"in" | "out", { chip: string; glyph: string; toggle: string; hover: string }> = {
+  in: {
+    chip: "bg-success-50 border-success-200",
+    glyph: "text-success-600",
+    toggle: "border-success-200 bg-success-50 text-success-600",
+    hover: "hover:bg-success-50",
+  },
+  out: {
+    chip: "bg-danger-50 border-danger-200",
+    glyph: "text-danger-600",
+    toggle: "border-danger-200 bg-danger-50 text-danger-600",
+    hover: "hover:bg-danger-50",
+  },
+};
+
 export default function AudiencePicker({
   catalogue, loading, refreshing, onRefresh,
   included, excluded, onChangeIncluded, onChangeExcluded, note, onChangeNote,
@@ -133,10 +159,13 @@ export default function AudiencePicker({
 
   const chip = (a: AudienceRef, kind: "in" | "out", onRemove: () => void) => {
     const size = sizeOf(a);
+    const tint = AUDIENCE_TINT[kind];
     return (
       <span key={`${kind}-${a.id || a.name}`}
-        className="inline-flex items-center gap-1 text-[11px] bg-surface border border-line rounded-sm px-1.5 py-0.5 text-ink-secondary">
-        <span className={kind === "in" ? "text-success-600" : "text-danger-600"} aria-hidden>{kind === "in" ? "+" : "−"}</span>
+        title={kind === "in" ? `Included — ${a.name}` : `Excluded — ${a.name}`}
+        className={`inline-flex items-center gap-1 text-[11px] border rounded-sm px-1.5 py-0.5 text-ink-secondary ${tint.chip}`}>
+        <span className={tint.glyph} aria-hidden>{kind === "in" ? "+" : "−"}</span>
+        <span className="sr-only">{kind === "in" ? "Included:" : "Excluded:"}</span>
         {a.name}
         {size != null && <span className="text-ink-muted tabular-nums">· {formatCount(size)}</span>}
         <button type="button" onClick={onRemove} aria-label={`Remove ${a.name}`}
@@ -160,8 +189,11 @@ export default function AudiencePicker({
             key={t}
             type="button"
             onClick={() => setTarget(t)}
+            aria-pressed={target === t}
             className={`text-[11px] px-2 py-0.5 rounded-sm border transition-colors ${
-              target === t ? "border-accent bg-accent-50 text-accent" : "border-line bg-surface text-ink-secondary hover:border-line-strong"
+              target === t
+                ? AUDIENCE_TINT[t === "include" ? "in" : "out"].toggle
+                : "border-line bg-surface text-ink-secondary hover:border-line-strong"
             }`}
           >
             {t === "include" ? "Include" : "Exclude"}
@@ -211,7 +243,11 @@ export default function AudiencePicker({
               key={a.id}
               type="button"
               onClick={() => add(a)}
-              className="w-full text-left px-2 py-1.5 hover:bg-accent-50 transition-colors flex items-center gap-2"
+              // Hover in the armed mode's colour: the consequence of the click is
+              // visible before the click, not after it lands in the wrong list.
+              className={`w-full text-left px-2 py-1.5 transition-colors flex items-center gap-2 ${
+                AUDIENCE_TINT[target === "include" ? "in" : "out"].hover
+              }`}
             >
               <span className="text-[10px] uppercase tracking-wide text-ink-muted w-12 shrink-0">{a.type}</span>
               <span className="text-sm text-ink flex-1 min-w-0 truncate">{a.name}</span>

@@ -42,6 +42,11 @@ export const plannerLinkBody = looseObj({
    * reassigning silently unlinks the other campaign
    * (docs/PLANNER_AUTOLINK_BUGFIX_SPEC.md §3.5). */
   reassign: z.boolean().optional(),
+  /** Which treatment the copy is: "a" (the row's own copy link, the default and the
+   * only value before A/B tests existed) or "b" (variant B of a content test).
+   * The ROUTE still resolves the real slot from the row — this is a request, not a
+   * fact (docs/PLANNER_AB_TEST_AND_EDITOR_POLISH_SPEC.md §1.3). */
+  variant: z.enum(["a", "b"]).optional(),
 });
 
 export const copySeedBody = looseObj({
